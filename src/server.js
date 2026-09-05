@@ -6,7 +6,7 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import open from "open";
 import logger from "./logger.js";
-import { getDbCounts, importCsvDirectory } from "./importCsv.js";
+import { getDbCounts, importCsvDirectory, ensureSchema } from "./importCsv.js";
 import { browseProperties, listBrowseFields } from "./browse.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -295,10 +295,18 @@ app.get("*", (_req, res) => {
   res.sendFile(join(PUBLIC, "index.html"));
 });
 
-app.listen(PORT, async () => {
+app.listen(PORT, "0.0.0.0", async () => {
   const url = `http://localhost:${PORT}`;
   logger.success(`Prop tax scraper UI v${APP_VERSION} → ${url}`, "server");
-  if (process.env.OPEN_BROWSER !== "0") {
+  try {
+    await ensureSchema();
+    logger.success("Postgres schema ready", "server");
+  } catch (err) {
+    logger.error(`Schema init failed: ${err.message}`, "server");
+  }
+  const shouldOpen =
+    process.env.OPEN_BROWSER !== "0" && !process.env.RAILWAY_ENVIRONMENT;
+  if (shouldOpen) {
     try {
       await open(url);
     } catch {
