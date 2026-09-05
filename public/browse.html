@@ -200,6 +200,11 @@
     }
     th:hover { color: #58a6ff; }
     td.wrap { white-space: normal; max-width: 360px; }
+    td a.map-link {
+      color: #58a6ff;
+      text-decoration: none;
+    }
+    td a.map-link:hover { text-decoration: underline; }
     .pager { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
     .pager button:disabled { opacity: 0.45; cursor: not-allowed; }
     .empty { padding: 2rem; text-align: center; color: #8b949e; }
@@ -524,9 +529,23 @@
           const v = row[f];
           const text = v == null ? '' : String(v);
           const cls = ['legal_desc', 'situs', 'jurisdictions', 'owner_name'].includes(f) ? 'wrap' : '';
-          return `<td class="${cls}" title="${escapeHtml(text)}">${escapeHtml(text)}</td>`;
+          let cell = escapeHtml(text);
+          if (f === 'situs' && text.trim()) {
+            const mapUrl = googleMapsUrl(text);
+            cell = `<a class="map-link" href="${escapeHtml(mapUrl)}" target="_blank" rel="noopener noreferrer" title="Open in Google Maps">${escapeHtml(text)}</a>`;
+          }
+          return `<td class="${cls}" title="${escapeHtml(text)}">${cell}</td>`;
         }).join('')}</tr>`;
       }).join('');
+    }
+
+    function googleMapsUrl(address) {
+      const q = String(address).trim();
+      // Prefer Bexar County context when the situs string has no city/state.
+      const query = /,\s*(TX|Texas)\b/i.test(q) || /\bSan Antonio\b/i.test(q)
+        ? q
+        : `${q}, San Antonio, TX`;
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
     }
 
     function prevPage() {
