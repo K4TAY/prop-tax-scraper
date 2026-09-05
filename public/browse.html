@@ -118,12 +118,61 @@
     }
     .meta strong { color: #e6edf3; }
     .err { color: #f85149; font-size: 0.9rem; }
+    .legend {
+      margin: 0;
+      padding: 0.75rem 1.25rem 0.9rem;
+      border-bottom: 1px solid #30363d;
+      background: #0d1117;
+    }
+    .legend-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 0.55rem;
+      flex-wrap: wrap;
+    }
+    .legend-head strong {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #8b949e;
+      font-weight: 600;
+    }
+    .legend-head span {
+      font-size: 0.75rem;
+      color: #6e7681;
+    }
+    .legend-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 0.35rem 1rem;
+    }
+    .legend-item {
+      display: grid;
+      grid-template-columns: 4.5rem 1fr;
+      gap: 0.45rem;
+      align-items: baseline;
+      font-size: 0.78rem;
+      line-height: 1.35;
+    }
+    .legend-item code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.72rem;
+      color: #79c0ff;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 4px;
+      padding: 0.1rem 0.35rem;
+      white-space: nowrap;
+    }
+    .legend-item span { color: #c9d1d9; }
     .table-wrap {
       overflow: auto;
       border: 1px solid #30363d;
       border-radius: 10px;
       background: #161b22;
-      max-height: calc(100vh - 160px);
+      max-height: calc(100vh - 280px);
     }
     table {
       width: 100%;
@@ -161,6 +210,14 @@
     <h1>Browse properties <span id="version" style="color:#8b949e;font-size:0.85rem;font-weight:400;"></span></h1>
     <a href="/">← Scraper dashboard</a>
   </div>
+
+  <section class="legend" aria-label="Exemption code legend">
+    <div class="legend-head">
+      <strong>Exemption codes</strong>
+      <span>Codes may appear comma-separated on a property (Texas Tax Code / Bexar CAD).</span>
+    </div>
+    <div class="legend-grid" id="exemptionLegend"></div>
+  </section>
 
   <div class="layout">
     <aside class="panel">
@@ -226,6 +283,39 @@
       { value: 'not_null', label: 'not empty' },
     ];
 
+    /** Codes seen in this dataset + standard Texas CAD / TrueAutomation meanings. */
+    const EXEMPTION_LEGEND = [
+      { code: 'HS', label: 'Residence homestead' },
+      { code: 'DP', label: 'Disabled person' },
+      { code: 'DPS', label: 'Disabled person — surviving spouse' },
+      { code: 'DV1', label: 'Disabled veteran 10–29%' },
+      { code: 'DV1S', label: 'Disabled veteran 10–29% — surviving spouse' },
+      { code: 'DV2', label: 'Disabled veteran 30–49%' },
+      { code: 'DV2S', label: 'Disabled veteran 30–49% — surviving spouse' },
+      { code: 'DV3', label: 'Disabled veteran 50–69%' },
+      { code: 'DV3S', label: 'Disabled veteran 50–69% — surviving spouse' },
+      { code: 'DV4', label: 'Disabled veteran 70–100%' },
+      { code: 'DV4S', label: 'Disabled veteran 70–100% — surviving spouse' },
+      { code: 'DVHS', label: '100% disabled veteran homestead' },
+      { code: 'DVHSS', label: '100% disabled veteran homestead — surviving spouse' },
+      { code: 'HT', label: 'Historical' },
+      { code: 'PC', label: 'Pollution control' },
+      { code: 'CHODO', label: 'Community Housing Development Organization' },
+      { code: 'LIH', label: 'Public property for housing indigent persons' },
+      { code: 'FRSS', label: 'First responder — surviving spouse' },
+      { code: 'MASSS', label: 'Member of armed services — surviving spouse' },
+      { code: 'QVSS', label: 'Qualified veteran — surviving spouse' },
+      { code: 'CCF', label: 'Charitable / community facility (CAD code)' },
+      { code: 'OTHER', label: 'Other exemption (CAD catch-all)' },
+      { code: 'EX-XD', label: '§11.181 Housing improved with volunteer labor' },
+      { code: 'EX-XG', label: '§11.184 Primarily charitable functions' },
+      { code: 'EX-XI', label: '§11.19 Youth development organizations' },
+      { code: 'EX-XJ', label: '§11.21 Private schools' },
+      { code: 'EX-XR', label: '§11.23 Miscellaneous organizations' },
+      { code: 'EX-XU', label: '§11.30 Nonprofit water supply / wastewater' },
+      { code: 'EX-XV', label: 'Other exempt (public, religious, charitable, etc.)' },
+    ];
+
     let fieldMeta = [];
     let sort = 'pacs_prop_id';
     let order = 'asc';
@@ -243,6 +333,13 @@
         .replace(/"/g, '&quot;');
     }
 
+    function renderExemptionLegend() {
+      const el = document.getElementById('exemptionLegend');
+      el.innerHTML = EXEMPTION_LEGEND.map(({ code, label }) =>
+        `<div class="legend-item"><code>${escapeHtml(code)}</code><span>${escapeHtml(label)}</span></div>`
+      ).join('');
+    }
+
     async function init() {
       const [fieldsRes, verRes] = await Promise.all([
         fetch('/api/browse/fields'),
@@ -253,6 +350,7 @@
       const ver = await verRes.json().catch(() => ({}));
       if (ver.version) document.getElementById('version').textContent = `v${ver.version}`;
 
+      renderExemptionLegend();
       renderColumns();
       addFilterRow();
       runSearch(0);
