@@ -28,8 +28,11 @@ INCLUDE=(csv processed)
 if [[ -f neighborhoods.json ]]; then
   INCLUDE+=(neighborhoods.json)
 fi
+# Avoid macOS AppleDouble ._* files that Linux would count as *.csv
+export COPYFILE_DISABLE=1
 tar czf "$TGZ" "${INCLUDE[@]}"
 ls -lh "$TGZ"
+echo "Archive csv entries: $(tar tzf "$TGZ" | grep -E '\.csv$' | grep -v '/\._' | wc -l | tr -d ' ')"
 
 echo "Uploading to ${BASE_URL}/api/data/restore ..."
 curl -sS -X POST \
