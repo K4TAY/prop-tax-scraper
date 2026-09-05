@@ -1,0 +1,19 @@
+{
+  "name": "prop-tax-scraper",
+  "version": "0.2.1",
+  "description": "Bexar CAD neighborhood property scraper with live console UI",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "bun src/server.js",
+    "dev": "bun --watch src/server.js",
+    "scrape": "python3 scrape_neighborhoods.py"
+  },
+  "dependencies": {
+    "csv-parse": "^7.0.2",
+    "dotenv": "^17.4.2",
+    "express": "^4.22.1",
+    "open": "^10.2.0",
+    "pg": "^8.23.0"
+  }
+}

@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Browse properties — Bexar Prop Tax</title>
+  <meta name="color-scheme" content="dark">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f1419;
+      color: #e6edf3;
+      margin: 0;
+      min-height: 100vh;
+    }
+    .top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid #30363d;
+      background: #161b22;
+      flex-wrap: wrap;
+    }
+    .top h1 { margin: 0; font-size: 1.15rem; }
+    .top a {
+      color: #58a6ff;
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+    .top a:hover { text-decoration: underline; }
+    .layout {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      min-height: calc(100vh - 58px);
+    }
+    @media (max-width: 960px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+    .panel {
+      border-right: 1px solid #30363d;
+      background: #161b22;
+      padding: 1rem;
+      overflow: auto;
+      max-height: calc(100vh - 58px);
+    }
+    .main {
+      padding: 1rem 1.25rem;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .section-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #8b949e;
+      margin: 0.75rem 0 0.45rem;
+    }
+    .section-label:first-child { margin-top: 0; }
+    .cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.25rem 0.5rem;
+      max-height: 220px;
+      overflow: auto;
+      padding: 0.4rem;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      background: #0d1117;
+    }
+    .cols label {
+      display: flex;
+      gap: 0.35rem;
+      align-items: center;
+      font-size: 0.78rem;
+      color: #c9d1d9;
+    }
+    .filters { display: flex; flex-direction: column; gap: 0.45rem; }
+    .filter-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.3rem;
+      padding: 0.5rem;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      background: #0d1117;
+    }
+    .filter-row .row2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 0.3rem;
+    }
+    select, input, button {
+      padding: 0.4rem 0.5rem;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+      background: #21262d;
+      color: #e6edf3;
+      font-size: 0.85rem;
+    }
+    button { cursor: pointer; }
+    button.primary { background: #238636; border-color: #2ea043; color: #fff; }
+    button.primary:hover { background: #2ea043; }
+    button.ghost { background: transparent; }
+    button.danger { background: #2a1215; color: #f85149; border-color: #da3633; }
+    .actions { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.75rem; }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      color: #8b949e;
+      font-size: 0.85rem;
+    }
+    .meta strong { color: #e6edf3; }
+    .err { color: #f85149; font-size: 0.9rem; }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      background: #161b22;
+      max-height: calc(100vh - 160px);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    th, td {
+      padding: 0.55rem 0.7rem;
+      border-bottom: 1px solid #30363d;
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: #0d1117;
+      color: #c9d1d9;
+      z-index: 1;
+      cursor: pointer;
+      user-select: none;
+    }
+    th:hover { color: #58a6ff; }
+    td.wrap { white-space: normal; max-width: 360px; }
+    .pager { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    .pager button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .empty { padding: 2rem; text-align: center; color: #8b949e; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <h1>Browse properties <span id="version" style="color:#8b949e;font-size:0.85rem;font-weight:400;"></span></h1>
+    <a href="/">← Scraper dashboard</a>
+  </div>
+
+  <div class="layout">
+    <aside class="panel">
+      <div class="section-label">Columns</div>
+      <div class="cols" id="columnList"></div>
+      <div style="display:flex;gap:0.4rem;margin-top:0.4rem;">
+        <button type="button" class="ghost" onclick="selectDefaultColumns()">Defaults</button>
+        <button type="button" class="ghost" onclick="selectAllColumns(true)">All</button>
+        <button type="button" class="ghost" onclick="selectAllColumns(false)">None</button>
+      </div>
+
+      <div class="section-label">Filters</div>
+      <div class="filters" id="filterList"></div>
+      <button type="button" class="ghost" onclick="addFilterRow()" style="margin-top:0.4rem;width:100%;">+ Add filter</button>
+
+      <div class="section-label">Page size</div>
+      <select id="pageSize">
+        <option value="25">25</option>
+        <option value="50" selected>50</option>
+        <option value="100">100</option>
+        <option value="250">250</option>
+      </select>
+
+      <div class="actions">
+        <button type="button" class="primary" onclick="runSearch(0)">Search</button>
+        <button type="button" class="ghost" onclick="clearFilters()">Clear filters</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="meta">
+        <span>Showing <strong id="shownCount">0</strong> of <strong id="totalCount">0</strong></span>
+        <span id="pageInfo"></span>
+        <div class="pager">
+          <button type="button" id="btnPrev" onclick="prevPage()" disabled>← Prev</button>
+          <button type="button" id="btnNext" onclick="nextPage()" disabled>Next →</button>
+        </div>
+      </div>
+      <div class="err" id="error" style="display:none;"></div>
+      <div class="table-wrap">
+        <table>
+          <thead id="thead"></thead>
+          <tbody id="tbody">
+            <tr><td class="empty" colspan="20">Choose columns / filters and click Search.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const OPS = [
+      { value: 'ilike', label: 'contains' },
+      { value: 'eq', label: '=' },
+      { value: 'neq', label: '≠' },
+      { value: 'gt', label: '>' },
+      { value: 'gte', label: '≥' },
+      { value: 'lt', label: '<' },
+      { value: 'lte', label: '≤' },
+      { value: 'like', label: 'like' },
+      { value: 'in', label: 'in (csv)' },
+      { value: 'is_null', label: 'is empty' },
+      { value: 'not_null', label: 'not empty' },
+    ];
+
+    let fieldMeta = [];
+    let sort = 'pacs_prop_id';
+    let order = 'asc';
+    let offset = 0;
+    let total = 0;
+    let lastFields = [];
+
+    const STORAGE_COLS = 'propTaxBrowseCols';
+
+    function escapeHtml(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    async function init() {
+      const [fieldsRes, verRes] = await Promise.all([
+        fetch('/api/browse/fields'),
+        fetch('/api/version'),
+      ]);
+      const fieldsData = await fieldsRes.json();
+      fieldMeta = fieldsData.fields || [];
+      const ver = await verRes.json().catch(() => ({}));
+      if (ver.version) document.getElementById('version').textContent = `v${ver.version}`;
+
+      renderColumns();
+      addFilterRow();
+      runSearch(0);
+    }
+
+    function renderColumns() {
+      const saved = safeParse(localStorage.getItem(STORAGE_COLS));
+      const box = document.getElementById('columnList');
+      box.innerHTML = fieldMeta.map((f) => {
+        const checked = saved
+          ? saved.includes(f.name)
+          : f.defaultVisible;
+        return `<label><input type="checkbox" data-field="${escapeHtml(f.name)}" ${checked ? 'checked' : ''}/> ${escapeHtml(f.label)}</label>`;
+      }).join('');
+    }
+
+    function safeParse(s) {
+      try { return s ? JSON.parse(s) : null; } catch { return null; }
+    }
+
+    function selectedFields() {
+      return [...document.querySelectorAll('#columnList input[type=checkbox]:checked')]
+        .map((el) => el.getAttribute('data-field'));
+    }
+
+    function selectDefaultColumns() {
+      document.querySelectorAll('#columnList input[type=checkbox]').forEach((el) => {
+        const meta = fieldMeta.find((f) => f.name === el.getAttribute('data-field'));
+        el.checked = Boolean(meta?.defaultVisible);
+      });
+    }
+
+    function selectAllColumns(on) {
+      document.querySelectorAll('#columnList input[type=checkbox]').forEach((el) => {
+        el.checked = on;
+      });
+    }
+
+    function fieldOptionsHtml(selected) {
+      return fieldMeta.map((f) =>
+        `<option value="${escapeHtml(f.name)}" ${f.name === selected ? 'selected' : ''}>${escapeHtml(f.label)}</option>`
+      ).join('');
+    }
+
+    function opOptionsHtml(selected) {
+      return OPS.map((o) =>
+        `<option value="${o.value}" ${o.value === selected ? 'selected' : ''}>${o.label}</option>`
+      ).join('');
+    }
+
+    function addFilterRow(preset = {}) {
+      const wrap = document.getElementById('filterList');
+      const row = document.createElement('div');
+      row.className = 'filter-row';
+      const field = preset.field || 'owner_name';
+      const op = preset.op || 'ilike';
+      const value = preset.value ?? '';
+      row.innerHTML = `
+        <select class="f-field">${fieldOptionsHtml(field)}</select>
+        <div class="row2">
+          <select class="f-op">${opOptionsHtml(op)}</select>
+          <input class="f-value" type="text" placeholder="value" value="${escapeHtml(value)}" />
+          <button type="button" class="danger" title="Remove">✕</button>
+        </div>
+      `;
+      row.querySelector('button').onclick = () => row.remove();
+      const opEl = row.querySelector('.f-op');
+      const valEl = row.querySelector('.f-value');
+      const syncValueEnabled = () => {
+        const needsValue = !['is_null', 'not_null'].includes(opEl.value);
+        valEl.disabled = !needsValue;
+        if (!needsValue) valEl.value = '';
+      };
+      opEl.onchange = syncValueEnabled;
+      syncValueEnabled();
+      wrap.appendChild(row);
+    }
+
+    function clearFilters() {
+      document.getElementById('filterList').innerHTML = '';
+      addFilterRow();
+    }
+
+    function collectFilters() {
+      return [...document.querySelectorAll('#filterList .filter-row')].map((row) => {
+        const field = row.querySelector('.f-field').value;
+        const op = row.querySelector('.f-op').value;
+        const value = row.querySelector('.f-value').value;
+        return { field, op, value };
+      }).filter((f) => f.op === 'is_null' || f.op === 'not_null' || String(f.value || '').trim() !== '');
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('error');
+      if (!msg) {
+        el.style.display = 'none';
+        el.textContent = '';
+        return;
+      }
+      el.style.display = 'block';
+      el.textContent = msg;
+    }
+
+    async function runSearch(newOffset = 0) {
+      showError('');
+      offset = Math.max(0, newOffset);
+      const fields = selectedFields();
+      if (!fields.length) {
+        showError('Select at least one column.');
+        return;
+      }
+      localStorage.setItem(STORAGE_COLS, JSON.stringify(fields));
+      lastFields = fields;
+      const limit = Number(document.getElementById('pageSize').value) || 50;
+
+      try {
+        const res = await fetch('/api/browse/properties', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fields,
+            filters: collectFilters(),
+            limit,
+            offset,
+            sort,
+            order,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Search failed');
+        total = data.total || 0;
+        renderTable(data.fields || fields, data.rows || []);
+        document.getElementById('shownCount').textContent = String((data.rows || []).length);
+        document.getElementById('totalCount').textContent = String(total);
+        const page = Math.floor(offset / limit) + 1;
+        const pages = Math.max(1, Math.ceil(total / limit));
+        document.getElementById('pageInfo').textContent = `Page ${page} / ${pages}`;
+        document.getElementById('btnPrev').disabled = offset <= 0;
+        document.getElementById('btnNext').disabled = offset + limit >= total;
+      } catch (err) {
+        showError(err.message || String(err));
+      }
+    }
+
+    function renderTable(fields, rows) {
+      const thead = document.getElementById('thead');
+      const tbody = document.getElementById('tbody');
+      thead.innerHTML = `<tr>${fields.map((f) => {
+        const meta = fieldMeta.find((x) => x.name === f);
+        const label = meta?.label || f;
+        const marker = sort === f ? (order === 'asc' ? ' ▲' : ' ▼') : '';
+        return `<th data-sort="${escapeHtml(f)}">${escapeHtml(label)}${marker}</th>`;
+      }).join('')}</tr>`;
+
+      thead.querySelectorAll('th').forEach((th) => {
+        th.onclick = () => {
+          const col = th.getAttribute('data-sort');
+          if (sort === col) order = order === 'asc' ? 'desc' : 'asc';
+          else { sort = col; order = 'asc'; }
+          runSearch(0);
+        };
+      });
+
+      if (!rows.length) {
+        tbody.innerHTML = `<tr><td class="empty" colspan="${fields.length}">No matching records.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = rows.map((row) => {
+        return `<tr>${fields.map((f) => {
+          const v = row[f];
+          const text = v == null ? '' : String(v);
+          const cls = ['legal_desc', 'situs', 'jurisdictions', 'owner_name'].includes(f) ? 'wrap' : '';
+          return `<td class="${cls}" title="${escapeHtml(text)}">${escapeHtml(text)}</td>`;
+        }).join('')}</tr>`;
+      }).join('');
+    }
+
+    function prevPage() {
+      const limit = Number(document.getElementById('pageSize').value) || 50;
+      runSearch(Math.max(0, offset - limit));
+    }
+
+    function nextPage() {
+      const limit = Number(document.getElementById('pageSize').value) || 50;
+      runSearch(offset + limit);
+    }
+
+    init();
+  </script>
+</body>
+</html>

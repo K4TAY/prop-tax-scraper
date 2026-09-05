@@ -1,0 +1,12 @@
+node_modules/
+.env
+*.pyc
+__pycache__/
+.DS_Store
+
+# Scraped / imported data (regenerated locally)
+data/csv/
+data/processed/
+data/neighborhoods.json
+data/scrape_report.csv
+data/over_1000_report.csv
