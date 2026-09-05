@@ -53,3 +53,19 @@ This loads each `data/csv/<id>.csv` into tables `neighborhoods` + `properties`, 
 `properties.pacs_prop_id` is the primary key — the remote PACS / TrueAutomation property id (same as parcel `PROP_ID`).
 
 Scrapes skip neighborhoods that already have a CSV in `data/csv` **or** `data/processed` (unless `--force` / Force re-download).
+
+## Railway file storage
+
+Production uses a Railway **volume** (`csv-data`) mounted at `/data` (S3 buckets are not filesystem-mountable; a volume supports write + `mv` into `processed`). Set:
+
+- `DATA_DIR=/data`
+- `CSV_DIR=/data/csv`
+- `PROCESSED_DIR=/data/processed`
+
+Sync local CSVs onto the volume:
+
+```bash
+./scripts/upload-data-to-railway.sh
+```
+
+Sync Postgres separately with `./scripts/sync-to-railway.sh`.

@@ -1,6 +1,6 @@
 import express from "express";
 import { spawn } from "child_process";
-import { readdir, readFile } from "fs/promises";
+import { mkdir, readdir, readFile, writeFile, unlink } from "fs/promises";
 import { existsSync, readFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -12,16 +12,93 @@ import { browseProperties, listBrowseFields } from "./browse.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const PUBLIC = join(ROOT, "public");
-const DATA = join(ROOT, "data");
-const CSV_DIR = join(DATA, "csv");
-const PROCESSED_DIR = join(DATA, "processed");
+/** Local default: ./data. On Railway, mount a volume at /data and set DATA_DIR=/data. */
+const DATA = process.env.DATA_DIR || join(ROOT, "data");
+const CSV_DIR = process.env.CSV_DIR || join(DATA, "csv");
+const PROCESSED_DIR = process.env.PROCESSED_DIR || join(DATA, "processed");
 const PORT = Number(process.env.PORT) || 3847;
+const DATA_UPLOAD_TOKEN = process.env.DATA_UPLOAD_TOKEN || "";
 
 export const APP_VERSION = JSON.parse(
   readFileSync(join(ROOT, "package.json"), "utf8")
 ).version;
 
 const app = express();
+
+function countCsv(dir) {
+  if (!existsSync(dir)) return 0;
+  return readdir(dir).then((files) => files.filter((n) => n.endsWith(".csv")).length);
+}
+
+function runTarExtract(archivePath, destDir) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("tar", ["xzf", archivePath, "-C", destDir], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let err = "";
+    proc.stderr.on("data", (b) => {
+      err += b.toString();
+    });
+    proc.on("error", reject);
+    proc.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(err.trim() || `tar exited ${code}`));
+    });
+  });
+}
+
+/** Restore a gzipped tar of csv/ + processed/ (+ optional neighborhoods.json) onto DATA_DIR. */
+app.post(
+  "/api/data/restore",
+  express.raw({ type: () => true, limit: "500mb" }),
+  async (req, res) => {
+    if (!DATA_UPLOAD_TOKEN) {
+      return res.status(503).json({ error: "DATA_UPLOAD_TOKEN not configured" });
+    }
+    const token = String(req.get("x-upload-token") || "").trim();
+    if (token !== DATA_UPLOAD_TOKEN) {
+      return res.status(401).json({ error: "unauthorized" });
+    }
+    const body = req.body;
+    if (!Buffer.isBuffer(body) || body.length < 16) {
+      return res.status(400).json({ error: "expected gzipped tar body" });
+    }
+
+    const tmp = join("/tmp", `prop-tax-restore-${Date.now()}.tgz`);
+    try {
+      await mkdir(DATA, { recursive: true });
+      await mkdir(CSV_DIR, { recursive: true });
+      await mkdir(PROCESSED_DIR, { recursive: true });
+      await writeFile(tmp, body);
+      await runTarExtract(tmp, DATA);
+      const [csvCount, processedCount] = await Promise.all([
+        countCsv(CSV_DIR),
+        countCsv(PROCESSED_DIR),
+      ]);
+      logger.success(
+        `Data restore OK: csv=${csvCount} processed=${processedCount} (${body.length} bytes)`,
+        "server"
+      );
+      res.json({
+        ok: true,
+        bytes: body.length,
+        csvCount,
+        processedCount,
+        dataDir: DATA,
+      });
+    } catch (err) {
+      logger.error(`Data restore failed: ${err.message}`, "server");
+      res.status(500).json({ error: err.message });
+    } finally {
+      try {
+        await unlink(tmp);
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+);
+
 app.use(express.json());
 app.use(express.static(PUBLIC));
 
@@ -182,7 +259,15 @@ app.post("/api/scrape", (req, res) => {
     skipEmpty = false,
   } = req.body || {};
 
-  const args = ["scrape_neighborhoods.py"];
+  const args = [
+    "scrape_neighborhoods.py",
+    "--out-dir",
+    CSV_DIR,
+    "--processed-dir",
+    PROCESSED_DIR,
+    "--index",
+    join(DATA, "neighborhoods.json"),
+  ];
   if (Number(limit) > 0) args.push("--limit", String(Number(limit)));
   if (force) args.push("--force");
   if (skipEmpty) args.push("--skip-empty");
@@ -198,7 +283,13 @@ app.post("/api/scrape", (req, res) => {
 
   const proc = spawn("python3", args, {
     cwd: ROOT,
-    env: { ...process.env, PYTHONUNBUFFERED: "1" },
+    env: {
+      ...process.env,
+      PYTHONUNBUFFERED: "1",
+      DATA_DIR: DATA,
+      CSV_DIR,
+      PROCESSED_DIR,
+    },
   });
   scrapeProc = proc;
   pipeChildOutput(proc, "scraper");
@@ -298,6 +389,13 @@ app.get("*", (_req, res) => {
 app.listen(PORT, "0.0.0.0", async () => {
   const url = `http://localhost:${PORT}`;
   logger.success(`Prop tax scraper UI v${APP_VERSION} → ${url}`, "server");
+  try {
+    await mkdir(CSV_DIR, { recursive: true });
+    await mkdir(PROCESSED_DIR, { recursive: true });
+    logger.info(`Data dirs ready: csv=${CSV_DIR} processed=${PROCESSED_DIR}`, "server");
+  } catch (err) {
+    logger.error(`Data dir init failed: ${err.message}`, "server");
+  }
   try {
     await ensureSchema();
     logger.success("Postgres schema ready", "server");

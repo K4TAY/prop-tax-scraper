@@ -20,6 +20,7 @@ import argparse
 import csv
 import json
 import logging
+import os
 import random
 import sys
 import time
@@ -28,6 +29,11 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+
+def _data_path(*parts: str) -> Path:
+    base = Path(os.environ.get("DATA_DIR", "data"))
+    return base.joinpath(*parts)
 
 CID = 110
 MAP_SEARCH_ORIGIN = "https://bexar.trueautomation.com"
@@ -389,19 +395,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("data/csv"),
-        help="Directory for [id].csv files (default: data/csv)",
+        default=Path(os.environ["CSV_DIR"]) if os.environ.get("CSV_DIR") else _data_path("csv"),
+        help="Directory for [id].csv files (default: data/csv or CSV_DIR / DATA_DIR)",
     )
     p.add_argument(
         "--processed-dir",
         type=Path,
-        default=Path("data/processed"),
-        help="Skip hoods already imported here (default: data/processed)",
+        default=(
+            Path(os.environ["PROCESSED_DIR"])
+            if os.environ.get("PROCESSED_DIR")
+            else _data_path("processed")
+        ),
+        help="Skip hoods already imported here (default: data/processed or PROCESSED_DIR)",
     )
     p.add_argument(
         "--index",
         type=Path,
-        default=Path("data/neighborhoods.json"),
+        default=_data_path("neighborhoods.json"),
         help="Path to write neighborhood index JSON",
     )
     p.add_argument("--delay", type=float, default=DEFAULT_DELAY, help="Base delay between requests (seconds)")
