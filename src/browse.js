@@ -47,6 +47,7 @@ const OPS = new Set([
   "is_null",
   "not_null",
   "in",
+  "has_token",
 ]);
 
 function quoteIdent(name) {
@@ -125,6 +126,17 @@ export async function browseProperties(opts = {}) {
 
     let value = f.value;
     if (value == null || String(value).trim() === "") continue;
+
+    if (f.op === "has_token") {
+      // Match a whole comma-separated token (HS must not match DVHS).
+      params.push(String(value).trim());
+      whereParts.push(`EXISTS (
+        SELECT 1
+        FROM unnest(string_to_array(COALESCE(${col}::text, ''), ',')) AS t(tok)
+        WHERE upper(trim(t.tok)) = upper($${params.length})
+      )`);
+      continue;
+    }
 
     if (f.op === "ilike" || f.op === "like") {
       const raw = String(value);

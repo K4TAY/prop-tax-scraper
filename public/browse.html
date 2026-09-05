@@ -165,8 +165,30 @@
       border-radius: 4px;
       padding: 0.1rem 0.35rem;
       white-space: nowrap;
+      cursor: pointer;
+    }
+    .legend-item code:hover {
+      border-color: #58a6ff;
+      background: #1f2a36;
+    }
+    .legend-item code.active {
+      color: #0d1117;
+      background: #58a6ff;
+      border-color: #58a6ff;
+      font-weight: 600;
     }
     .legend-item span { color: #c9d1d9; }
+    .legend-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .legend-active {
+      font-size: 0.75rem;
+      color: #c9d1d9;
+    }
+    .legend-active strong { color: #e6edf3; }
     .table-wrap {
       overflow: auto;
       border: 1px solid #30363d;
@@ -219,7 +241,10 @@
   <section class="legend" aria-label="Exemption code legend">
     <div class="legend-head">
       <strong>Exemption codes</strong>
-      <span>Codes may appear comma-separated on a property (Texas Tax Code / Bexar CAD).</span>
+      <div class="legend-actions">
+        <span class="legend-active" id="legendActiveSummary">Click a code to filter</span>
+        <button type="button" class="ghost" id="btnClearExemptions" onclick="clearExemptionFilters()" disabled>Clear</button>
+      </div>
     </div>
     <div class="legend-grid" id="exemptionLegend"></div>
   </section>
@@ -284,6 +309,7 @@
       { value: 'lte', label: '≤' },
       { value: 'like', label: 'like' },
       { value: 'in', label: 'in (csv)' },
+      { value: 'has_token', label: 'has code' },
       { value: 'is_null', label: 'is empty' },
       { value: 'not_null', label: 'not empty' },
     ];
@@ -327,8 +353,11 @@
     let offset = 0;
     let total = 0;
     let lastFields = [];
+    /** @type {Set<string>} */
+    const selectedExemptionCodes = new Set();
 
     const STORAGE_COLS = 'propTaxBrowseCols';
+    const COLS_COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
 
     function escapeHtml(s) {
       return String(s ?? '')
@@ -338,11 +367,127 @@
         .replace(/"/g, '&quot;');
     }
 
+    function getCookie(name) {
+      const prefix = `${encodeURIComponent(name)}=`;
+      for (const part of document.cookie.split(';')) {
+        const s = part.trim();
+        if (s.startsWith(prefix)) {
+          try {
+            return decodeURIComponent(s.slice(prefix.length));
+          } catch {
+            return s.slice(prefix.length);
+          }
+        }
+      }
+      return null;
+    }
+
+    function setCookie(name, value, maxAgeSec = COLS_COOKIE_MAX_AGE) {
+      const encoded = encodeURIComponent(value);
+      document.cookie = `${encodeURIComponent(name)}=${encoded}; path=/; max-age=${maxAgeSec}; SameSite=Lax`;
+    }
+
+    function loadSavedColumns() {
+      const fromCookie = safeParse(getCookie(STORAGE_COLS));
+      if (Array.isArray(fromCookie) && fromCookie.length) return fromCookie;
+      // One-time migrate from older localStorage preference.
+      try {
+        const fromLs = safeParse(localStorage.getItem(STORAGE_COLS));
+        if (Array.isArray(fromLs) && fromLs.length) {
+          saveColumns(fromLs);
+          localStorage.removeItem(STORAGE_COLS);
+          return fromLs;
+        }
+      } catch {
+        /* ignore */
+      }
+      return null;
+    }
+
+    function saveColumns(fields) {
+      const list = Array.isArray(fields) ? fields.filter(Boolean) : [];
+      if (!list.length) return;
+      setCookie(STORAGE_COLS, JSON.stringify(list));
+    }
+
     function renderExemptionLegend() {
       const el = document.getElementById('exemptionLegend');
       el.innerHTML = EXEMPTION_LEGEND.map(({ code, label }) =>
-        `<div class="legend-item"><code>${escapeHtml(code)}</code><span>${escapeHtml(label)}</span></div>`
+        `<div class="legend-item">
+          <code role="button" tabindex="0" data-code="${escapeHtml(code)}" title="Filter by ${escapeHtml(code)}">${escapeHtml(code)}</code>
+          <span>${escapeHtml(label)}</span>
+        </div>`
       ).join('');
+      el.querySelectorAll('code[data-code]').forEach((btn) => {
+        const activate = () => addExemptionFilter(btn.getAttribute('data-code'));
+        btn.addEventListener('click', activate);
+        btn.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            activate();
+          }
+        });
+      });
+      syncLegendActive();
+    }
+
+    function syncLegendActive() {
+      document.querySelectorAll('#exemptionLegend code[data-code]').forEach((el) => {
+        const code = el.getAttribute('data-code');
+        el.classList.toggle('active', selectedExemptionCodes.has(code));
+      });
+      const summary = document.getElementById('legendActiveSummary');
+      const clearBtn = document.getElementById('btnClearExemptions');
+      const codes = [...selectedExemptionCodes];
+      if (!codes.length) {
+        summary.textContent = 'Click a code to filter (multi-select)';
+      } else {
+        summary.innerHTML = `Filtering: <strong>${escapeHtml(codes.join(' + '))}</strong>`;
+      }
+      clearBtn.disabled = codes.length === 0;
+    }
+
+    function ensureExemptionsColumn() {
+      const box = document.querySelector('#columnList input[data-field="exemptions"]');
+      if (box && !box.checked) {
+        box.checked = true;
+        saveColumns(selectedFields());
+      }
+    }
+
+    function addExemptionFilter(code) {
+      if (!code || selectedExemptionCodes.has(code)) return;
+      selectedExemptionCodes.add(code);
+      // Drop empty default filter rows so legend filters are the active set.
+      [...document.querySelectorAll('#filterList .filter-row')].forEach((row) => {
+        const field = row.querySelector('.f-field')?.value;
+        const value = row.querySelector('.f-value')?.value;
+        const op = row.querySelector('.f-op')?.value;
+        const empty =
+          !['is_null', 'not_null'].includes(op) && String(value || '').trim() === '';
+        if (empty && field !== 'exemptions') row.remove();
+      });
+      addFilterRow({
+        field: 'exemptions',
+        op: 'has_token',
+        value: code,
+        fromLegend: true,
+      });
+      ensureExemptionsColumn();
+      syncLegendActive();
+      runSearch(0);
+    }
+
+    function clearExemptionFilters() {
+      selectedExemptionCodes.clear();
+      document.querySelectorAll('#filterList .filter-row[data-from-legend="1"]').forEach((row) => {
+        row.remove();
+      });
+      if (![...document.querySelectorAll('#filterList .filter-row')].length) {
+        addFilterRow();
+      }
+      syncLegendActive();
+      runSearch(0);
     }
 
     async function init() {
@@ -362,7 +507,7 @@
     }
 
     function renderColumns() {
-      const saved = safeParse(localStorage.getItem(STORAGE_COLS));
+      const saved = loadSavedColumns();
       const box = document.getElementById('columnList');
       box.innerHTML = fieldMeta.map((f) => {
         const checked = saved
@@ -370,6 +515,9 @@
           : f.defaultVisible;
         return `<label><input type="checkbox" data-field="${escapeHtml(f.name)}" ${checked ? 'checked' : ''}/> ${escapeHtml(f.label)}</label>`;
       }).join('');
+      box.querySelectorAll('input[type=checkbox]').forEach((el) => {
+        el.addEventListener('change', () => saveColumns(selectedFields()));
+      });
     }
 
     function safeParse(s) {
@@ -386,12 +534,14 @@
         const meta = fieldMeta.find((f) => f.name === el.getAttribute('data-field'));
         el.checked = Boolean(meta?.defaultVisible);
       });
+      saveColumns(selectedFields());
     }
 
     function selectAllColumns(on) {
       document.querySelectorAll('#columnList input[type=checkbox]').forEach((el) => {
         el.checked = on;
       });
+      saveColumns(selectedFields());
     }
 
     function fieldOptionsHtml(selected) {
@@ -410,6 +560,10 @@
       const wrap = document.getElementById('filterList');
       const row = document.createElement('div');
       row.className = 'filter-row';
+      if (preset.fromLegend) {
+        row.dataset.fromLegend = '1';
+        row.dataset.exemptionCode = String(preset.value || '');
+      }
       const field = preset.field || 'owner_name';
       const op = preset.op || 'ilike';
       const value = preset.value ?? '';
@@ -421,7 +575,12 @@
           <button type="button" class="danger" title="Remove">✕</button>
         </div>
       `;
-      row.querySelector('button').onclick = () => row.remove();
+      row.querySelector('button').onclick = () => {
+        const code = row.dataset.exemptionCode;
+        if (code) selectedExemptionCodes.delete(code);
+        row.remove();
+        syncLegendActive();
+      };
       const opEl = row.querySelector('.f-op');
       const valEl = row.querySelector('.f-value');
       const syncValueEnabled = () => {
@@ -435,8 +594,10 @@
     }
 
     function clearFilters() {
+      selectedExemptionCodes.clear();
       document.getElementById('filterList').innerHTML = '';
       addFilterRow();
+      syncLegendActive();
     }
 
     function collectFilters() {
@@ -467,7 +628,7 @@
         showError('Select at least one column.');
         return;
       }
-      localStorage.setItem(STORAGE_COLS, JSON.stringify(fields));
+      saveColumns(fields);
       lastFields = fields;
       const limit = Number(document.getElementById('pageSize').value) || 50;
 
