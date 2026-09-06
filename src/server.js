@@ -40,6 +40,24 @@ function countyKey(ctx) {
   return `${ctx.state}/${ctx.slug}`;
 }
 
+/** Console source tag, e.g. scraper:Bexar → UI shows [SCRAPER:BEXAR] */
+function processSource(kind, ctx) {
+  const label = String(ctx.countyName || ctx.slug || "unknown").trim();
+  return `${kind}:${label}`;
+}
+
+/** Logger facade that always tags messages with the county process source. */
+function countyLogger(kind, ctx) {
+  const source = processSource(kind, ctx);
+  return {
+    info: (message) => logger.info(message, source),
+    warn: (message) => logger.warn(message, source),
+    error: (message) => logger.error(message, source),
+    success: (message) => logger.success(message, source),
+    log: (message, level = "info") => logger.log(message, level, source),
+  };
+}
+
 function isCountyBusy(key) {
   return scrapeProcs.has(key) || importRunningKeys.has(key);
 }
@@ -455,7 +473,8 @@ app.post("/api/c/:state/:county/scrape", async (req, res) => {
     }
   }
 
-  logger.info(`Starting scraper [${key}]: python3 ${args.join(" ")}`, "scraper");
+  const log = countyLogger("scraper", ctx);
+  log.info(`Starting scraper [${key}]: python3 ${args.join(" ")}`);
 
   const proc = spawn("python3", args, {
     cwd: ROOT,
@@ -468,19 +487,19 @@ app.post("/api/c/:state/:county/scrape", async (req, res) => {
     },
   });
   scrapeProcs.set(key, proc);
-  pipeChildOutput(proc, "scraper");
+  pipeChildOutput(proc, processSource("scraper", ctx));
 
   proc.on("error", (err) => {
-    logger.error(`Failed to start python [${key}]: ${err.message}`, "scraper");
+    log.error(`Failed to start python [${key}]: ${err.message}`);
     if (scrapeProcs.get(key) === proc) scrapeProcs.delete(key);
   });
 
   proc.on("close", (code, signal) => {
     if (scrapeProcs.get(key) === proc) scrapeProcs.delete(key);
-    if (signal) logger.warn(`Scraper [${key}] stopped (signal ${signal})`, "scraper");
-    else if (code === 0) logger.success(`Scraper [${key}] finished successfully (exit ${code})`, "scraper");
-    else if (code === 3) logger.warn(`Scraper [${key}] aborted by guard (exit ${code})`, "scraper");
-    else logger.error(`Scraper [${key}] exited with code ${code}`, "scraper");
+    if (signal) log.warn(`Scraper [${key}] stopped (signal ${signal})`);
+    else if (code === 0) log.success(`Scraper [${key}] finished successfully (exit ${code})`);
+    else if (code === 3) log.warn(`Scraper [${key}] aborted by guard (exit ${code})`);
+    else log.error(`Scraper [${key}] exited with code ${code}`);
   });
 
   res.json({ message: "Scraper started — watch Console Output", args, running: true, county: ctx.slug });
@@ -498,7 +517,7 @@ app.post("/api/c/:state/:county/scrape/stop", (req, res) => {
   if (!proc) {
     return res.json({ message: "No scraper is running for this county", stopped: false });
   }
-  logger.warn(`Stop requested [${key}] — sending SIGTERM…`, "scraper");
+  countyLogger("scraper", ctx).warn(`Stop requested [${key}] — sending SIGTERM…`);
   try {
     proc.kill("SIGTERM");
   } catch (err) {
@@ -525,8 +544,10 @@ app.post("/api/c/:state/:county/import", async (req, res) => {
     });
   }
 
+  const log = countyLogger("import", ctx);
   importRunningKeys.add(key);
   res.json({ message: "Import started — watch Console Output", running: true });
+  log.info(`Starting import [${key}] → ${ctx.propertiesTable}`);
 
   try {
     await ensureCountyTables(ctx);
@@ -535,10 +556,10 @@ app.post("/api/c/:state/:county/import", async (req, res) => {
       processedDir: ctx.processedDir,
       neighborhoodsTable: ctx.neighborhoodsTable,
       propertiesTable: ctx.propertiesTable,
-      log: logger,
+      log,
     });
   } catch (err) {
-    logger.error(`Import [${key}] crashed: ${err.message}`, "import");
+    log.error(`Import [${key}] crashed: ${err.message}`);
   } finally {
     importRunningKeys.delete(key);
   }
