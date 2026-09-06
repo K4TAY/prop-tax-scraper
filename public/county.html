@@ -160,7 +160,7 @@
       align-items: center;
       gap: 10px;
     }
-    .console-controls { display: flex; gap: 10px; }
+    .console-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
     .console-controls button {
       padding: 6px 12px;
       border: none;
@@ -171,6 +171,12 @@
       font-size: 0.85rem;
     }
     .console-controls button:hover { background: rgba(255,255,255,0.2); }
+    .console-controls button.filter-active {
+      background: #238636;
+      color: #fff;
+      font-weight: 600;
+    }
+    .console-controls button.filter-active:hover { background: #2ea043; }
     .console-body {
       background: #1a202c;
       color: #e2e8f0;
@@ -294,17 +300,13 @@
             Console Output
           </h3>
           <div class="console-controls">
+            <button type="button" id="btnFilterCounty" class="filter-active" onclick="setConsoleFilter('county')" title="Show only this county’s scrape/import logs">This county</button>
+            <button type="button" id="btnFilterAll" onclick="setConsoleFilter('all')" title="Show logs from every county">All counties</button>
             <button type="button" onclick="clearLogs()">Clear</button>
             <button type="button" onclick="scrollToBottom()">Scroll to Bottom</button>
           </div>
         </div>
-        <div class="console-body" id="consoleBody">
-          <div class="log-entry log-info">
-            <span class="log-timestamp" id="bootTs"></span>
-            <span class="log-source">[SYSTEM]</span>
-            Console ready — waiting for scraper events…
-          </div>
-        </div>
+        <div class="console-body" id="consoleBody"></div>
       </div>
     </main>
   </div>
@@ -317,11 +319,19 @@
     const STATE = pathMatch[1].toLowerCase();
     const COUNTY = pathMatch[2].toLowerCase();
     const API = `/api/c/${STATE}/${COUNTY}`;
+    let countyDisplayName = COUNTY.replace(/_/g, ' ');
 
     document.getElementById('browseLink').href = `/c/${STATE}/${COUNTY}/browse`;
     document.getElementById('stateLink').href = `/state.html?state=${STATE.toUpperCase()}`;
 
     let eventSource = null;
+    /** @type {'county' | 'all'} */
+    let consoleFilter = localStorage.getItem(`consoleFilter:${STATE}/${COUNTY}`) === 'all'
+      ? 'all'
+      : 'county';
+    /** @type {object[]} */
+    const logBuffer = [];
+    const LOG_BUFFER_MAX = 2000;
 
     function formatLogTimestamp(value) {
       return new Date(value ?? Date.now()).toLocaleString(undefined, {
@@ -334,7 +344,98 @@
       });
     }
 
-    document.getElementById('bootTs').textContent = formatLogTimestamp();
+    function syncFilterButtons() {
+      document.getElementById('btnFilterCounty').classList.toggle('filter-active', consoleFilter === 'county');
+      document.getElementById('btnFilterAll').classList.toggle('filter-active', consoleFilter === 'all');
+    }
+
+    function setConsoleFilter(mode) {
+      consoleFilter = mode === 'all' ? 'all' : 'county';
+      localStorage.setItem(`consoleFilter:${STATE}/${COUNTY}`, consoleFilter);
+      syncFilterButtons();
+      renderConsole();
+    }
+
+    function logMatchesCurrentCounty(log) {
+      const source = String(log.source || '').toLowerCase();
+      const message = String(log.message || '').toLowerCase();
+      const slug = COUNTY.toLowerCase();
+      const name = String(countyDisplayName || slug).toLowerCase().trim();
+      const nameCompact = name.replace(/\s+/g, '');
+      const slugSpaced = slug.replace(/_/g, ' ');
+
+      // Untagged / system lines stay visible in county filter.
+      if (!source || source === 'system' || source === 'server') return true;
+
+      // Sources look like scraper:Willacy / import:Deaf Smith
+      const afterColon = source.includes(':') ? source.slice(source.indexOf(':') + 1) : source;
+      if (
+        afterColon === slug ||
+        afterColon === slugSpaced ||
+        afterColon === name ||
+        afterColon.replace(/\s+/g, '') === nameCompact ||
+        afterColon.replace(/[^a-z0-9]/g, '_') === slug
+      ) {
+        return true;
+      }
+
+      if (
+        message.includes(`${STATE}/${slug}`) ||
+        message.includes(`/${slug}]`) ||
+        message.includes(`[${slug}]`)
+      ) {
+        return true;
+      }
+      return false;
+    }
+
+    function shouldShowLog(log) {
+      if (consoleFilter === 'all') return true;
+      return logMatchesCurrentCounty(log);
+    }
+
+    function createLogElement(log) {
+      const logEntry = document.createElement('div');
+      logEntry.className = `log-entry log-${log.level || 'info'}`;
+      logEntry.innerHTML = `
+        <span class="log-timestamp">${formatLogTimestamp(log.timestamp)}</span>
+        <span class="log-source">[${escapeHtml((log.source || 'system').toUpperCase())}]</span>
+        <span>${escapeHtml(log.message)}</span>
+      `;
+      return logEntry;
+    }
+
+    function renderConsole() {
+      const consoleBody = document.getElementById('consoleBody');
+      const stickBottom =
+        consoleBody.scrollHeight - consoleBody.scrollTop < consoleBody.clientHeight + 120;
+      consoleBody.innerHTML = '';
+      const visible = logBuffer.filter(shouldShowLog);
+      if (!visible.length) {
+        const empty = document.createElement('div');
+        empty.className = 'log-entry log-info';
+        empty.innerHTML = `
+          <span class="log-timestamp">${formatLogTimestamp()}</span>
+          <span class="log-source">[SYSTEM]</span>
+          <span>${consoleFilter === 'county'
+            ? `No logs for ${escapeHtml(countyDisplayName)} yet — other counties may still be running.`
+            : 'Console ready — waiting for scraper events…'}</span>
+        `;
+        consoleBody.appendChild(empty);
+      } else {
+        for (const log of visible) consoleBody.appendChild(createLogElement(log));
+      }
+      if (stickBottom) consoleBody.scrollTop = consoleBody.scrollHeight;
+    }
+
+    syncFilterButtons();
+    logBuffer.push({
+      timestamp: new Date().toISOString(),
+      level: 'info',
+      source: 'system',
+      message: 'Console ready — waiting for scraper events…',
+    });
+    renderConsole();
 
     function showMessage(text, type = 'success') {
       const el = document.getElementById('message');
@@ -352,18 +453,30 @@
 
     function appendLog(log) {
       if (log.message === 'CLEAR_LOGS') {
-        document.getElementById('consoleBody').innerHTML = '';
+        logBuffer.length = 0;
+        renderConsole();
         return;
       }
-      const logEntry = document.createElement('div');
-      logEntry.className = `log-entry log-${log.level || 'info'}`;
-      logEntry.innerHTML = `
-        <span class="log-timestamp">${formatLogTimestamp(log.timestamp)}</span>
-        <span class="log-source">[${escapeHtml((log.source || 'system').toUpperCase())}]</span>
-        <span>${escapeHtml(log.message)}</span>
-      `;
+      logBuffer.push(log);
+      if (logBuffer.length > LOG_BUFFER_MAX) {
+        logBuffer.splice(0, logBuffer.length - LOG_BUFFER_MAX);
+      }
+      if (!shouldShowLog(log)) return;
       const consoleBody = document.getElementById('consoleBody');
-      consoleBody.appendChild(logEntry);
+      // Drop the placeholder empty-state line when the first real matching log arrives.
+      if (
+        consoleBody.childElementCount === 1 &&
+        consoleBody.firstElementChild?.textContent?.includes('No logs for')
+      ) {
+        consoleBody.innerHTML = '';
+      }
+      if (
+        consoleBody.childElementCount === 1 &&
+        consoleBody.firstElementChild?.textContent?.includes('Console ready')
+      ) {
+        consoleBody.innerHTML = '';
+      }
+      consoleBody.appendChild(createLogElement(log));
       if (consoleBody.scrollHeight - consoleBody.scrollTop < consoleBody.clientHeight + 120) {
         consoleBody.scrollTop = consoleBody.scrollHeight;
       }
@@ -391,13 +504,14 @@
 
     async function clearLogs() {
       await fetch('/api/logs/clear', { method: 'POST' });
-      document.getElementById('consoleBody').innerHTML = `
-        <div class="log-entry log-info">
-          <span class="log-timestamp">${formatLogTimestamp()}</span>
-          <span class="log-source">[SYSTEM]</span>
-          Console cleared
-        </div>
-      `;
+      logBuffer.length = 0;
+      logBuffer.push({
+        timestamp: new Date().toISOString(),
+        level: 'info',
+        source: 'system',
+        message: 'Console cleared',
+      });
+      renderConsole();
     }
 
     function scrollToBottom() {
@@ -414,6 +528,13 @@
         document.getElementById('brandTitle').textContent =
           `${data.countyName || COUNTY} Prop Tax`;
         document.title = `${data.countyName || COUNTY} Prop Tax Portal`;
+        if (data.countyName) {
+          const prev = countyDisplayName;
+          countyDisplayName = data.countyName;
+          if (prev !== countyDisplayName && consoleFilter === 'county') {
+            renderConsole();
+          }
+        }
         document.getElementById('countyMeta').textContent =
           `${STATE.toUpperCase()} · ${data.tables?.properties || ''}`;
         document.getElementById('statHoods').textContent = data.neighborhoodCount ?? '-';
