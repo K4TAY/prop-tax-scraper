@@ -346,7 +346,20 @@
         return;
       }
 
-      list.innerHTML = counties.map((c) => {
+      const byName = (a, b) =>
+        String(a.county_name || a.slug).localeCompare(String(b.county_name || b.slug), undefined, {
+          sensitivity: 'base',
+        });
+      const isIncompleteCard = (c) =>
+        c.scrape_strategy === 'arcgis_rest' && !c.importComplete;
+      const sorted = [...counties].sort((a, b) => {
+        const aInc = isIncompleteCard(a) ? 0 : 1;
+        const bInc = isIncompleteCard(b) ? 0 : 1;
+        if (aInc !== bInc) return aInc - bInc;
+        return byName(a, b);
+      });
+
+      list.innerHTML = sorted.map((c) => {
         const ready = c.scrape_strategy === 'arcgis_rest';
         const incomplete = ready && !c.importComplete;
         const props = Number(c.propertyCount) || 0;
