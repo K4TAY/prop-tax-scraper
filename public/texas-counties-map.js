@@ -14,6 +14,7 @@ class TexasCountiesMap {
    *     propertyCount?: number,
    *     uniqueParcelCount?: number,
    *     nullParcelIdCount?: number,
+   *     unassignedCount?: number,
    *     neighborhoodCount?: number,
    *     pendingCsvCount?: number,
    *     importComplete?: boolean,
@@ -124,9 +125,13 @@ class TexasCountiesMap {
     const unique = Number(s.uniqueParcelCount) || 0;
     const hoods = Number(s.neighborhoodCount) || 0;
     const pending = Number(s.pendingCsvCount) || 0;
+    const unassigned = Number(s.unassignedCount) || 0;
     const lines = [
       `${this._fmt(unique)} unique parcels · ${this._fmt(props)} records · ${this._fmt(hoods)} neighborhoods`,
     ];
+    if (unassigned > 0) {
+      lines.push(`${this._fmt(unassigned)} unassigned (blank hood)`);
+    }
     if (pending > 0) lines.push(`${this._fmt(pending)} CSV${pending === 1 ? "" : "s"} pending import`);
     return lines;
   }

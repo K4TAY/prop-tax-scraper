@@ -184,6 +184,7 @@
       font-variant-numeric: tabular-nums;
     }
     .row .stats .muted { color: #8b949e; }
+    .row .stats .warn { color: #e3b341; font-weight: 600; }
     .badge {
       font-size: 0.72rem;
       padding: 0.2rem 0.5rem;
@@ -247,10 +248,14 @@
       const unique = Number(c.uniqueParcelCount) || 0;
       const hoods = Number(c.neighborhoodCount) || 0;
       const pending = Number(c.pendingCsvCount) || 0;
+      const unassigned = Number(c.unassignedCount) || 0;
       if (props === 0 && hoods === 0 && pending === 0) {
         return '<div class="stats"><span class="muted">No data imported yet</span></div>';
       }
       let html = `<div class="stats">${formatCount(unique)} unique parcels · ${formatCount(props)} records · ${formatCount(hoods)} neighborhoods`;
+      if (unassigned > 0) {
+        html += ` · <span class="warn">${formatCount(unassigned)} unassigned</span>`;
+      }
       if (pending > 0) {
         html += ` · <span class="muted">${formatCount(pending)} CSV pending</span>`;
       }
@@ -301,6 +306,7 @@
             propertyCount: c.propertyCount,
             uniqueParcelCount: c.uniqueParcelCount,
             nullParcelIdCount: c.nullParcelIdCount,
+            unassignedCount: c.unassignedCount,
             neighborhoodCount: c.neighborhoodCount,
             pendingCsvCount: c.pendingCsvCount,
             importComplete: c.importComplete,

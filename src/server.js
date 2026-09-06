@@ -426,6 +426,7 @@ app.get("/api/cad-sources", async (req, res) => {
           propertyCount: 0,
           uniqueParcelCount: 0,
           nullParcelIdCount: 0,
+          unassignedCount: 0,
           neighborhoodCount: 0,
           pendingCsvCount: 0,
         };
@@ -435,6 +436,7 @@ app.get("/api/cad-sources", async (req, res) => {
           propertyCount: stats.propertyCount ?? 0,
           uniqueParcelCount: stats.uniqueParcelCount ?? 0,
           nullParcelIdCount: stats.nullParcelIdCount ?? 0,
+          unassignedCount: stats.unassignedCount ?? 0,
           neighborhoodCount: stats.neighborhoodCount ?? 0,
           pendingCsvCount: stats.pendingCsvCount ?? 0,
         };

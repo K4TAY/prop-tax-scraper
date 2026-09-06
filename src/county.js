@@ -242,25 +242,36 @@ async function tableCount(client, name) {
   return rows[0]?.n ?? 0;
 }
 
+/** Hood code used when ArcGIS parcels have a blank neighborhood id. */
+export const UNASSIGNED_HOOD_CD = "__UNASSIGNED__";
+
 /** Total rows + distinct non-null pacs_prop_id (partial ownership → more rows than parcels). */
 async function propertyImportCounts(client, tableName) {
   if (!(await tableExists(client, tableName))) {
-    return { propertyCount: 0, uniqueParcelCount: 0, nullParcelIdCount: 0 };
+    return {
+      propertyCount: 0,
+      uniqueParcelCount: 0,
+      nullParcelIdCount: 0,
+      unassignedCount: 0,
+    };
   }
   const { rows } = await client.query(
     `
     SELECT
       COUNT(*)::int AS property_count,
       COUNT(DISTINCT pacs_prop_id) FILTER (WHERE pacs_prop_id IS NOT NULL)::int AS unique_parcel_count,
-      COUNT(*) FILTER (WHERE pacs_prop_id IS NULL)::int AS null_parcel_id_count
+      COUNT(*) FILTER (WHERE pacs_prop_id IS NULL)::int AS null_parcel_id_count,
+      COUNT(*) FILTER (WHERE hood_cd = $1)::int AS unassigned_count
     FROM ${quoteTable(tableName)}
-    `
+    `,
+    [UNASSIGNED_HOOD_CD]
   );
   const r = rows[0] || {};
   return {
     propertyCount: r.property_count ?? 0,
     uniqueParcelCount: r.unique_parcel_count ?? 0,
     nullParcelIdCount: r.null_parcel_id_count ?? 0,
+    unassignedCount: r.unassigned_count ?? 0,
   };
 }
 
@@ -334,6 +345,7 @@ export async function getCountyDbCounts(ctx, client = pool) {
       propertyCount: props.propertyCount,
       uniqueParcelCount: props.uniqueParcelCount,
       nullParcelIdCount: props.nullParcelIdCount,
+      unassignedCount: props.unassignedCount,
       neighborhoodDbCount: n.rows[0]?.n ?? 0,
       propertiesTable: ctx.propertiesTable,
       neighborhoodsTable: ctx.neighborhoodsTable,
@@ -345,6 +357,7 @@ export async function getCountyDbCounts(ctx, client = pool) {
       propertyCount: null,
       uniqueParcelCount: null,
       nullParcelIdCount: null,
+      unassignedCount: null,
       neighborhoodDbCount: null,
     };
   }
@@ -377,6 +390,7 @@ export async function findCadSource(state, countySlugOrName, client = pool) {
  *   propertyCount: number,
  *   uniqueParcelCount: number,
  *   nullParcelIdCount: number,
+ *   unassignedCount: number,
  *   neighborhoodCount: number,
  *   pendingCsvCount: number,
  * }>}
@@ -397,6 +411,7 @@ export async function getCountyImportStats(ctx, client = pool) {
     propertyCount: 0,
     uniqueParcelCount: 0,
     nullParcelIdCount: 0,
+    unassignedCount: 0,
     neighborhoodCount: 0,
     pendingCsvCount,
   };
@@ -417,26 +432,34 @@ export async function getCountyImportStats(ctx, client = pool) {
                AND exported IS NOT NULL
                AND exported < total_available
              )
-        )::int AS incomplete
+        )::int AS incomplete,
+        COUNT(*) FILTER (WHERE hood_cd = $1)::int AS unassigned_hoods
       FROM ${quoteTable(ctx.neighborhoodsTable)}
-      `
+      `,
+      [UNASSIGNED_HOOD_CD]
     ),
   ]);
 
   const neighborhoodCount = hoodRows.rows[0]?.hoods ?? 0;
   const incomplete = hoodRows.rows[0]?.incomplete ?? 0;
+  const unassignedHoods = hoodRows.rows[0]?.unassigned_hoods ?? 0;
   const propCount = propCounts.propertyCount;
+  const unassignedCount = propCounts.unassignedCount;
+  // Blank-hood "__UNASSIGNED__" bucket means the scrape still has unclassified parcels.
+  const hasUnassigned = unassignedCount > 0 || unassignedHoods > 0;
   const importComplete =
     pendingCsvCount === 0 &&
     propCount > 0 &&
     neighborhoodCount > 0 &&
-    incomplete === 0;
+    incomplete === 0 &&
+    !hasUnassigned;
 
   return {
     importComplete,
     propertyCount: propCount,
     uniqueParcelCount: propCounts.uniqueParcelCount,
     nullParcelIdCount: propCounts.nullParcelIdCount,
+    unassignedCount,
     neighborhoodCount,
     pendingCsvCount,
   };
@@ -458,6 +481,7 @@ export async function isCountyFullyImported(ctx, client = pool) {
  *   propertyCount: number,
  *   uniqueParcelCount: number,
  *   nullParcelIdCount: number,
+ *   unassignedCount: number,
  *   neighborhoodCount: number,
  *   pendingCsvCount: number,
  * }>>}
@@ -476,6 +500,7 @@ export async function mapImportStatsBySlug(stateRaw, counties, dataRoot, client 
           propertyCount: 0,
           uniqueParcelCount: 0,
           nullParcelIdCount: 0,
+          unassignedCount: 0,
           neighborhoodCount: 0,
           pendingCsvCount: 0,
         });

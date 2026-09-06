@@ -282,6 +282,10 @@
           <div class="number" id="statDbProps">-</div>
         </div>
         <div class="stat-card">
+          <h3>Unassigned</h3>
+          <div class="number warn" id="statDbUnassigned">-</div>
+        </div>
+        <div class="stat-card">
           <h3>Over 1000</h3>
           <div class="number warn" id="statOver">-</div>
         </div>
@@ -547,6 +551,10 @@
         document.getElementById('statDbProps').textContent =
           data.db?.propertyCount != null
             ? Number(data.db.propertyCount).toLocaleString('en-US')
+            : '-';
+        document.getElementById('statDbUnassigned').textContent =
+          data.db?.unassignedCount != null
+            ? Number(data.db.unassignedCount).toLocaleString('en-US')
             : '-';
         document.getElementById('statOver').textContent = data.over1000 ?? '-';
         const pill = document.getElementById('statStatus');
