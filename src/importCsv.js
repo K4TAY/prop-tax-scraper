@@ -244,7 +244,7 @@ async function insertBatch(client, rows, propertiesTable) {
 }
 
 async function readCsvRows(csvPath) {
-  const rows = [];
+  const byId = new Map();
   const parser = createReadStream(csvPath).pipe(
     parse({
       columns: true,
@@ -257,9 +257,9 @@ async function readCsvRows(csvPath) {
 
   for await (const record of parser) {
     const row = normalizeRow(record);
-    if (row) rows.push(row);
+    if (row) byId.set(row.pacs_prop_id, row);
   }
-  return rows;
+  return [...byId.values()];
 }
 
 async function upsertNeighborhood(

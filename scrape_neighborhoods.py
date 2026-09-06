@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Scrape Bexar CAD neighborhood property data from the same ArcGIS services
-used by https://bexar.trueautomation.com/mapSearch/?cid=110
+Scrape CAD neighborhood property data from public ArcGIS Map/FeatureServer
+endpoints (no browser automation).
 
-Exports every parcel in each neighborhood (paginated past the map UI's
-1000-row Export limit). Neighborhoods with more than 1000 parcels are still
-marked so you can see which ones exceed the public UI export ceiling.
+Default profile is Bexar CAD (TrueAutomation mapSearch → PAMapSearch).
+Other counties pass --map-server / layer ids (e.g. Calhoun BIS FeatureServer).
 
-No browser automation — avoids CAPTCHAs by using the public REST endpoints
-the map itself loads.
+Exports every parcel in each neighborhood (paginated). Neighborhoods with
+more than 1000 parcels are still marked for visibility.
 
 On errors: exponential backoff, then quit after consecutive failures so a
 block/rate-limit does not thrash the server.
@@ -35,11 +34,14 @@ def _data_path(*parts: str) -> Path:
     base = Path(os.environ.get("DATA_DIR", "data"))
     return base.joinpath(*parts)
 
+# Defaults = Bexar; overridden in main() from CLI / env
 CID = 110
 MAP_SEARCH_ORIGIN = "https://bexar.trueautomation.com"
 MAP_SERVER = "https://maps.bcad.org/arcgis/rest/services/PAMapSearch/MapServer"
-HOOD_TABLE_ID = 8  # map_neighborhood_vw (hood_cd, hood_name)
+HOOD_TABLE_ID = 8  # map_neighborhood_vw (hood_cd, hood_name); -1 = derive from props
 PROP_TABLE_ID = 9  # web_map_property
+PROP_ID_FIELD = "pacs_prop_id"
+HOOD_FILTER_FIELD = "hood_cd"
 SETUP_URL = f"{MAP_SEARCH_ORIGIN}/mapSearch/api/{CID}/setup.json"
 
 USER_AGENT = (
@@ -159,7 +161,7 @@ def http_get_json(url: str, *, max_retries: int, timeout: float = 120.0) -> dict
         headers={
             "User-Agent": USER_AGENT,
             "Accept": "application/json,text/javascript,*/*;q=0.01",
-            "Referer": f"{MAP_SEARCH_ORIGIN}/mapSearch/?cid={CID}",
+            "Referer": f"{MAP_SEARCH_ORIGIN}/",
             "Origin": MAP_SEARCH_ORIGIN,
         },
     )
@@ -209,6 +211,7 @@ def query_layer(
     result_offset: int | None = None,
     result_record_count: int | None = None,
     return_count_only: bool = False,
+    return_distinct: bool = False,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {
         "where": where,
@@ -219,6 +222,8 @@ def query_layer(
     else:
         params["outFields"] = out_fields
         params["returnGeometry"] = "true" if return_geometry else "false"
+        if return_distinct:
+            params["returnDistinctValues"] = "true"
         if order_by:
             params["orderByFields"] = order_by
         if result_offset is not None:
@@ -238,28 +243,50 @@ def query_layer(
 
 
 def fetch_neighborhoods(max_retries: int) -> list[dict[str, str]]:
-    """Load neighborhood codes/names from table 8 (same source as Advanced Search → Neighborhood)."""
+    """Load neighborhood codes/names from hood layer, or distinct hood_cd on props."""
+    if HOOD_TABLE_ID is not None and HOOD_TABLE_ID >= 0:
+        data = query_layer(
+            HOOD_TABLE_ID,
+            where="1=1",
+            out_fields="hood_cd,hood_name",
+            return_geometry=False,
+            max_retries=max_retries,
+        )
+        hoods: list[dict[str, str]] = []
+        for feat in data.get("features") or []:
+            attrs = feat.get("attributes") or {}
+            hood_cd = str(attrs.get("hood_cd") or "").strip()
+            hood_name = str(attrs.get("hood_name") or "").strip()
+            if not hood_cd:
+                continue
+            hoods.append({"hood_cd": hood_cd, "hood_name": hood_name or hood_cd})
+        hoods.sort(key=lambda h: h["hood_cd"])
+        return hoods
+
+    # No dedicated hood layer — distinct codes from the property layer
     data = query_layer(
-        HOOD_TABLE_ID,
-        where="1=1",
-        out_fields="hood_cd,hood_name",
+        PROP_TABLE_ID,
+        where=f"{HOOD_FILTER_FIELD} IS NOT NULL AND {HOOD_FILTER_FIELD} <> ''",
+        out_fields=HOOD_FILTER_FIELD,
         return_geometry=False,
+        return_distinct=True,
+        result_record_count=10000,
         max_retries=max_retries,
     )
-    hoods: list[dict[str, str]] = []
+    hoods = []
     for feat in data.get("features") or []:
         attrs = feat.get("attributes") or {}
-        hood_cd = str(attrs.get("hood_cd") or "").strip()
-        hood_name = str(attrs.get("hood_name") or "").strip()
+        hood_cd = str(attrs.get(HOOD_FILTER_FIELD) or "").strip()
         if not hood_cd:
             continue
-        hoods.append({"hood_cd": hood_cd, "hood_name": hood_name})
+        hoods.append({"hood_cd": hood_cd, "hood_name": hood_cd})
     hoods.sort(key=lambda h: h["hood_cd"])
     return hoods
 
 
 def hood_where(hood_cd: str) -> str:
-    return f"hood_cd LIKE '{hood_cd.replace(chr(39), chr(39)*2)}%'"
+    safe = hood_cd.replace("'", "''")
+    return f"{HOOD_FILTER_FIELD} LIKE '{safe}%'"
 
 
 def count_properties_for_hood(hood_cd: str, *, max_retries: int) -> int:
@@ -270,6 +297,98 @@ def count_properties_for_hood(hood_cd: str, *, max_retries: int) -> int:
         max_retries=max_retries,
     )
     return int(data.get("count") or 0)
+
+
+def _blank(v: Any) -> str | None:
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s if s else None
+
+
+def compose_situs(attrs: dict[str, Any]) -> str | None:
+    if _blank(attrs.get("situs")):
+        return _blank(attrs.get("situs"))
+    parts = [
+        _blank(attrs.get("situs_num")),
+        _blank(attrs.get("situs_street_prefx")),
+        _blank(attrs.get("situs_street")),
+        _blank(attrs.get("situs_street_sufix")),
+    ]
+    street = " ".join(p for p in parts if p)
+    city = _blank(attrs.get("situs_city"))
+    state = _blank(attrs.get("situs_state"))
+    zipc = _blank(attrs.get("situs_zip"))
+    tail = ", ".join(p for p in [city, " ".join(p for p in [state, zipc] if p)] if p)
+    if street and tail:
+        return f"{street} {tail}"
+    return street or tail or None
+
+
+def normalize_property_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
+    """Map county-specific ArcGIS fields onto the CSV schema importCsv expects."""
+    prop_id = attrs.get(PROP_ID_FIELD)
+    if prop_id is None:
+        prop_id = attrs.get("pacs_prop_id")
+    if prop_id is None:
+        prop_id = attrs.get("prop_id")
+
+    owner = attrs.get("owner_name")
+    if owner is None:
+        owner = attrs.get("file_as_name")
+
+    prop_val_yr = attrs.get("prop_val_yr")
+    if prop_val_yr is None:
+        prop_val_yr = attrs.get("owner_tax_yr")
+
+    appraised = attrs.get("appraised_val")
+    if appraised is None and attrs.get("market") is not None:
+        appraised = attrs.get("market")
+
+    hood_cd = _blank(attrs.get(HOOD_FILTER_FIELD) or attrs.get("hood_cd"))
+    hood_name = _blank(attrs.get("hood_name")) or hood_cd
+
+    legal = attrs.get("legal_desc")
+    if legal is None:
+        chunks = [attrs.get("legal_desc"), attrs.get("legal_desc2"), attrs.get("legal_desc3")]
+        legal = " ".join(str(c) for c in chunks if c)
+
+    return {
+        "pacs_prop_id": prop_id,
+        "prop_val_yr": prop_val_yr,
+        "geo_id": attrs.get("geo_id"),
+        "prop_type_cd": attrs.get("prop_type_cd"),
+        "prop_type_desc": attrs.get("prop_type_desc"),
+        "dba_name": attrs.get("dba_name"),
+        "appraised_val": appraised,
+        "abs_subdv_cd": attrs.get("abs_subdv_cd"),
+        "mapsco": attrs.get("mapsco"),
+        "map_id": attrs.get("map_id"),
+        "agent_cd": attrs.get("agent_cd"),
+        "hood_cd": hood_cd,
+        "hood_name": hood_name,
+        "owner_name": owner,
+        "owner_id": attrs.get("owner_id"),
+        "addr_line1": attrs.get("addr_line1"),
+        "addr_line2": attrs.get("addr_line2"),
+        "addr_line3": attrs.get("addr_line3"),
+        "addr_city": attrs.get("addr_city"),
+        "addr_state": attrs.get("addr_state"),
+        "addr_zip": attrs.get("addr_zip"),
+        "addr_country": attrs.get("addr_country"),
+        "pct_ownership": attrs.get("pct_ownership"),
+        "exemptions": attrs.get("exemptions"),
+        "state_cd": attrs.get("state_cd"),
+        "legal_desc": legal,
+        "situs": compose_situs(attrs),
+        "jurisdictions": attrs.get("jurisdictions"),
+        "land_val": attrs.get("land_val"),
+        "imprv_val": attrs.get("imprv_val"),
+        "market": attrs.get("market"),
+        "school": attrs.get("school"),
+        "city": attrs.get("city"),
+        "county": attrs.get("county"),
+    }
 
 
 def fetch_properties_for_hood(
@@ -288,13 +407,14 @@ def fetch_properties_for_hood(
 
     rows: list[dict[str, Any]] = []
     offset = 0
+    order_by = f"{PROP_ID_FIELD} ASC"
     while True:
         data = query_layer(
             PROP_TABLE_ID,
             where=where,
             out_fields="*",
             return_geometry=False,
-            order_by="pacs_prop_id ASC",
+            order_by=order_by,
             result_offset=offset,
             result_record_count=page_size,
             max_retries=max_retries,
@@ -304,7 +424,7 @@ def fetch_properties_for_hood(
         if not features:
             break
         for feat in features:
-            rows.append(feat.get("attributes") or {})
+            rows.append(normalize_property_attrs(feat.get("attributes") or {}))
         if len(features) < page_size:
             break
         offset += page_size
@@ -448,12 +568,64 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Re-download even if [id].csv exists in out-dir or processed-dir",
     )
     p.add_argument("--skip-empty", action="store_true", help="Do not write CSV when a neighborhood has 0 properties")
+    p.add_argument(
+        "--map-server",
+        default=os.environ.get("MAP_SERVER") or MAP_SERVER,
+        help="ArcGIS MapServer or FeatureServer root URL",
+    )
+    p.add_argument(
+        "--map-origin",
+        default=os.environ.get("MAP_ORIGIN") or MAP_SEARCH_ORIGIN,
+        help="HTTP Origin/Referer host for ArcGIS requests",
+    )
+    p.add_argument("--cid", type=int, default=int(os.environ.get("MAP_CID") or CID), help="TrueAutomation client id (optional)")
+    p.add_argument(
+        "--hood-layer",
+        type=int,
+        default=int(os.environ["HOOD_LAYER"]) if os.environ.get("HOOD_LAYER") is not None else HOOD_TABLE_ID,
+        help="Neighborhood layer id (-1 = distinct hood_cd from property layer)",
+    )
+    p.add_argument(
+        "--prop-layer",
+        type=int,
+        default=int(os.environ.get("PROP_LAYER") or PROP_TABLE_ID),
+        help="Properties layer id",
+    )
+    p.add_argument(
+        "--prop-id-field",
+        default=os.environ.get("PROP_ID_FIELD") or PROP_ID_FIELD,
+        help="Property id field name on the layer (normalized to pacs_prop_id in CSV)",
+    )
+    p.add_argument(
+        "--hood-field",
+        default=os.environ.get("HOOD_FILTER_FIELD") or HOOD_FILTER_FIELD,
+        help="Neighborhood code field name",
+    )
+    p.add_argument(
+        "--skip-setup",
+        action="store_true",
+        help="Do not fetch TrueAutomation setup.json (use for non-mapSearch counties)",
+    )
     p.add_argument("-v", "--verbose", action="store_true")
     return p.parse_args(argv)
 
 
+def apply_runtime_config(args: argparse.Namespace) -> None:
+    global CID, MAP_SEARCH_ORIGIN, MAP_SERVER, HOOD_TABLE_ID, PROP_TABLE_ID
+    global PROP_ID_FIELD, HOOD_FILTER_FIELD, SETUP_URL
+    CID = int(args.cid)
+    MAP_SEARCH_ORIGIN = str(args.map_origin).rstrip("/")
+    MAP_SERVER = str(args.map_server).rstrip("/")
+    HOOD_TABLE_ID = int(args.hood_layer)
+    PROP_TABLE_ID = int(args.prop_layer)
+    PROP_ID_FIELD = str(args.prop_id_field)
+    HOOD_FILTER_FIELD = str(args.hood_field)
+    SETUP_URL = f"{MAP_SEARCH_ORIGIN}/mapSearch/api/{CID}/setup.json"
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    apply_runtime_config(args)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
@@ -468,8 +640,15 @@ def main(argv: list[str] | None = None) -> int:
         quit_on_block=not args.no_quit_on_block,
     )
 
-    log.info("Source map: %s/mapSearch/?cid=%s", MAP_SEARCH_ORIGIN, CID)
+    log.info("Source origin: %s (cid=%s)", MAP_SEARCH_ORIGIN, CID)
     log.info("Map server: %s", MAP_SERVER)
+    log.info(
+        "Layers: hood=%s prop=%s id_field=%s hood_field=%s",
+        HOOD_TABLE_ID,
+        PROP_TABLE_ID,
+        PROP_ID_FIELD,
+        HOOD_FILTER_FIELD,
+    )
     log.info(
         "Guard: base_delay=%.2fs max_delay=%.2fs backoff=%.1fx quit_after=%s consecutive, quit_on_block=%s",
         args.delay,
@@ -479,13 +658,14 @@ def main(argv: list[str] | None = None) -> int:
         not args.no_quit_on_block,
     )
 
-    try:
-        setup = http_get_json(SETUP_URL, max_retries=args.retries)
-        cfg = setup[0] if isinstance(setup, list) else setup
-        log.info("Map name: %s", cfg.get("mapName"))
-        log.debug("Configured mapServiceURL: %s", cfg.get("mapServiceURL"))
-    except Exception as exc:  # noqa: BLE001 — informational only
-        log.warning("Could not load setup.json (continuing): %s", exc)
+    if not args.skip_setup:
+        try:
+            setup = http_get_json(SETUP_URL, max_retries=args.retries)
+            cfg = setup[0] if isinstance(setup, list) else setup
+            log.info("Map name: %s", cfg.get("mapName"))
+            log.debug("Configured mapServiceURL: %s", cfg.get("mapServiceURL"))
+        except Exception as exc:  # noqa: BLE001 — informational only
+            log.warning("Could not load setup.json (continuing): %s", exc)
 
     log.info("Fetching neighborhood list…")
     try:
@@ -511,8 +691,8 @@ def main(argv: list[str] | None = None) -> int:
         hoods = hoods[: args.limit]
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    report_path = Path("data/scrape_report.csv")
-    over_report_path = Path("data/over_1000_report.csv")
+    report_path = Path(args.out_dir.parent / "scrape_report.csv")
+    over_report_path = Path(args.out_dir.parent / "over_1000_report.csv")
     # Fresh run appends; truncate reports when starting from scratch with --force and no hood filter
     if args.force and not args.hood and report_path.exists():
         report_path.unlink()

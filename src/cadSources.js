@@ -34,6 +34,32 @@ export const CAD_SOURCES_SEED = [
     notes: "Primary reference implementation for this project.",
     evidence_source: "live_scrape",
   },
+  {
+    county_name: "Calhoun",
+    state_code: "TX",
+    software_vendor: "BIS Consultants / Harris Govern",
+    software_product: "PACS",
+    client_id: null,
+    property_search_host: "gis.bisclient.com",
+    propaccess_base_url: "https://esearch.calhouncad.org/",
+    map_search_url: "https://gis.bisclient.com/calhouncad/",
+    clientdb_url: "https://esearch.calhouncad.org/",
+    arcgis_mapserver_url:
+      "https://utility.arcgis.com/usrsvcs/servers/3d52487c23df432aa52490a1d7cd08f3/rest/services/CalhounCADWebService/FeatureServer",
+    neighborhoods_layer_id: -1,
+    properties_layer_id: 0,
+    properties_table_name: "Parcels",
+    hood_filter_field: "hood_cd",
+    property_id_field: "prop_id",
+    scrape_strategy: "arcgis_rest",
+    supports_map_search: true,
+    supports_propaccess: true,
+    supports_arcgis: true,
+    same_stack_as_bexar: true,
+    notes:
+      "Public BIS Experience Builder map; parcels FeatureServer exposes hood_cd + prop_id. Hood list derived from distinct parcel hood_cd.",
+    evidence_source: "live_scrape",
+  },
 
   // Out of state — PropertyAccess host
   {
@@ -118,7 +144,6 @@ export const CAD_SOURCES_SEED = [
     "Brazos",
     "Brewster",
     "Brooks",
-    "Calhoun",
     "Camp",
     "Collin",
     "Colorado",

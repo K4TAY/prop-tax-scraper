@@ -408,6 +408,37 @@ app.post("/api/c/:state/:county/scrape", async (req, res) => {
     "--index",
     join(ctx.dataDir, "neighborhoods.json"),
   ];
+  if (source?.arcgis_mapserver_url) {
+    args.push("--map-server", source.arcgis_mapserver_url);
+  }
+  if (source?.property_search_host) {
+    const host = String(source.property_search_host);
+    args.push(
+      "--map-origin",
+      host.startsWith("http") ? host : `https://${host}`
+    );
+  }
+  if (source?.client_id != null) args.push("--cid", String(source.client_id));
+  if (source?.neighborhoods_layer_id != null) {
+    args.push("--hood-layer", String(source.neighborhoods_layer_id));
+  }
+  if (source?.properties_layer_id != null) {
+    args.push("--prop-layer", String(source.properties_layer_id));
+  }
+  if (source?.property_id_field) {
+    args.push("--prop-id-field", String(source.property_id_field));
+  }
+  if (source?.hood_filter_field) {
+    args.push("--hood-field", String(source.hood_filter_field));
+  }
+  // Non-TrueAutomation mapSearch counties (e.g. Calhoun BIS) skip setup.json
+  if (
+    source &&
+    (!source.map_search_url ||
+      !String(source.map_search_url).includes("trueautomation.com/mapSearch"))
+  ) {
+    args.push("--skip-setup");
+  }
   if (Number(limit) > 0) args.push("--limit", String(Number(limit)));
   if (force) args.push("--force");
   if (skipEmpty) args.push("--skip-empty");
