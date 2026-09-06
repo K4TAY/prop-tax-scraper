@@ -445,14 +445,15 @@ export async function getCountyImportStats(ctx, client = pool) {
   const unassignedHoods = hoodRows.rows[0]?.unassigned_hoods ?? 0;
   const propCount = propCounts.propertyCount;
   const unassignedCount = propCounts.unassignedCount;
-  // Blank-hood "__UNASSIGNED__" bucket means the scrape still has unclassified parcels.
+  // Scrape is only complete when the blank-hood catch-all (__UNASSIGNED__) was imported
+  // along with every other neighborhood (no truncated / pending CSVs).
   const hasUnassigned = unassignedCount > 0 || unassignedHoods > 0;
   const importComplete =
     pendingCsvCount === 0 &&
     propCount > 0 &&
     neighborhoodCount > 0 &&
     incomplete === 0 &&
-    !hasUnassigned;
+    hasUnassigned;
 
   return {
     importComplete,
