@@ -51,4 +51,4 @@ If you change behavior for Bexar, implement the same change in the **shared** su
 
 ## Active scrape-ready counties
 
-Counties with `cad_sources.scrape_strategy = 'arcgis_rest'` are active for scraping/dataviewer. They all use the same portal + browse pages; only data paths and ArcGIS endpoints differ.
+Counties with `cad_sources.scrape_strategy = 'arcgis_rest'` are active for scraping/dataviewer (TX currently has 70+ including Bexar + BIS FeatureServer counties). They all use the same portal + browse pages; only data paths and ArcGIS endpoints differ.
