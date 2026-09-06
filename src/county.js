@@ -124,6 +124,7 @@ const PROPERTIES_DDL = (t) => `
 /**
  * Migrate a properties table from pacs_prop_id PK → surrogate id PK so we can
  * store duplicate and null remote property ids (one row per scraped feature).
+ * Safe under concurrent imports (check-then-add races are ignored).
  */
 export async function migratePropertiesToRowId(client, tableName) {
   if (!(await tableExists(client, tableName))) {
@@ -140,7 +141,12 @@ export async function migratePropertiesToRowId(client, tableName) {
     [tableName]
   );
   if (!idCol.length) {
-    await client.query(`ALTER TABLE ${q} ADD COLUMN id BIGSERIAL`);
+    try {
+      await client.query(`ALTER TABLE ${q} ADD COLUMN id BIGSERIAL`);
+    } catch (err) {
+      // Concurrent import may have added it between the check and ALTER.
+      if (!/already exists/i.test(err.message || "")) throw err;
+    }
   }
 
   const { rows: pks } = await client.query(
@@ -158,11 +164,29 @@ export async function migratePropertiesToRowId(client, tableName) {
   if (!pkOnId) {
     for (const pk of pks) {
       const con = String(pk.conname).replace(/"/g, '""');
-      await client.query(`ALTER TABLE ${q} DROP CONSTRAINT "${con}"`);
+      try {
+        await client.query(`ALTER TABLE ${q} DROP CONSTRAINT "${con}"`);
+      } catch (err) {
+        if (!/does not exist/i.test(err.message || "")) throw err;
+      }
     }
-    await client.query(`ALTER TABLE ${q} ALTER COLUMN pacs_prop_id DROP NOT NULL`);
-    await client.query(`ALTER TABLE ${q} ALTER COLUMN id SET NOT NULL`);
-    await client.query(`ALTER TABLE ${q} ADD PRIMARY KEY (id)`);
+    try {
+      await client.query(`ALTER TABLE ${q} ALTER COLUMN pacs_prop_id DROP NOT NULL`);
+    } catch {
+      /* already nullable */
+    }
+    try {
+      await client.query(`ALTER TABLE ${q} ALTER COLUMN id SET NOT NULL`);
+    } catch {
+      /* already NOT NULL or concurrent */
+    }
+    try {
+      await client.query(`ALTER TABLE ${q} ADD PRIMARY KEY (id)`);
+    } catch (err) {
+      if (!/already exists|multiple primary keys/i.test(err.message || "")) {
+        throw err;
+      }
+    }
   } else {
     try {
       await client.query(`ALTER TABLE ${q} ALTER COLUMN pacs_prop_id DROP NOT NULL`);

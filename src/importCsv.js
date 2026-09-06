@@ -45,7 +45,7 @@ const PROPERTY_COLUMNS = [
   "jurisdictions",
 ];
 
-export async function ensureSchema(client = pool) {
+export async function ensureSchema(client = pool, { migrateAll = true } = {}) {
   await client.query(`
     CREATE TABLE IF NOT EXISTS neighborhoods (
       hood_cd TEXT PRIMARY KEY,
@@ -101,7 +101,11 @@ export async function ensureSchema(client = pool) {
     CREATE INDEX IF NOT EXISTS properties_geo_id_idx ON properties (geo_id);
   `);
 
-  await migrateAllPropertiesTables(client);
+  // Only on boot / one-shot scripts. Per-county import must NOT touch every
+  // *_properties table — concurrent imports race on ALTER TABLE ADD COLUMN id.
+  if (migrateAll) {
+    await migrateAllPropertiesTables(client);
+  }
 
   await ensureCadSourcesSchema(client);
   await seedCadSources(client);
@@ -294,7 +298,7 @@ export async function importCsvDirectory({
   if (!neighborhoodsTable || !propertiesTable) {
     throw new Error("neighborhoodsTable and propertiesTable are required");
   }
-  await ensureSchema();
+  await ensureSchema(undefined, { migrateAll: false });
   await ensureCountyTables({
     neighborhoodsTable,
     propertiesTable,
