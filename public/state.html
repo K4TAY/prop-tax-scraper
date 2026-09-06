@@ -67,24 +67,24 @@
       stroke-width: 1.2;
     }
     .tx-county.ready {
-      fill: #238636;
-      stroke: #0f1419;
-      stroke-width: 0.7;
-      cursor: pointer;
-    }
-    .tx-county.ready:hover {
-      fill: #2ea043;
-      stroke: #ffffff;
-      stroke-width: 1.2;
-    }
-    .tx-county.imported {
       fill: #d4a017;
       stroke: #0f1419;
       stroke-width: 0.7;
       cursor: pointer;
     }
-    .tx-county.imported:hover {
+    .tx-county.ready:hover {
       fill: #e3b341;
+      stroke: #ffffff;
+      stroke-width: 1.2;
+    }
+    .tx-county.imported {
+      fill: #238636;
+      stroke: #0f1419;
+      stroke-width: 0.7;
+      cursor: pointer;
+    }
+    .tx-county.imported:hover {
+      fill: #2ea043;
       stroke: #ffffff;
       stroke-width: 1.2;
     }
@@ -123,8 +123,8 @@
       margin-right: 0.4rem;
       vertical-align: -1px;
     }
-    .legend .imported::before { background: #d4a017; }
-    .legend .ready::before { background: #238636; }
+    .legend .imported::before { background: #238636; }
+    .legend .ready::before { background: #d4a017; }
     .legend .catalog::before { background: #1f6feb; }
     .legend .none::before { background: #21262d; box-shadow: inset 0 0 0 1px #8b949e; }
     .section-label {
@@ -148,23 +148,32 @@
       color: inherit;
     }
     .row:hover { border-color: #58a6ff; }
-    .row.incomplete {
-      border-color: #f85149;
-      background: linear-gradient(90deg, #3d1515 0%, #2a1414 12%, #1c1212 100%);
-      box-shadow: inset 4px 0 0 #f85149;
-    }
-    .row.incomplete:hover {
-      border-color: #ff7b72;
-      background: linear-gradient(90deg, #4a1a1a 0%, #321818 12%, #221414 100%);
-    }
     .row.complete {
+      border-color: #2ea043;
+      background: linear-gradient(90deg, #14331c 0%, #122418 12%, #101a12 100%);
+      box-shadow: inset 4px 0 0 #2ea043;
+    }
+    .row.complete:hover {
+      border-color: #3fb950;
+      background: linear-gradient(90deg, #194022 0%, #162b1c 12%, #121e14 100%);
+    }
+    .row.incomplete {
       border-color: #d4a017;
       background: linear-gradient(90deg, #3d2e10 0%, #2a2410 12%, #1c1a10 100%);
       box-shadow: inset 4px 0 0 #d4a017;
     }
-    .row.complete:hover {
+    .row.incomplete:hover {
       border-color: #e3b341;
       background: linear-gradient(90deg, #4a3814 0%, #322c14 12%, #221e12 100%);
+    }
+    .row.not-processed {
+      border-color: #f85149;
+      background: linear-gradient(90deg, #3d1515 0%, #2a1414 12%, #1c1212 100%);
+      box-shadow: inset 4px 0 0 #f85149;
+    }
+    .row.not-processed:hover {
+      border-color: #ff7b72;
+      background: linear-gradient(90deg, #4a1a1a 0%, #321818 12%, #221414 100%);
     }
     .row strong { font-size: 1rem; }
     .row .sub { color: #8b949e; font-size: 0.8rem; margin-top: 0.2rem; }
@@ -183,9 +192,10 @@
       color: #c9d1d9;
       white-space: nowrap;
     }
-    .badge.imported { background: #d4a01733; border-color: #d4a017; color: #e3b341; }
-    .badge.incomplete { background: #f8514933; border-color: #f85149; color: #ff7b72; font-weight: 600; }
-    .badge.ready { background: #23863633; border-color: #2ea043; color: #3fb950; }
+    .badge.imported { background: #23863633; border-color: #2ea043; color: #3fb950; }
+    .badge.incomplete { background: #d4a01733; border-color: #d4a017; color: #e3b341; font-weight: 600; }
+    .badge.not-processed { background: #f8514933; border-color: #f85149; color: #ff7b72; font-weight: 600; }
+    .badge.ready { background: #d4a01733; border-color: #d4a017; color: #e3b341; }
     .badge.soon { background: #21262d; color: #8b949e; }
     .err { color: #f85149; }
   </style>
@@ -275,7 +285,7 @@
 
       if (state === 'TX') {
         document.getElementById('lead').textContent =
-          'Click a highlighted county on the map, or use the list below. Yellow = fully imported; green = scrape ready; blue = in catalog.';
+          'Click a highlighted county on the map, or use the list below. Green = fully imported; gold = scrape ready; blue = in catalog.';
         document.getElementById('tx-map-wrap').classList.add('show');
         document.getElementById('listLabel').textContent = 'All catalog counties';
 
@@ -328,10 +338,13 @@
           badge = '<span class="badge imported">fully imported</span>';
           rowClass += ' complete';
         } else if (incomplete) {
-          rowClass += ' incomplete';
-          badge = (props > 0 || pending > 0)
-            ? '<span class="badge incomplete">incomplete</span>'
-            : '<span class="badge incomplete">not processed</span>';
+          if (props > 0 || pending > 0) {
+            rowClass += ' incomplete';
+            badge = '<span class="badge incomplete">incomplete</span>';
+          } else {
+            rowClass += ' not-processed';
+            badge = '<span class="badge not-processed">not processed</span>';
+          }
         } else if (ready) {
           badge = '<span class="badge ready">scrape ready</span>';
         } else {
