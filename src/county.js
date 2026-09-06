@@ -235,63 +235,116 @@ export async function findCadSource(state, countySlugOrName, client = pool) {
 }
 
 /**
- * True when the county has property + neighborhood rows in Postgres, no pending
- * CSVs left to import, and no truncated/incomplete hood exports.
+ * Import status + DB counts for a county (no table creation).
+ * @returns {Promise<{
+ *   importComplete: boolean,
+ *   propertyCount: number,
+ *   neighborhoodCount: number,
+ *   pendingCsvCount: number,
+ * }>}
  */
-export async function isCountyFullyImported(ctx, client = pool) {
+export async function getCountyImportStats(ctx, client = pool) {
+  let pendingCsvCount = 0;
   if (existsSync(ctx.csvDir)) {
     try {
       const files = await readdir(ctx.csvDir);
-      if (files.some((n) => n.endsWith(".csv"))) return false;
+      pendingCsvCount = files.filter((n) => n.endsWith(".csv")).length;
     } catch {
       /* ignore */
     }
   }
 
-  if (!(await tableExists(client, ctx.propertiesTable))) return false;
-  if (!(await tableExists(client, ctx.neighborhoodsTable))) return false;
+  const empty = {
+    importComplete: false,
+    propertyCount: 0,
+    neighborhoodCount: 0,
+    pendingCsvCount,
+  };
 
-  const propCount = await tableCount(client, ctx.propertiesTable);
-  if (propCount <= 0) return false;
+  if (!(await tableExists(client, ctx.propertiesTable))) return empty;
+  if (!(await tableExists(client, ctx.neighborhoodsTable))) return empty;
 
-  const { rows } = await client.query(
-    `
-    SELECT
-      COUNT(*)::int AS hoods,
-      COUNT(*) FILTER (
-        WHERE truncated IS TRUE
-           OR (
-             total_available IS NOT NULL
-             AND exported IS NOT NULL
-             AND exported < total_available
-           )
-      )::int AS incomplete
-    FROM ${quoteTable(ctx.neighborhoodsTable)}
-    `
-  );
-  const hoods = rows[0]?.hoods ?? 0;
-  const incomplete = rows[0]?.incomplete ?? 0;
-  return hoods > 0 && incomplete === 0;
+  const [propCount, hoodRows] = await Promise.all([
+    tableCount(client, ctx.propertiesTable),
+    client.query(
+      `
+      SELECT
+        COUNT(*)::int AS hoods,
+        COUNT(*) FILTER (
+          WHERE truncated IS TRUE
+             OR (
+               total_available IS NOT NULL
+               AND exported IS NOT NULL
+               AND exported < total_available
+             )
+        )::int AS incomplete
+      FROM ${quoteTable(ctx.neighborhoodsTable)}
+      `
+    ),
+  ]);
+
+  const neighborhoodCount = hoodRows.rows[0]?.hoods ?? 0;
+  const incomplete = hoodRows.rows[0]?.incomplete ?? 0;
+  const importComplete =
+    pendingCsvCount === 0 &&
+    propCount > 0 &&
+    neighborhoodCount > 0 &&
+    incomplete === 0;
+
+  return {
+    importComplete,
+    propertyCount: propCount,
+    neighborhoodCount,
+    pendingCsvCount,
+  };
+}
+
+/** @deprecated Prefer getCountyImportStats */
+export async function isCountyFullyImported(ctx, client = pool) {
+  const stats = await getCountyImportStats(ctx, client);
+  return stats.importComplete;
 }
 
 /**
- * Batch import-complete flags keyed by county slug for a state catalog list.
+ * Batch import stats keyed by county slug for a state catalog list.
  * @param {string} stateRaw
  * @param {{ slug: string }[]} counties
  * @param {string} dataRoot
+ * @returns {Promise<Map<string, {
+ *   importComplete: boolean,
+ *   propertyCount: number,
+ *   neighborhoodCount: number,
+ *   pendingCsvCount: number,
+ * }>>}
  */
-export async function mapImportCompleteBySlug(stateRaw, counties, dataRoot, client = pool) {
+export async function mapImportStatsBySlug(stateRaw, counties, dataRoot, client = pool) {
   const out = new Map();
   await Promise.all(
     (counties || []).map(async (c) => {
       const slug = c.slug || countySlug(c.county_name || c.name);
       try {
         const ctx = resolveCounty(stateRaw, slug, dataRoot);
-        out.set(slug, await isCountyFullyImported(ctx, client));
+        out.set(slug, await getCountyImportStats(ctx, client));
       } catch {
-        out.set(slug, false);
+        out.set(slug, {
+          importComplete: false,
+          propertyCount: 0,
+          neighborhoodCount: 0,
+          pendingCsvCount: 0,
+        });
       }
     })
   );
+  return out;
+}
+
+/**
+ * Batch import-complete flags keyed by county slug for a state catalog list.
+ * @deprecated Prefer mapImportStatsBySlug
+ */
+export async function mapImportCompleteBySlug(stateRaw, counties, dataRoot, client = pool) {
+  const stats = await mapImportStatsBySlug(stateRaw, counties, dataRoot, client);
+  const out = new Map();
+  for (const [slug, s] of stats) out.set(slug, s.importComplete === true);
   return out;
 }

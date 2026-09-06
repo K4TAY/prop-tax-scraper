@@ -42,6 +42,9 @@ HOOD_TABLE_ID = 8  # map_neighborhood_vw (hood_cd, hood_name); -1 = derive from 
 PROP_TABLE_ID = 9  # web_map_property
 PROP_ID_FIELD = "pacs_prop_id"
 HOOD_FILTER_FIELD = "hood_cd"
+# Synthetic hood codes when the property layer has no usable neighborhood values
+ALL_PARCELS_HOOD = "__ALL__"
+UNASSIGNED_HOOD = "__UNASSIGNED__"
 SETUP_URL = f"{MAP_SEARCH_ORIGIN}/mapSearch/api/{CID}/setup.json"
 
 USER_AGENT = (
@@ -281,10 +284,54 @@ def fetch_neighborhoods(max_retries: int) -> list[dict[str, str]]:
             continue
         hoods.append({"hood_cd": hood_cd, "hood_name": hood_cd})
     hoods.sort(key=lambda h: h["hood_cd"])
+
+    total = int(
+        query_layer(
+            PROP_TABLE_ID,
+            where="1=1",
+            return_count_only=True,
+            max_retries=max_retries,
+        ).get("count")
+        or 0
+    )
+    blank = int(
+        query_layer(
+            PROP_TABLE_ID,
+            where=f"({HOOD_FILTER_FIELD} IS NULL OR {HOOD_FILTER_FIELD} = '')",
+            return_count_only=True,
+            max_retries=max_retries,
+        ).get("count")
+        or 0
+    )
+
+    if not hoods:
+        if total <= 0:
+            return []
+        log.warning(
+            "No distinct %s values on %s parcels — exporting entire layer as %s",
+            HOOD_FILTER_FIELD,
+            total,
+            ALL_PARCELS_HOOD,
+        )
+        return [{"hood_cd": ALL_PARCELS_HOOD, "hood_name": "All parcels"}]
+
+    if blank > 0:
+        log.info(
+            "Adding %s for %s parcels with blank %s",
+            UNASSIGNED_HOOD,
+            blank,
+            HOOD_FILTER_FIELD,
+        )
+        hoods.append({"hood_cd": UNASSIGNED_HOOD, "hood_name": "Unassigned"})
+
     return hoods
 
 
 def hood_where(hood_cd: str) -> str:
+    if hood_cd == ALL_PARCELS_HOOD:
+        return "1=1"
+    if hood_cd == UNASSIGNED_HOOD:
+        return f"({HOOD_FILTER_FIELD} IS NULL OR {HOOD_FILTER_FIELD} = '')"
     safe = hood_cd.replace("'", "''")
     return f"{HOOD_FILTER_FIELD} LIKE '{safe}%'"
 
@@ -424,7 +471,13 @@ def fetch_properties_for_hood(
         if not features:
             break
         for feat in features:
-            rows.append(normalize_property_attrs(feat.get("attributes") or {}))
+            row = normalize_property_attrs(feat.get("attributes") or {})
+            # Keep CSV/import keyed to the hood batch we queried (null hood_cd counties).
+            if not row.get("hood_cd"):
+                row["hood_cd"] = hood_cd
+            if not row.get("hood_name"):
+                row["hood_name"] = hood_cd
+            rows.append(row)
         if len(features) < page_size:
             break
         offset += page_size

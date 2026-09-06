@@ -10,6 +10,12 @@ class TexasCountiesMap {
    *   availableSlugs?: Iterable<string>,
    *   readySlugs?: Iterable<string>,
    *   importedSlugs?: Iterable<string>,
+   *   statsBySlug?: Record<string, {
+   *     propertyCount?: number,
+   *     neighborhoodCount?: number,
+   *     pendingCsvCount?: number,
+   *     importComplete?: boolean,
+   *   }>,
    * }} [options]
    */
   constructor(containerId, options = {}) {
@@ -18,6 +24,7 @@ class TexasCountiesMap {
     this.available = new Set(options.availableSlugs || []);
     this.ready = new Set(options.readySlugs || []);
     this.imported = new Set(options.importedSlugs || []);
+    this.statsBySlug = options.statsBySlug || {};
     this._tip = null;
     this._data = null;
   }
@@ -31,10 +38,16 @@ class TexasCountiesMap {
     return this;
   }
 
-  setAvailability({ availableSlugs = [], readySlugs = [], importedSlugs = [] } = {}) {
+  setAvailability({
+    availableSlugs = [],
+    readySlugs = [],
+    importedSlugs = [],
+    statsBySlug,
+  } = {}) {
     this.available = new Set(availableSlugs);
     this.ready = new Set(readySlugs);
     this.imported = new Set(importedSlugs);
+    if (statsBySlug) this.statsBySlug = statsBySlug;
     if (!this.container) return;
     this.container.querySelectorAll(".tx-county").forEach((path) => {
       const slug = path.getAttribute("data-slug");
@@ -51,7 +64,8 @@ class TexasCountiesMap {
 
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", data.viewBox || "0 0 900 840");
-    svg.setAttribute("role", "img");
+    // Avoid role="img" — browsers/OS may show a large native image preview on hover.
+    svg.setAttribute("role", "group");
     svg.setAttribute("aria-label", "Texas counties map");
     svg.classList.add("tx-counties-svg");
 
@@ -86,6 +100,12 @@ class TexasCountiesMap {
     this.container.appendChild(tip);
   }
 
+  _fmt(n) {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return "0";
+    return v.toLocaleString("en-US");
+  }
+
   _statusLabel(slug) {
     if (this.imported.has(slug)) return "fully imported";
     if (this.ready.has(slug)) return "scrape ready";
@@ -93,10 +113,26 @@ class TexasCountiesMap {
     return "no CAD source yet";
   }
 
+  _statsLines(slug) {
+    // Counties with no CAD source: tip is name + status only (no empty import stats).
+    if (!this.available.has(slug)) return [];
+    const s = this.statsBySlug[slug];
+    if (!s) return ["No import data"];
+    const props = Number(s.propertyCount) || 0;
+    const hoods = Number(s.neighborhoodCount) || 0;
+    const pending = Number(s.pendingCsvCount) || 0;
+    const lines = [`${this._fmt(props)} properties · ${this._fmt(hoods)} neighborhoods`];
+    if (pending > 0) lines.push(`${this._fmt(pending)} CSV${pending === 1 ? "" : "s"} pending import`);
+    return lines;
+  }
+
   _showTip(e, county) {
     if (!this._tip) return;
     this._tip.hidden = false;
-    this._tip.innerHTML = `<strong>${county.name}</strong><span>${this._statusLabel(county.slug)}</span>`;
+    const stats = this._statsLines(county.slug)
+      .map((line) => `<span>${line}</span>`)
+      .join("");
+    this._tip.innerHTML = `<strong>${county.name}</strong><span>${this._statusLabel(county.slug)}</span>${stats}`;
     this._moveTip(e);
   }
 

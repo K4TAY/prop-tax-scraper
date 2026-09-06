@@ -44,14 +44,21 @@
     #tx-map-container { position: relative; width: 100%; }
     .tx-counties-svg { width: 100%; height: auto; display: block; }
     .tx-county {
-      fill: #30363d;
-      stroke: #0f1419;
-      stroke-width: 0.6;
+      fill: #21262d;
+      stroke: #8b949e;
+      stroke-width: 1;
       cursor: not-allowed;
-      transition: fill 0.12s ease, stroke 0.12s ease;
+      transition: fill 0.12s ease, stroke 0.12s ease, stroke-width 0.12s ease;
+    }
+    .tx-county:not(.available):hover {
+      fill: #30363d;
+      stroke: #e6edf3;
+      stroke-width: 1.6;
     }
     .tx-county.available {
       fill: #1f6feb;
+      stroke: #0f1419;
+      stroke-width: 0.7;
       cursor: pointer;
     }
     .tx-county.available:hover {
@@ -61,6 +68,8 @@
     }
     .tx-county.ready {
       fill: #238636;
+      stroke: #0f1419;
+      stroke-width: 0.7;
       cursor: pointer;
     }
     .tx-county.ready:hover {
@@ -70,6 +79,8 @@
     }
     .tx-county.imported {
       fill: #d4a017;
+      stroke: #0f1419;
+      stroke-width: 0.7;
       cursor: pointer;
     }
     .tx-county.imported:hover {
@@ -79,18 +90,18 @@
     }
     .tx-map-tip {
       position: absolute;
-      z-index: 5;
+      z-index: 20;
       pointer-events: none;
       background: #0d1117;
-      border: 1px solid #30363d;
+      border: 1px solid #484f58;
       border-radius: 8px;
       padding: 0.4rem 0.65rem;
       font-size: 0.8rem;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.45);
       display: flex;
       flex-direction: column;
-      gap: 0.15rem;
-      max-width: 14rem;
+      gap: 0.1rem;
+      max-width: 16rem;
     }
     .tx-map-tip strong { color: #e6edf3; font-weight: 600; }
     .tx-map-tip span { color: #8b949e; font-size: 0.72rem; }
@@ -115,7 +126,7 @@
     .legend .imported::before { background: #d4a017; }
     .legend .ready::before { background: #238636; }
     .legend .catalog::before { background: #1f6feb; }
-    .legend .none::before { background: #30363d; }
+    .legend .none::before { background: #21262d; box-shadow: inset 0 0 0 1px #8b949e; }
     .section-label {
       font-size: 0.72rem;
       text-transform: uppercase;
@@ -137,8 +148,28 @@
       color: inherit;
     }
     .row:hover { border-color: #58a6ff; }
+    .row.incomplete {
+      border-color: #d29922;
+      background: linear-gradient(90deg, #3d2e10 0%, #2a2111 12%, #1c1810 100%);
+      box-shadow: inset 4px 0 0 #d29922;
+    }
+    .row.incomplete:hover {
+      border-color: #e3b341;
+      background: linear-gradient(90deg, #4a3814 0%, #322714 12%, #221c12 100%);
+    }
+    .row.complete {
+      border-color: #3d2e00;
+      background: #161b22;
+    }
     .row strong { font-size: 1rem; }
     .row .sub { color: #8b949e; font-size: 0.8rem; margin-top: 0.2rem; }
+    .row .stats {
+      color: #c9d1d9;
+      font-size: 0.8rem;
+      margin-top: 0.35rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .row .stats .muted { color: #8b949e; }
     .badge {
       font-size: 0.72rem;
       padding: 0.2rem 0.5rem;
@@ -148,6 +179,7 @@
       white-space: nowrap;
     }
     .badge.imported { background: #d4a01733; border-color: #d4a017; color: #e3b341; }
+    .badge.incomplete { background: #d2992244; border-color: #d29922; color: #f0c674; font-weight: 600; }
     .badge.ready { background: #23863633; border-color: #2ea043; color: #3fb950; }
     .badge.soon { background: #21262d; color: #8b949e; }
     .err { color: #f85149; }
@@ -189,6 +221,27 @@
         .replace(/"/g, '&quot;');
     }
 
+    function formatCount(n) {
+      const v = Number(n);
+      if (!Number.isFinite(v)) return '0';
+      return v.toLocaleString('en-US');
+    }
+
+    function importStatsHtml(c) {
+      const props = Number(c.propertyCount) || 0;
+      const hoods = Number(c.neighborhoodCount) || 0;
+      const pending = Number(c.pendingCsvCount) || 0;
+      if (props === 0 && hoods === 0 && pending === 0) {
+        return '<div class="stats"><span class="muted">No data imported yet</span></div>';
+      }
+      let html = `<div class="stats">${formatCount(props)} properties · ${formatCount(hoods)} neighborhoods`;
+      if (pending > 0) {
+        html += ` · <span class="muted">${formatCount(pending)} CSV pending</span>`;
+      }
+      html += '</div>';
+      return html;
+    }
+
     function portalBySlug(counties) {
       const map = new Map();
       for (const c of counties) map.set(c.slug, c.portalPath);
@@ -208,8 +261,10 @@
       if (!res.ok) throw new Error(data.error || 'Failed to load counties');
 
       const counties = data.counties || [];
+      const importedCount = counties.filter((c) => c.importComplete).length;
+      const propTotal = counties.reduce((sum, c) => sum + (Number(c.propertyCount) || 0), 0);
       document.getElementById('meta').textContent =
-        `${counties.length} counties in catalog`;
+        `${counties.length} counties in catalog · ${importedCount} fully imported · ${formatCount(propTotal)} properties in DB`;
 
       if (state === 'TX') {
         document.getElementById('lead').textContent =
@@ -224,12 +279,21 @@
         const importedSlugs = counties
           .filter((c) => c.importComplete)
           .map((c) => c.slug);
+        const statsBySlug = Object.fromEntries(
+          counties.map((c) => [c.slug, {
+            propertyCount: c.propertyCount,
+            neighborhoodCount: c.neighborhoodCount,
+            pendingCsvCount: c.pendingCsvCount,
+            importComplete: c.importComplete,
+          }])
+        );
         const portals = portalBySlug(counties);
 
         const map = new TexasCountiesMap('tx-map-container', {
           availableSlugs,
           readySlugs,
           importedSlugs,
+          statsBySlug,
           onCountyClick: (county) => {
             const href = portals.get(county.slug);
             if (href) window.location.href = href;
@@ -246,19 +310,30 @@
 
       list.innerHTML = counties.map((c) => {
         const ready = c.scrape_strategy === 'arcgis_rest';
+        const incomplete = ready && !c.importComplete;
+        const props = Number(c.propertyCount) || 0;
+        const pending = Number(c.pendingCsvCount) || 0;
         let badge;
+        let rowClass = 'row';
         if (c.importComplete) {
           badge = '<span class="badge imported">fully imported</span>';
+          rowClass += ' complete';
+        } else if (incomplete) {
+          rowClass += ' incomplete';
+          badge = (props > 0 || pending > 0)
+            ? '<span class="badge incomplete">incomplete</span>'
+            : '<span class="badge incomplete">not processed</span>';
         } else if (ready) {
           badge = '<span class="badge ready">scrape ready</span>';
         } else {
           badge = `<span class="badge soon">${escapeHtml(c.scrape_strategy || 'investigate')}</span>`;
         }
         return `
-          <a class="row" href="${escapeHtml(c.portalPath)}" id="county-${escapeHtml(c.slug)}">
+          <a class="${rowClass}" href="${escapeHtml(c.portalPath)}" id="county-${escapeHtml(c.slug)}">
             <div>
               <strong>${escapeHtml(c.county_name)}</strong>
               <div class="sub">${escapeHtml(c.slug)} · tables ${escapeHtml(c.slug)}_${escapeHtml(String(c.state_code).trim().toLowerCase())}_*</div>
+              ${importStatsHtml(c)}
             </div>
             ${badge}
           </a>`;

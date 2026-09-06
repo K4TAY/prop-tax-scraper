@@ -15,7 +15,7 @@ import {
   getCountyDbCounts,
   findCadSource,
   migrateLegacyBexarTables,
-  mapImportCompleteBySlug,
+  mapImportStatsBySlug,
 } from "./county.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -325,13 +325,24 @@ app.get("/api/cad-sources", async (req, res) => {
         .replace(/[^a-z0-9]+/g, "_")
         .replace(/^_|_$/g, "")}/`,
     }));
-    const imported = await mapImportCompleteBySlug(state, counties, DATA);
+    const importStats = await mapImportStatsBySlug(state, counties, DATA);
     res.json({
       state,
-      counties: counties.map((c) => ({
-        ...c,
-        importComplete: imported.get(c.slug) === true,
-      })),
+      counties: counties.map((c) => {
+        const stats = importStats.get(c.slug) || {
+          importComplete: false,
+          propertyCount: 0,
+          neighborhoodCount: 0,
+          pendingCsvCount: 0,
+        };
+        return {
+          ...c,
+          importComplete: stats.importComplete === true,
+          propertyCount: stats.propertyCount ?? 0,
+          neighborhoodCount: stats.neighborhoodCount ?? 0,
+          pendingCsvCount: stats.pendingCsvCount ?? 0,
+        };
+      }),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
