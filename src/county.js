@@ -1,3 +1,5 @@
+import { existsSync } from "fs";
+import { readdir } from "fs/promises";
 import pool from "./db.js";
 
 /** @typedef {{ state: string, county: string, countyName: string, slug: string, prefix: string, neighborhoodsTable: string, propertiesTable: string, csvDir: string, processedDir: string, dataDir: string }} CountyContext */
@@ -230,4 +232,66 @@ export async function findCadSource(state, countySlugOrName, client = pool) {
     [st, slug, countySlugOrName]
   );
   return rows[0] || null;
+}
+
+/**
+ * True when the county has property + neighborhood rows in Postgres, no pending
+ * CSVs left to import, and no truncated/incomplete hood exports.
+ */
+export async function isCountyFullyImported(ctx, client = pool) {
+  if (existsSync(ctx.csvDir)) {
+    try {
+      const files = await readdir(ctx.csvDir);
+      if (files.some((n) => n.endsWith(".csv"))) return false;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (!(await tableExists(client, ctx.propertiesTable))) return false;
+  if (!(await tableExists(client, ctx.neighborhoodsTable))) return false;
+
+  const propCount = await tableCount(client, ctx.propertiesTable);
+  if (propCount <= 0) return false;
+
+  const { rows } = await client.query(
+    `
+    SELECT
+      COUNT(*)::int AS hoods,
+      COUNT(*) FILTER (
+        WHERE truncated IS TRUE
+           OR (
+             total_available IS NOT NULL
+             AND exported IS NOT NULL
+             AND exported < total_available
+           )
+      )::int AS incomplete
+    FROM ${quoteTable(ctx.neighborhoodsTable)}
+    `
+  );
+  const hoods = rows[0]?.hoods ?? 0;
+  const incomplete = rows[0]?.incomplete ?? 0;
+  return hoods > 0 && incomplete === 0;
+}
+
+/**
+ * Batch import-complete flags keyed by county slug for a state catalog list.
+ * @param {string} stateRaw
+ * @param {{ slug: string }[]} counties
+ * @param {string} dataRoot
+ */
+export async function mapImportCompleteBySlug(stateRaw, counties, dataRoot, client = pool) {
+  const out = new Map();
+  await Promise.all(
+    (counties || []).map(async (c) => {
+      const slug = c.slug || countySlug(c.county_name || c.name);
+      try {
+        const ctx = resolveCounty(stateRaw, slug, dataRoot);
+        out.set(slug, await isCountyFullyImported(ctx, client));
+      } catch {
+        out.set(slug, false);
+      }
+    })
+  );
+  return out;
 }

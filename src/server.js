@@ -15,6 +15,7 @@ import {
   getCountyDbCounts,
   findCadSource,
   migrateLegacyBexarTables,
+  mapImportCompleteBySlug,
 } from "./county.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -294,19 +295,24 @@ app.get("/api/cad-sources", async (req, res) => {
       `,
       [state]
     );
+    const counties = rows.map((r) => ({
+      ...r,
+      state_code: String(r.state_code).trim(),
+      slug: String(r.county_name)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_|_$/g, ""),
+      portalPath: `/c/${String(r.state_code).trim().toLowerCase()}/${String(r.county_name)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_|_$/g, "")}/`,
+    }));
+    const imported = await mapImportCompleteBySlug(state, counties, DATA);
     res.json({
       state,
-      counties: rows.map((r) => ({
-        ...r,
-        state_code: String(r.state_code).trim(),
-        slug: String(r.county_name)
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "_")
-          .replace(/^_|_$/g, ""),
-        portalPath: `/c/${String(r.state_code).trim().toLowerCase()}/${String(r.county_name)
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "_")
-          .replace(/^_|_$/g, "")}/`,
+      counties: counties.map((c) => ({
+        ...c,
+        importComplete: imported.get(c.slug) === true,
       })),
     });
   } catch (err) {

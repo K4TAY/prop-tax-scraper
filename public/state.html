@@ -68,6 +68,15 @@
       stroke: #ffffff;
       stroke-width: 1.2;
     }
+    .tx-county.imported {
+      fill: #d4a017;
+      cursor: pointer;
+    }
+    .tx-county.imported:hover {
+      fill: #e3b341;
+      stroke: #ffffff;
+      stroke-width: 1.2;
+    }
     .tx-map-tip {
       position: absolute;
       z-index: 5;
@@ -103,6 +112,7 @@
       margin-right: 0.4rem;
       vertical-align: -1px;
     }
+    .legend .imported::before { background: #d4a017; }
     .legend .ready::before { background: #238636; }
     .legend .catalog::before { background: #1f6feb; }
     .legend .none::before { background: #30363d; }
@@ -137,6 +147,7 @@
       color: #c9d1d9;
       white-space: nowrap;
     }
+    .badge.imported { background: #d4a01733; border-color: #d4a017; color: #e3b341; }
     .badge.ready { background: #23863633; border-color: #2ea043; color: #3fb950; }
     .badge.soon { background: #21262d; color: #8b949e; }
     .err { color: #f85149; }
@@ -154,6 +165,7 @@
     <div id="tx-map-wrap">
       <div id="tx-map-container"></div>
       <div class="legend">
+        <span class="imported">Fully imported</span>
         <span class="ready">Scrape ready</span>
         <span class="catalog">In CAD catalog</span>
         <span class="none">No source yet</span>
@@ -201,7 +213,7 @@
 
       if (state === 'TX') {
         document.getElementById('lead').textContent =
-          'Click a highlighted county on the map, or use the list below. Green = scrape ready; blue = in catalog.';
+          'Click a highlighted county on the map, or use the list below. Yellow = fully imported; green = scrape ready; blue = in catalog.';
         document.getElementById('tx-map-wrap').classList.add('show');
         document.getElementById('listLabel').textContent = 'All catalog counties';
 
@@ -209,11 +221,15 @@
         const readySlugs = counties
           .filter((c) => c.scrape_strategy === 'arcgis_rest')
           .map((c) => c.slug);
+        const importedSlugs = counties
+          .filter((c) => c.importComplete)
+          .map((c) => c.slug);
         const portals = portalBySlug(counties);
 
         const map = new TexasCountiesMap('tx-map-container', {
           availableSlugs,
           readySlugs,
+          importedSlugs,
           onCountyClick: (county) => {
             const href = portals.get(county.slug);
             if (href) window.location.href = href;
@@ -230,9 +246,14 @@
 
       list.innerHTML = counties.map((c) => {
         const ready = c.scrape_strategy === 'arcgis_rest';
-        const badge = ready
-          ? '<span class="badge ready">scrape ready</span>'
-          : `<span class="badge soon">${escapeHtml(c.scrape_strategy || 'investigate')}</span>`;
+        let badge;
+        if (c.importComplete) {
+          badge = '<span class="badge imported">fully imported</span>';
+        } else if (ready) {
+          badge = '<span class="badge ready">scrape ready</span>';
+        } else {
+          badge = `<span class="badge soon">${escapeHtml(c.scrape_strategy || 'investigate')}</span>`;
+        }
         return `
           <a class="row" href="${escapeHtml(c.portalPath)}" id="county-${escapeHtml(c.slug)}">
             <div>
