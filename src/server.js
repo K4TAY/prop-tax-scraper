@@ -17,6 +17,7 @@ import {
   migrateLegacyBexarTables,
   mapImportStatsBySlug,
   migrateAllPropertiesTables,
+  quoteTable,
 } from "./county.js";
 import { moveProcessedToCsv } from "./moveProcessedToCsv.js";
 
@@ -272,7 +273,70 @@ app.get("/api/version", (_req, res) => {
   res.json({ version: APP_VERSION });
 });
 
-/** Move processed/ CSVs back to csv/ so county Import can be re-run (no DB purge). */
+/** Move processed/ CSVs back to csv/; migrate schema; truncate property tables. */
+app.post("/api/admin/prepare-reimport", async (req, res) => {
+  if (!DATA_UPLOAD_TOKEN) {
+    return res.status(503).json({ error: "DATA_UPLOAD_TOKEN not configured" });
+  }
+  const token = String(req.get("x-upload-token") || "").trim();
+  if (token !== DATA_UPLOAD_TOKEN) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+  try {
+    const dryRun = String(req.query.dryRun || "") === "1";
+    const doMigrate = String(req.query.migrate || "1") !== "0";
+    const doTruncate = String(req.query.truncate || "1") !== "0";
+    const doMove = String(req.query.move || "1") !== "0";
+
+    let migrated = [];
+    if (doMigrate && !dryRun) {
+      migrated = await migrateAllPropertiesTables();
+    }
+
+    let truncated = [];
+    if (doTruncate) {
+      const { rows } = await pool.query(`
+        SELECT table_name
+        FROM information_schema.tables
+        WHERE table_schema = 'public'
+          AND (
+            table_name = 'properties'
+            OR table_name = 'neighborhoods'
+            OR table_name LIKE '%\\_properties' ESCAPE '\\'
+            OR table_name LIKE '%\\_neighborhoods' ESCAPE '\\'
+          )
+        ORDER BY table_name
+      `);
+      truncated = rows.map((r) => r.table_name);
+      if (!dryRun && truncated.length) {
+        const list = truncated.map((t) => quoteTable(t)).join(", ");
+        await pool.query(`TRUNCATE TABLE ${list} RESTART IDENTITY`);
+      }
+    }
+
+    let moveSummary = null;
+    if (doMove) {
+      moveSummary = await moveProcessedToCsv({
+        dataRoot: DATA,
+        state: req.query.state,
+        county: req.query.county,
+        dryRun,
+      });
+    }
+
+    res.json({
+      ok: true,
+      dryRun,
+      migratedTables: migrated.length,
+      truncatedTables: truncated,
+      move: moveSummary,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** @deprecated Prefer /api/admin/prepare-reimport */
 app.post("/api/admin/move-processed-to-csv", async (req, res) => {
   if (!DATA_UPLOAD_TOKEN) {
     return res.status(503).json({ error: "DATA_UPLOAD_TOKEN not configured" });
