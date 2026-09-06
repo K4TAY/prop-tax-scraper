@@ -16,7 +16,9 @@ import {
   findCadSource,
   migrateLegacyBexarTables,
   mapImportStatsBySlug,
+  migrateAllPropertiesTables,
 } from "./county.js";
+import { moveProcessedToCsv } from "./moveProcessedToCsv.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -268,6 +270,32 @@ app.use(express.json());
 
 app.get("/api/version", (_req, res) => {
   res.json({ version: APP_VERSION });
+});
+
+/** Move processed/ CSVs back to csv/ so county Import can be re-run (no DB purge). */
+app.post("/api/admin/move-processed-to-csv", async (req, res) => {
+  if (!DATA_UPLOAD_TOKEN) {
+    return res.status(503).json({ error: "DATA_UPLOAD_TOKEN not configured" });
+  }
+  const token = String(req.get("x-upload-token") || "").trim();
+  if (token !== DATA_UPLOAD_TOKEN) {
+    return res.status(401).json({ error: "unauthorized" });
+  }
+  try {
+    const migrate = String(req.query.migrate || "1") !== "0";
+    if (migrate) {
+      await migrateAllPropertiesTables();
+    }
+    const summary = await moveProcessedToCsv({
+      dataRoot: DATA,
+      state: req.query.state,
+      county: req.query.county,
+      dryRun: String(req.query.dryRun || "") === "1",
+    });
+    res.json({ ok: true, migrated: migrate, ...summary });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get("/api/cad-sources/states", async (_req, res) => {
