@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>County Prop Tax Portal</title>
+  <meta name="color-scheme" content="dark">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f1419;
+      color: #e6edf3;
+      margin: 0;
+      min-height: 100vh;
+    }
+    .app-shell {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      min-height: 100vh;
+    }
+    @media (max-width: 860px) {
+      .app-shell { grid-template-columns: 1fr; }
+      .sidebar { border-right: none; border-bottom: 1px solid #30363d; }
+    }
+    .sidebar {
+      background: #161b22;
+      border-right: 1px solid #30363d;
+      padding: 1.25rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 1.15rem;
+      color: #e6edf3;
+    }
+    .brand .version {
+      margin: 0.35rem 0 0;
+      color: #8b949e;
+      font-size: 0.85rem;
+      font-family: ui-monospace, monospace;
+    }
+    .section-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #8b949e;
+      margin: 0.5rem 0 0.4rem;
+    }
+    .btn {
+      width: 100%;
+      text-align: left;
+      padding: 0.55rem 0.75rem;
+      border-radius: 8px;
+      border: 1px solid #30363d;
+      background: #21262d;
+      color: #e6edf3;
+      font-size: 0.9rem;
+      cursor: pointer;
+      margin-bottom: 0.4rem;
+    }
+    .btn:hover { background: #30363d; }
+    .btn-primary { background: #238636; border-color: #2ea043; color: #fff; }
+    .btn-primary:hover { background: #2ea043; }
+    .btn-danger { background: #c05621; border-color: transparent; color: #fff; }
+    .btn-danger:hover { background: #dd6b20; }
+    .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      margin-bottom: 0.65rem;
+      font-size: 0.85rem;
+      color: #c9d1d9;
+    }
+    .field input {
+      padding: 0.45rem 0.55rem;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+      background: #0d1117;
+      color: #e6edf3;
+      font-size: 0.9rem;
+    }
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.85rem;
+      color: #c9d1d9;
+      margin-bottom: 0.5rem;
+    }
+    .main {
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      min-width: 0;
+    }
+    .message {
+      display: none;
+      padding: 0.75rem 1rem;
+      border-radius: 8px;
+      border: 1px solid #30363d;
+    }
+    .message.show { display: block; }
+    .message.success { background: #12261e; color: #3fb950; border-color: #238636; }
+    .message.error { background: #2a1215; color: #f85149; border-color: #da3633; }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 0.75rem;
+    }
+    .stat-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      padding: 0.85rem 1rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+    }
+    .stat-card h3 {
+      margin: 0;
+      font-size: 0.8rem;
+      color: #8b949e;
+      font-weight: 500;
+    }
+    .stat-card .number {
+      margin-top: 0.35rem;
+      font-size: 1.5rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-card .number.warn { color: #d29922; }
+    .stat-card .number.ok { color: #3fb950; }
+    .console-container {
+      background: #161b22;
+      border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+      border: 1px solid #30363d;
+      overflow: hidden;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 420px;
+    }
+    .console-header {
+      background: #2d3748;
+      color: white;
+      padding: 15px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .console-header h3 {
+      margin: 0;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .console-controls { display: flex; gap: 10px; }
+    .console-controls button {
+      padding: 6px 12px;
+      border: none;
+      background: rgba(255,255,255,0.1);
+      color: white;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .console-controls button:hover { background: rgba(255,255,255,0.2); }
+    .console-body {
+      background: #1a202c;
+      color: #e2e8f0;
+      padding: 15px;
+      font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+      font-size: 0.85rem;
+      overflow-y: auto;
+      line-height: 1.6;
+      flex: 1;
+      max-height: calc(100vh - 280px);
+    }
+    .console-body::-webkit-scrollbar { width: 8px; }
+    .console-body::-webkit-scrollbar-track { background: #2d3748; }
+    .console-body::-webkit-scrollbar-thumb { background: #4a5568; border-radius: 4px; }
+    .log-entry { margin-bottom: 4px; padding: 4px 0; word-break: break-word; }
+    .log-timestamp { color: #718096; margin-right: 8px; }
+    .log-source { color: #63b3ed; margin-right: 8px; font-weight: 600; }
+    .log-info { color: #e2e8f0; }
+    .log-success { color: #48bb78; }
+    .log-warn { color: #ed8936; }
+    .log-error { color: #f56565; }
+    .console-collapsed .console-body { display: none; }
+    .toggle-icon { cursor: pointer; transition: transform 0.3s; }
+    .console-collapsed .toggle-icon { transform: rotate(-90deg); }
+    .status-pill {
+      display: inline-block;
+      padding: 0.15rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      margin-left: 0.5rem;
+    }
+    .status-idle { background: #21262d; color: #8b949e; }
+    .status-run { background: #12261e; color: #3fb950; }
+    .hint { color: #8b949e; font-size: 0.8rem; line-height: 1.4; }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1 id="brandTitle">County portal</h1>
+        <p class="version" id="appVersion">v…</p>
+        <p class="version" id="countyMeta" style="margin-top:0.25rem;"></p>
+      </div>
+
+      <div>
+        <div class="section-label">Run options</div>
+        <label class="field">Limit (0 = all)
+          <input type="number" id="limit" min="0" value="0" />
+        </label>
+        <label class="field">Delay (seconds)
+          <input type="number" id="delay" min="0.1" step="0.05" value="0.75" />
+        </label>
+        <label class="field">Hood IDs (comma-separated, optional)
+          <input type="text" id="hoods" placeholder="11540, 57080" />
+        </label>
+        <label class="check"><input type="checkbox" id="force" /> Force re-download</label>
+        <label class="check"><input type="checkbox" id="skipEmpty" /> Skip empty CSVs</label>
+      </div>
+
+      <div>
+        <div class="section-label">Actions</div>
+        <button type="button" class="btn btn-primary" id="btnStart" onclick="startScrape()">▶ Start scrape</button>
+        <button type="button" class="btn btn-danger" id="btnStop" onclick="stopScrape()">⏹ Stop scrape</button>
+        <button type="button" class="btn" id="btnImport" onclick="startImport()" style="background:#2b6cb0;color:#fff;border-color:transparent;">📥 Import CSV → Postgres</button>
+        <a class="btn" href="/" style="display:block;text-decoration:none;margin-bottom:0.4rem;">← USA map</a>
+        <a class="btn" id="stateLink" href="/state.html" style="display:block;text-decoration:none;margin-bottom:0.4rem;">← State counties</a>
+        <a class="btn" id="browseLink" href="#" style="display:block;text-decoration:none;background:#553c9a;color:#fff;border-color:transparent;">🔎 Browse database</a>
+        <button type="button" class="btn" onclick="refreshStats()">♻️ Refresh stats</button>
+      </div>
+
+      <p class="hint">
+        Exports <strong>all</strong> parcels per neighborhood (paginated past the map UI’s 1000-row limit).
+        Hoods with more than 1000 parcels still get a <code>.OVER_1000</code> marker.
+        Import loads CSVs into this county’s Postgres tables then moves files into its
+        <code>processed</code> folder. Each county has isolated tables and data paths.
+      </p>
+    </aside>
+
+    <main class="main">
+      <div id="message" class="message"></div>
+
+      <div class="stats" id="stats">
+        <div class="stat-card">
+          <h3>Neighborhoods</h3>
+          <div class="number" id="statHoods">-</div>
+        </div>
+        <div class="stat-card">
+          <h3>CSV pending</h3>
+          <div class="number" id="statCsv">-</div>
+        </div>
+        <div class="stat-card">
+          <h3>Processed</h3>
+          <div class="number" id="statProcessed">-</div>
+        </div>
+        <div class="stat-card">
+          <h3>DB properties</h3>
+          <div class="number" id="statDbProps">-</div>
+        </div>
+        <div class="stat-card">
+          <h3>Over 1000</h3>
+          <div class="number warn" id="statOver">-</div>
+        </div>
+        <div class="stat-card">
+          <h3>Status</h3>
+          <div class="number" style="font-size:1rem;margin-top:0.55rem;">
+            <span class="status-pill status-idle" id="statStatus">idle</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="console-container" id="consoleContainer">
+        <div class="console-header">
+          <h3>
+            <span class="toggle-icon" onclick="toggleConsole()">▼</span>
+            Console Output
+          </h3>
+          <div class="console-controls">
+            <button type="button" onclick="clearLogs()">Clear</button>
+            <button type="button" onclick="scrollToBottom()">Scroll to Bottom</button>
+          </div>
+        </div>
+        <div class="console-body" id="consoleBody">
+          <div class="log-entry log-info">
+            <span class="log-timestamp" id="bootTs"></span>
+            <span class="log-source">[SYSTEM]</span>
+            Console ready — waiting for scraper events…
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const pathMatch = location.pathname.match(/^\/c\/([a-z]{2})\/([a-z0-9_]+)\/?/i);
+    if (!pathMatch) {
+      window.location.href = '/';
+    }
+    const STATE = pathMatch[1].toLowerCase();
+    const COUNTY = pathMatch[2].toLowerCase();
+    const API = `/api/c/${STATE}/${COUNTY}`;
+
+    document.getElementById('browseLink').href = `/c/${STATE}/${COUNTY}/browse`;
+    document.getElementById('stateLink').href = `/state.html?state=${STATE.toUpperCase()}`;
+
+    let eventSource = null;
+
+    function formatLogTimestamp(value) {
+      return new Date(value ?? Date.now()).toLocaleString(undefined, {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+    }
+
+    document.getElementById('bootTs').textContent = formatLogTimestamp();
+
+    function showMessage(text, type = 'success') {
+      const el = document.getElementById('message');
+      el.textContent = text;
+      el.className = `message show ${type}`;
+      setTimeout(() => el.classList.remove('show'), 5000);
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    function appendLog(log) {
+      if (log.message === 'CLEAR_LOGS') {
+        document.getElementById('consoleBody').innerHTML = '';
+        return;
+      }
+      const logEntry = document.createElement('div');
+      logEntry.className = `log-entry log-${log.level || 'info'}`;
+      logEntry.innerHTML = `
+        <span class="log-timestamp">${formatLogTimestamp(log.timestamp)}</span>
+        <span class="log-source">[${escapeHtml((log.source || 'system').toUpperCase())}]</span>
+        <span>${escapeHtml(log.message)}</span>
+      `;
+      const consoleBody = document.getElementById('consoleBody');
+      consoleBody.appendChild(logEntry);
+      if (consoleBody.scrollHeight - consoleBody.scrollTop < consoleBody.clientHeight + 120) {
+        consoleBody.scrollTop = consoleBody.scrollHeight;
+      }
+    }
+
+    function connectToLogs() {
+      if (eventSource) eventSource.close();
+      eventSource = new EventSource('/api/logs/stream');
+      eventSource.onmessage = (event) => {
+        try {
+          appendLog(JSON.parse(event.data));
+        } catch (e) {
+          console.error(e);
+        }
+      };
+      eventSource.onerror = () => {
+        console.error('EventSource failed, reconnecting…');
+        setTimeout(connectToLogs, 3000);
+      };
+    }
+
+    function toggleConsole() {
+      document.getElementById('consoleContainer').classList.toggle('console-collapsed');
+    }
+
+    async function clearLogs() {
+      await fetch('/api/logs/clear', { method: 'POST' });
+      document.getElementById('consoleBody').innerHTML = `
+        <div class="log-entry log-info">
+          <span class="log-timestamp">${formatLogTimestamp()}</span>
+          <span class="log-source">[SYSTEM]</span>
+          Console cleared
+        </div>
+      `;
+    }
+
+    function scrollToBottom() {
+      const consoleBody = document.getElementById('consoleBody');
+      consoleBody.scrollTop = consoleBody.scrollHeight;
+    }
+
+    async function refreshStats() {
+      try {
+        const res = await fetch(`${API}/stats`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'stats failed');
+        document.getElementById('appVersion').textContent = `v${data.version}`;
+        document.getElementById('brandTitle').textContent =
+          `${data.countyName || COUNTY} Prop Tax`;
+        document.title = `${data.countyName || COUNTY} Prop Tax Portal`;
+        document.getElementById('countyMeta').textContent =
+          `${STATE.toUpperCase()} · ${data.tables?.properties || ''}`;
+        document.getElementById('statHoods').textContent = data.neighborhoodCount ?? '-';
+        document.getElementById('statCsv').textContent = data.csvCount ?? '-';
+        document.getElementById('statProcessed').textContent = data.processedCount ?? '-';
+        document.getElementById('statDbProps').textContent = data.db?.propertyCount ?? '-';
+        document.getElementById('statOver').textContent = data.over1000 ?? '-';
+        const pill = document.getElementById('statStatus');
+        const busy = data.scrapeRunning || data.importRunning;
+        if (data.importRunning) {
+          pill.textContent = 'importing';
+          pill.className = 'status-pill status-run';
+        } else if (data.scrapeRunning) {
+          pill.textContent = 'scraping';
+          pill.className = 'status-pill status-run';
+        } else {
+          pill.textContent = 'idle';
+          pill.className = 'status-pill status-idle';
+        }
+        document.getElementById('btnStart').disabled = busy;
+        document.getElementById('btnImport').disabled = busy;
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    async function startImport() {
+      try {
+        const res = await fetch(`${API}/import`, { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 409) {
+          showMessage(data.message || 'Busy', 'error');
+          return;
+        }
+        if (!res.ok) {
+          showMessage(data.error || data.message || 'Failed to start import', 'error');
+          return;
+        }
+        showMessage(data.message || 'Import started');
+        refreshStats();
+      } catch {
+        showMessage('Error starting import', 'error');
+      }
+    }
+
+    async function startScrape() {
+      const limit = Number(document.getElementById('limit').value) || 0;
+      const delay = Number(document.getElementById('delay').value) || 0.75;
+      const force = document.getElementById('force').checked;
+      const skipEmpty = document.getElementById('skipEmpty').checked;
+      const hoodsRaw = document.getElementById('hoods').value.trim();
+      const hoods = hoodsRaw
+        ? hoodsRaw.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean)
+        : [];
+
+      try {
+        const res = await fetch(`${API}/scrape`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ limit, delay, force, skipEmpty, hoods }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 409) {
+          showMessage(data.message || 'Already running', 'error');
+          return;
+        }
+        if (!res.ok) {
+          showMessage(data.error || data.message || 'Failed to start', 'error');
+          return;
+        }
+        showMessage(data.message || 'Scraper started');
+        refreshStats();
+      } catch {
+        showMessage('Error starting scraper', 'error');
+      }
+    }
+
+    async function stopScrape() {
+      try {
+        const res = await fetch(`${API}/scrape/stop`, { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        showMessage(data.message || 'Stop sent', data.stopped ? 'success' : 'error');
+        setTimeout(refreshStats, 500);
+      } catch {
+        showMessage('Error stopping scraper', 'error');
+      }
+    }
+
+    connectToLogs();
+    refreshStats();
+    setInterval(refreshStats, 4000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Select county — Prop Tax Scraper</title>
+  <meta name="color-scheme" content="dark">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f1419;
+      color: #e6edf3;
+      margin: 0;
+      min-height: 100vh;
+    }
+    .top {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid #30363d;
+      background: #161b22;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .top h1 { margin: 0; font-size: 1.25rem; }
+    .top a { color: #58a6ff; text-decoration: none; font-size: 0.9rem; }
+    .top a:hover { text-decoration: underline; }
+    .main { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
+    .lead { color: #8b949e; margin: 0 0 1rem; font-size: 0.95rem; }
+    .meta { color: #8b949e; font-size: 0.85rem; margin-bottom: 1rem; }
+    #tx-map-wrap {
+      display: none;
+      position: relative;
+      max-width: 720px;
+      margin: 0 auto 1.5rem;
+      background: #161b22;
+      border-radius: 12px;
+      padding: 0.75rem;
+      border: 1px solid #30363d;
+    }
+    #tx-map-wrap.show { display: block; }
+    #tx-map-container { position: relative; width: 100%; }
+    .tx-counties-svg { width: 100%; height: auto; display: block; }
+    .tx-county {
+      fill: #30363d;
+      stroke: #0f1419;
+      stroke-width: 0.6;
+      cursor: not-allowed;
+      transition: fill 0.12s ease, stroke 0.12s ease;
+    }
+    .tx-county.available {
+      fill: #1f6feb;
+      cursor: pointer;
+    }
+    .tx-county.available:hover {
+      fill: #388bfd;
+      stroke: #ffffff;
+      stroke-width: 1.2;
+    }
+    .tx-county.ready {
+      fill: #238636;
+      cursor: pointer;
+    }
+    .tx-county.ready:hover {
+      fill: #2ea043;
+      stroke: #ffffff;
+      stroke-width: 1.2;
+    }
+    .tx-map-tip {
+      position: absolute;
+      z-index: 5;
+      pointer-events: none;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      padding: 0.4rem 0.65rem;
+      font-size: 0.8rem;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      max-width: 14rem;
+    }
+    .tx-map-tip strong { color: #e6edf3; font-weight: 600; }
+    .tx-map-tip span { color: #8b949e; font-size: 0.72rem; }
+    .legend {
+      display: flex;
+      gap: 1.25rem;
+      flex-wrap: wrap;
+      font-size: 0.85rem;
+      color: #8b949e;
+      margin: 0.85rem 0 0;
+      justify-content: center;
+    }
+    .legend span::before {
+      content: "";
+      display: inline-block;
+      width: 0.75rem;
+      height: 0.75rem;
+      border-radius: 2px;
+      margin-right: 0.4rem;
+      vertical-align: -1px;
+    }
+    .legend .ready::before { background: #238636; }
+    .legend .catalog::before { background: #1f6feb; }
+    .legend .none::before { background: #30363d; }
+    .section-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #8b949e;
+      margin: 0 0 0.65rem;
+    }
+    .list { display: flex; flex-direction: column; gap: 0.5rem; }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.85rem 1rem;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      background: #161b22;
+      text-decoration: none;
+      color: inherit;
+    }
+    .row:hover { border-color: #58a6ff; }
+    .row strong { font-size: 1rem; }
+    .row .sub { color: #8b949e; font-size: 0.8rem; margin-top: 0.2rem; }
+    .badge {
+      font-size: 0.72rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      white-space: nowrap;
+    }
+    .badge.ready { background: #23863633; border-color: #2ea043; color: #3fb950; }
+    .badge.soon { background: #21262d; color: #8b949e; }
+    .err { color: #f85149; }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <h1 id="title">State</h1>
+    <a href="/">← USA map</a>
+  </div>
+  <div class="main">
+    <p class="lead" id="lead">Open a county portal. Each county uses its own Postgres tables and data folders.</p>
+    <div class="meta" id="meta"></div>
+
+    <div id="tx-map-wrap">
+      <div id="tx-map-container"></div>
+      <div class="legend">
+        <span class="ready">Scrape ready</span>
+        <span class="catalog">In CAD catalog</span>
+        <span class="none">No source yet</span>
+      </div>
+    </div>
+
+    <div class="section-label" id="listLabel">Counties</div>
+    <div class="list" id="list"></div>
+    <div class="err" id="error"></div>
+  </div>
+  <script src="/texas-counties-map.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const state = (params.get('state') || '').trim().toUpperCase();
+
+    function escapeHtml(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function portalBySlug(counties) {
+      const map = new Map();
+      for (const c of counties) map.set(c.slug, c.portalPath);
+      return map;
+    }
+
+    async function init() {
+      if (!/^[A-Z]{2}$/.test(state)) {
+        document.getElementById('error').textContent = 'Missing or invalid ?state=XX';
+        return;
+      }
+      document.getElementById('title').textContent = `${state} counties`;
+      document.title = `${state} counties — Prop Tax Scraper`;
+
+      const res = await fetch(`/api/cad-sources?state=${encodeURIComponent(state)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load counties');
+
+      const counties = data.counties || [];
+      document.getElementById('meta').textContent =
+        `${counties.length} counties in catalog`;
+
+      if (state === 'TX') {
+        document.getElementById('lead').textContent =
+          'Click a highlighted county on the map, or use the list below. Green = scrape ready; blue = in catalog.';
+        document.getElementById('tx-map-wrap').classList.add('show');
+        document.getElementById('listLabel').textContent = 'All catalog counties';
+
+        const availableSlugs = counties.map((c) => c.slug);
+        const readySlugs = counties
+          .filter((c) => c.scrape_strategy === 'arcgis_rest')
+          .map((c) => c.slug);
+        const portals = portalBySlug(counties);
+
+        const map = new TexasCountiesMap('tx-map-container', {
+          availableSlugs,
+          readySlugs,
+          onCountyClick: (county) => {
+            const href = portals.get(county.slug);
+            if (href) window.location.href = href;
+          },
+        });
+        await map.load('/geo/texas-counties.json');
+      }
+
+      const list = document.getElementById('list');
+      if (!counties.length) {
+        list.innerHTML = '<p class="lead">No counties found for this state.</p>';
+        return;
+      }
+
+      list.innerHTML = counties.map((c) => {
+        const ready = c.scrape_strategy === 'arcgis_rest';
+        const badge = ready
+          ? '<span class="badge ready">scrape ready</span>'
+          : `<span class="badge soon">${escapeHtml(c.scrape_strategy || 'investigate')}</span>`;
+        return `
+          <a class="row" href="${escapeHtml(c.portalPath)}" id="county-${escapeHtml(c.slug)}">
+            <div>
+              <strong>${escapeHtml(c.county_name)}</strong>
+              <div class="sub">${escapeHtml(c.slug)} · tables ${escapeHtml(c.slug)}_${escapeHtml(String(c.state_code).trim().toLowerCase())}_*</div>
+            </div>
+            ${badge}
+          </a>`;
+      }).join('');
+    }
+
+    init().catch((err) => {
+      document.getElementById('error').textContent = err.message || String(err);
+    });
+  </script>
+</body>
+</html>

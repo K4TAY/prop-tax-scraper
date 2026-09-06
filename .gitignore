@@ -10,3 +10,4 @@ data/processed/
 data/neighborhoods.json
 data/scrape_report.csv
 data/over_1000_report.csv
+data/tx/

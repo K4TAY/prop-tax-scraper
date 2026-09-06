@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Browse properties — Bexar Prop Tax</title>
+  <title>Browse properties</title>
   <meta name="color-scheme" content="dark">
   <style>
     * { box-sizing: border-box; }
@@ -234,8 +234,8 @@
 </head>
 <body>
   <div class="top">
-    <h1>Browse properties <span id="version" style="color:#8b949e;font-size:0.85rem;font-weight:400;"></span></h1>
-    <a href="/">← Scraper dashboard</a>
+    <h1 id="pageTitle">Browse properties <span id="version" style="color:#8b949e;font-size:0.85rem;font-weight:400;"></span></h1>
+    <a id="backLink" href="/">← County portal</a>
   </div>
 
   <section class="legend" aria-label="Exemption code legend">
@@ -357,7 +357,17 @@
     /** @type {Set<string>} */
     const selectedExemptionCodes = new Set();
 
-    const STORAGE_COLS = 'propTaxBrowseCols';
+    const pathMatch = location.pathname.match(/^\/c\/([a-z]{2})\/([a-z0-9_]+)\/browse\/?/i);
+    if (!pathMatch) {
+      window.location.href = '/c/tx/bexar/browse';
+    }
+    const STATE = pathMatch[1].toLowerCase();
+    const COUNTY = pathMatch[2].toLowerCase();
+    const API = `/api/c/${STATE}/${COUNTY}`;
+    document.getElementById('backLink').href = `/c/${STATE}/${COUNTY}/`;
+    document.title = `Browse — ${COUNTY} (${STATE.toUpperCase()})`;
+
+    const STORAGE_COLS = `propTaxBrowseCols_${STATE}_${COUNTY}`;
     const COLS_COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
 
     function escapeHtml(s) {
@@ -492,14 +502,19 @@
     }
 
     async function init() {
-      const [fieldsRes, verRes] = await Promise.all([
-        fetch('/api/browse/fields'),
-        fetch('/api/version'),
+      const [fieldsRes, statsRes] = await Promise.all([
+        fetch(`${API}/browse/fields`),
+        fetch(`${API}/stats`),
       ]);
       const fieldsData = await fieldsRes.json();
       fieldMeta = fieldsData.fields || [];
-      const ver = await verRes.json().catch(() => ({}));
-      if (ver.version) document.getElementById('version').textContent = `v${ver.version}`;
+      const stats = await statsRes.json().catch(() => ({}));
+      if (stats.version) document.getElementById('version').textContent = `v${stats.version}`;
+      if (stats.countyName) {
+        document.getElementById('pageTitle').innerHTML =
+          `Browse ${escapeHtml(stats.countyName)} <span id="version" style="color:#8b949e;font-size:0.85rem;font-weight:400;">${stats.version ? `v${escapeHtml(stats.version)}` : ''}</span>`;
+        document.title = `Browse — ${stats.countyName}`;
+      }
 
       renderExemptionLegend();
       renderColumns();
@@ -634,7 +649,7 @@
       const limit = Number(document.getElementById('pageSize').value) || 50;
 
       try {
-        const res = await fetch('/api/browse/properties', {
+        const res = await fetch(`${API}/browse/properties`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

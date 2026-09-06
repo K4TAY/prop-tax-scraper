@@ -4,6 +4,13 @@ import { basename, join } from "path";
 import { parse } from "csv-parse";
 import pool from "./db.js";
 import { ensureCadSourcesSchema, seedCadSources } from "./cadSources.js";
+import {
+  ensureCountyTables,
+  migrateLegacyBexarTables,
+  quoteTable,
+  resolveCounty,
+  getCountyDbCounts,
+} from "./county.js";
 
 const PROPERTY_COLUMNS = [
   "pacs_prop_id",
@@ -97,6 +104,10 @@ export async function ensureSchema(client = pool) {
 
   await ensureCadSourcesSchema(client);
   await seedCadSources(client);
+  // Activate Bexar county tables and migrate legacy shared tables if present.
+  const bexar = resolveCounty("tx", "bexar", "/tmp");
+  await ensureCountyTables(bexar, client);
+  await migrateLegacyBexarTables(client);
 }
 
 async function migratePropertiesPrimaryKey(client) {
@@ -203,7 +214,7 @@ function normalizeRow(raw) {
   };
 }
 
-async function insertBatch(client, rows) {
+async function insertBatch(client, rows, propertiesTable) {
   if (!rows.length) return 0;
 
   const cols = PROPERTY_COLUMNS;
@@ -222,7 +233,7 @@ async function insertBatch(client, rows) {
 
   await client.query(
     `
-    INSERT INTO properties (${cols.join(", ")})
+    INSERT INTO ${quoteTable(propertiesTable)} (${cols.join(", ")})
     VALUES ${placeholders.join(", ")}
     ON CONFLICT (pacs_prop_id) DO UPDATE SET
       ${updates.join(", ")}
@@ -251,13 +262,14 @@ async function readCsvRows(csvPath) {
   return rows;
 }
 
-async function upsertNeighborhood(client, { hoodCd, meta, sourceCsv, rowCount }) {
-  const hoodName =
-    meta?.hood_name ||
-    null;
+async function upsertNeighborhood(
+  client,
+  { hoodCd, meta, sourceCsv, rowCount, neighborhoodsTable }
+) {
+  const hoodName = meta?.hood_name || null;
   await client.query(
     `
-    INSERT INTO neighborhoods (
+    INSERT INTO ${quoteTable(neighborhoodsTable)} (
       hood_cd, hood_name, total_available, exported, over_1000, truncated, marks, source_csv, imported_at
     ) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, NOW())
     ON CONFLICT (hood_cd) DO UPDATE SET
@@ -306,15 +318,32 @@ async function moveHoodFiles(csvDir, processedDir, hoodCd) {
 }
 
 /**
- * Import all CSVs from csvDir into Postgres, then move csv/json/marker files to processedDir.
+ * Import all CSVs from csvDir into a county's Postgres tables, then move files to processedDir.
+ * @param {{
+ *   csvDir: string,
+ *   processedDir: string,
+ *   neighborhoodsTable: string,
+ *   propertiesTable: string,
+ *   log?: object,
+ *   batchSize?: number,
+ * }} opts
  */
 export async function importCsvDirectory({
   csvDir,
   processedDir,
+  neighborhoodsTable,
+  propertiesTable,
   log = console,
   batchSize = 250,
 } = {}) {
+  if (!neighborhoodsTable || !propertiesTable) {
+    throw new Error("neighborhoodsTable and propertiesTable are required");
+  }
   await ensureSchema();
+  await ensureCountyTables({
+    neighborhoodsTable,
+    propertiesTable,
+  });
 
   let files;
   try {
@@ -339,7 +368,10 @@ export async function importCsvDirectory({
     return summary;
   }
 
-  log.info?.(`Importing ${files.length} CSV file(s) into PostgreSQL…`, "import");
+  log.info?.(
+    `Importing ${files.length} CSV file(s) into ${propertiesTable}…`,
+    "import"
+  );
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
@@ -368,6 +400,7 @@ export async function importCsvDirectory({
           meta: meta || { hood_cd: hoodCd, total_available: 0, exported: 0 },
           sourceCsv: file,
           rowCount: 0,
+          neighborhoodsTable,
         });
         await client.query("COMMIT");
         const moved = await moveHoodFiles(csvDir, processedDir, hoodCd);
@@ -383,11 +416,12 @@ export async function importCsvDirectory({
         meta,
         sourceCsv: file,
         rowCount: rows.length,
+        neighborhoodsTable,
       });
 
       for (let offset = 0; offset < rows.length; offset += batchSize) {
         const batch = rows.slice(offset, offset + batchSize);
-        await insertBatch(client, batch);
+        await insertBatch(client, batch, propertiesTable);
       }
       await client.query("COMMIT");
 
@@ -419,23 +453,11 @@ export async function importCsvDirectory({
   return summary;
 }
 
-export async function getDbCounts() {
-  try {
-    const [props, hoods] = await Promise.all([
-      pool.query("SELECT COUNT(*)::int AS n FROM properties"),
-      pool.query("SELECT COUNT(*)::int AS n FROM neighborhoods"),
-    ]);
-    return {
-      connected: true,
-      propertyCount: props.rows[0]?.n ?? 0,
-      neighborhoodDbCount: hoods.rows[0]?.n ?? 0,
-    };
-  } catch (err) {
-    return {
-      connected: false,
-      error: err.message,
-      propertyCount: 0,
-      neighborhoodDbCount: 0,
-    };
+/** @deprecated Prefer getCountyDbCounts(ctx) */
+export async function getDbCounts(ctx = null) {
+  if (ctx?.propertiesTable) {
+    return getCountyDbCounts(ctx);
   }
+  const bexar = resolveCounty("tx", "bexar", "/tmp");
+  return getCountyDbCounts(bexar);
 }

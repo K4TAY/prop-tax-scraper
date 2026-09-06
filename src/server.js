@@ -6,16 +6,21 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import open from "open";
 import logger from "./logger.js";
-import { getDbCounts, importCsvDirectory, ensureSchema } from "./importCsv.js";
+import { importCsvDirectory, ensureSchema } from "./importCsv.js";
 import { browseProperties, listBrowseFields } from "./browse.js";
+import pool from "./db.js";
+import {
+  resolveCounty,
+  ensureCountyTables,
+  getCountyDbCounts,
+  findCadSource,
+  migrateLegacyBexarTables,
+} from "./county.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const PUBLIC = join(ROOT, "public");
-/** Local default: ./data. On Railway, mount a volume at /data and set DATA_DIR=/data. */
 const DATA = process.env.DATA_DIR || join(ROOT, "data");
-const CSV_DIR = process.env.CSV_DIR || join(DATA, "csv");
-const PROCESSED_DIR = process.env.PROCESSED_DIR || join(DATA, "processed");
 const PORT = Number(process.env.PORT) || 3847;
 const DATA_UPLOAD_TOKEN = process.env.DATA_UPLOAD_TOKEN || "";
 
@@ -24,6 +29,26 @@ export const APP_VERSION = JSON.parse(
 ).version;
 
 const app = express();
+
+/** @type {Map<string, import('child_process').ChildProcess>} */
+const scrapeProcs = new Map();
+/** @type {Set<string>} */
+const importRunningKeys = new Set();
+
+function countyKey(ctx) {
+  return `${ctx.state}/${ctx.slug}`;
+}
+
+function isCountyBusy(key) {
+  return scrapeProcs.has(key) || importRunningKeys.has(key);
+}
+
+function busyCounties() {
+  return {
+    scraping: [...scrapeProcs.keys()],
+    importing: [...importRunningKeys],
+  };
+}
 
 function countCsv(dir) {
   if (!existsSync(dir)) return 0;
@@ -47,7 +72,119 @@ function runTarExtract(archivePath, destDir) {
   });
 }
 
-/** Restore a gzipped tar of csv/ + processed/ (+ optional neighborhoods.json) onto DATA_DIR. */
+function parsePythonLine(line) {
+  const m = line.match(
+    /^\d{1,2}:\d{2}:\d{2}\s+(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+(.*)$/i
+  );
+  if (!m) return { level: "info", message: line };
+  const raw = m[1].toUpperCase();
+  let level = "info";
+  if (raw === "WARNING" || raw === "WARN") level = "warn";
+  else if (raw === "ERROR" || raw === "CRITICAL") level = "error";
+  const message = m[2];
+  if (/OVER 1000|STOPPED|REFUSED|aborted/i.test(message)) {
+    level = level === "info" ? "warn" : level;
+  }
+  if (/wrote \d+\/\d+ rows/i.test(message)) level = "success";
+  if (/^Done\b/i.test(message) && /failed=0/.test(message) && !/aborted/i.test(message)) {
+    level = "success";
+  }
+  return { level, message: line };
+}
+
+function pipeChildOutput(proc, source) {
+  let stdoutBuf = "";
+  let stderrBuf = "";
+  proc.stdout.on("data", (buf) => {
+    stdoutBuf += buf.toString();
+    const parts = stdoutBuf.split(/\r?\n/);
+    stdoutBuf = parts.pop() ?? "";
+    for (const line of parts) {
+      if (!line.trim()) continue;
+      const { level, message } = parsePythonLine(line.trim());
+      logger.log(message, level, source);
+    }
+  });
+  proc.stderr.on("data", (buf) => {
+    stderrBuf += buf.toString();
+    const parts = stderrBuf.split(/\r?\n/);
+    stderrBuf = parts.pop() ?? "";
+    for (const line of parts) {
+      if (!line.trim()) continue;
+      const { level, message } = parsePythonLine(line.trim());
+      logger.log(message, level, source);
+    }
+  });
+}
+
+function resolveCtx(req) {
+  return resolveCounty(req.params.state, req.params.county, DATA);
+}
+
+async function getCountyStats(ctx) {
+  let csvCount = 0;
+  let over1000 = 0;
+  let metaCount = 0;
+  let processedCount = 0;
+  let neighborhoodCount = 0;
+
+  await mkdir(ctx.csvDir, { recursive: true });
+  await mkdir(ctx.processedDir, { recursive: true });
+
+  const indexPath = join(ctx.dataDir, "neighborhoods.json");
+  if (existsSync(indexPath)) {
+    try {
+      const hoods = JSON.parse(await readFile(indexPath, "utf8"));
+      neighborhoodCount = Array.isArray(hoods) ? hoods.length : 0;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (existsSync(ctx.csvDir)) {
+    const files = await readdir(ctx.csvDir);
+    for (const name of files) {
+      if (name.endsWith(".csv")) csvCount += 1;
+      if (name.endsWith(".OVER_1000")) over1000 += 1;
+      if (name.endsWith(".meta.json")) metaCount += 1;
+    }
+  }
+  if (existsSync(ctx.processedDir)) {
+    const files = await readdir(ctx.processedDir);
+    processedCount = files.filter((n) => n.endsWith(".csv")).length;
+  }
+
+  const db = await getCountyDbCounts(ctx);
+  const source = await findCadSource(ctx.state, ctx.slug);
+  const key = countyKey(ctx);
+  const scrapeRunning = scrapeProcs.has(key);
+  const importRunning = importRunningKeys.has(key);
+
+  return {
+    version: APP_VERSION,
+    state: ctx.state,
+    county: ctx.slug,
+    countyName: source?.county_name || ctx.countyName,
+    tables: {
+      neighborhoods: ctx.neighborhoodsTable,
+      properties: ctx.propertiesTable,
+    },
+    paths: { dataDir: ctx.dataDir, csvDir: ctx.csvDir, processedDir: ctx.processedDir },
+    source,
+    running: isCountyBusy(key),
+    scrapeRunning,
+    importRunning,
+    busy: busyCounties(),
+    neighborhoodCount,
+    csvCount,
+    over1000,
+    metaCount,
+    processedCount,
+    db,
+  };
+}
+
+/** Restore tarball into a county data dir (default tx/bexar). */
 app.post(
   "/api/data/restore",
   express.raw({ type: () => true, limit: "500mb" }),
@@ -63,20 +200,27 @@ app.post(
     if (!Buffer.isBuffer(body) || body.length < 16) {
       return res.status(400).json({ error: "expected gzipped tar body" });
     }
-
+    const state = String(req.query.state || "tx");
+    const county = String(req.query.county || "bexar");
+    let ctx;
+    try {
+      ctx = resolveCounty(state, county, DATA);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
     const tmp = join("/tmp", `prop-tax-restore-${Date.now()}.tgz`);
     try {
-      await mkdir(DATA, { recursive: true });
-      await mkdir(CSV_DIR, { recursive: true });
-      await mkdir(PROCESSED_DIR, { recursive: true });
+      await mkdir(ctx.dataDir, { recursive: true });
+      await mkdir(ctx.csvDir, { recursive: true });
+      await mkdir(ctx.processedDir, { recursive: true });
       await writeFile(tmp, body);
-      await runTarExtract(tmp, DATA);
+      await runTarExtract(tmp, ctx.dataDir);
       const [csvCount, processedCount] = await Promise.all([
-        countCsv(CSV_DIR),
-        countCsv(PROCESSED_DIR),
+        countCsv(ctx.csvDir),
+        countCsv(ctx.processedDir),
       ]);
       logger.success(
-        `Data restore OK: csv=${csvCount} processed=${processedCount} (${body.length} bytes)`,
+        `Data restore OK (${ctx.state}/${ctx.slug}): csv=${csvCount} processed=${processedCount}`,
         "server"
       );
       res.json({
@@ -84,7 +228,9 @@ app.post(
         bytes: body.length,
         csvCount,
         processedCount,
-        dataDir: DATA,
+        dataDir: ctx.dataDir,
+        county: ctx.slug,
+        state: ctx.state,
       });
     } catch (err) {
       logger.error(`Data restore failed: ${err.message}`, "server");
@@ -100,122 +246,101 @@ app.post(
 );
 
 app.use(express.json());
-app.use(express.static(PUBLIC));
-
-let scrapeProc = null;
-let scrapeRunning = false;
-let importRunning = false;
-
-function parsePythonLine(line) {
-  // "13:55:47 INFO message" or "13:55:47 WARNING message"
-  const m = line.match(
-    /^\d{1,2}:\d{2}:\d{2}\s+(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL)\s+(.*)$/i
-  );
-  if (!m) return { level: "info", message: line };
-  const raw = m[1].toUpperCase();
-  let level = "info";
-  if (raw === "WARNING" || raw === "WARN") level = "warn";
-  else if (raw === "ERROR" || raw === "CRITICAL") level = "error";
-  else if (raw === "DEBUG") level = "info";
-  const message = m[2];
-  if (/OVER 1000|STOPPED|REFUSED|aborted/i.test(message)) {
-    level = level === "info" ? "warn" : level;
-  }
-  if (/wrote \d+\/\d+ rows/i.test(message)) {
-    level = "success";
-  }
-  if (/^Done\b/i.test(message) && !/aborted/i.test(message) && !/failed=/i.test(message)) {
-    // keep info; success if no failures embedded awkwardly
-  }
-  if (/^Done\b/i.test(message) && /failed=0/.test(message) && !/aborted/i.test(message)) {
-    level = "success";
-  }
-  return { level, message: line };
-}
-
-function pipeChildOutput(proc, source) {
-  let stdoutBuf = "";
-  let stderrBuf = "";
-
-  proc.stdout.on("data", (buf) => {
-    stdoutBuf += buf.toString();
-    const parts = stdoutBuf.split(/\r?\n/);
-    stdoutBuf = parts.pop() ?? "";
-    for (const line of parts) {
-      if (!line.trim()) continue;
-      const { level, message } = parsePythonLine(line.trim());
-      logger.log(message, level, source);
-    }
-  });
-
-  proc.stderr.on("data", (buf) => {
-    stderrBuf += buf.toString();
-    const parts = stderrBuf.split(/\r?\n/);
-    stderrBuf = parts.pop() ?? "";
-    for (const line of parts) {
-      if (!line.trim()) continue;
-      // Python logging goes to stderr by default
-      const { level, message } = parsePythonLine(line.trim());
-      logger.log(message, level, source);
-    }
-  });
-}
-
-async function getStats() {
-  let csvCount = 0;
-  let over1000 = 0;
-  let metaCount = 0;
-  let processedCount = 0;
-  let neighborhoodCount = 0;
-
-  if (existsSync(join(DATA, "neighborhoods.json"))) {
-    try {
-      const hoods = JSON.parse(await readFile(join(DATA, "neighborhoods.json"), "utf8"));
-      neighborhoodCount = Array.isArray(hoods) ? hoods.length : 0;
-    } catch {
-      /* ignore */
-    }
-  }
-
-  if (existsSync(CSV_DIR)) {
-    const files = await readdir(CSV_DIR);
-    for (const name of files) {
-      if (name.endsWith(".csv")) csvCount += 1;
-      if (name.endsWith(".OVER_1000")) over1000 += 1;
-      if (name.endsWith(".meta.json")) metaCount += 1;
-    }
-  }
-
-  if (existsSync(PROCESSED_DIR)) {
-    const files = await readdir(PROCESSED_DIR);
-    processedCount = files.filter((n) => n.endsWith(".csv")).length;
-  }
-
-  const db = await getDbCounts();
-
-  return {
-    version: APP_VERSION,
-    running: scrapeRunning || importRunning,
-    scrapeRunning,
-    importRunning,
-    neighborhoodCount,
-    csvCount,
-    over1000,
-    metaCount,
-    processedCount,
-    db,
-  };
-}
 
 app.get("/api/version", (_req, res) => {
   res.json({ version: APP_VERSION });
 });
 
-app.get("/api/stats", async (_req, res) => {
+app.get("/api/cad-sources/states", async (_req, res) => {
   try {
-    res.json(await getStats());
+    const { rows } = await pool.query(`
+      SELECT state_code AS state,
+             count(*)::int AS county_count,
+             count(*) FILTER (WHERE scrape_strategy = 'arcgis_rest')::int AS ready_count
+      FROM cad_sources
+      WHERE is_active = TRUE
+      GROUP BY state_code
+      ORDER BY state_code
+    `);
+    res.json({
+      version: APP_VERSION,
+      states: rows.map((r) => ({
+        state: String(r.state).trim(),
+        countyCount: r.county_count,
+        readyCount: r.ready_count,
+      })),
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+app.get("/api/cad-sources", async (req, res) => {
+  try {
+    const state = String(req.query.state || "")
+      .trim()
+      .toUpperCase();
+    if (!/^[A-Z]{2}$/.test(state)) {
+      return res.status(400).json({ error: "state query param required (e.g. TX)" });
+    }
+    const { rows } = await pool.query(
+      `
+      SELECT id, county_name, state_code, client_id, scrape_strategy,
+             propaccess_base_url, map_search_url, arcgis_mapserver_url,
+             same_stack_as_bexar, notes, evidence_source
+      FROM cad_sources
+      WHERE is_active = TRUE AND state_code = $1
+      ORDER BY county_name
+      `,
+      [state]
+    );
+    res.json({
+      state,
+      counties: rows.map((r) => ({
+        ...r,
+        state_code: String(r.state_code).trim(),
+        slug: String(r.county_name)
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "_")
+          .replace(/^_|_$/g, ""),
+        portalPath: `/c/${String(r.state_code).trim().toLowerCase()}/${String(r.county_name)
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "_")
+          .replace(/^_|_$/g, "")}/`,
+      })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- County-scoped APIs ---
+app.get("/api/c/:state/:county/stats", async (req, res) => {
+  try {
+    const ctx = resolveCtx(req);
+    await ensureCountyTables(ctx);
+    res.json(await getCountyStats(ctx));
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get("/api/c/:state/:county/browse/fields", (_req, res) => {
+  res.json({ fields: listBrowseFields() });
+});
+
+app.post("/api/c/:state/:county/browse/properties", async (req, res) => {
+  try {
+    const ctx = resolveCtx(req);
+    await ensureCountyTables(ctx);
+    const result = await browseProperties({
+      ...(req.body || {}),
+      propertiesTable: ctx.propertiesTable,
+    });
+    res.json(result);
+  } catch (err) {
+    logger.error(`Browse failed: ${err.message}`, "browse");
+    res.status(400).json({ error: err.message });
   }
 });
 
@@ -237,17 +362,29 @@ app.post("/api/logs/clear", (_req, res) => {
   res.json({ message: "Logs cleared" });
 });
 
-app.get("/api/scrape/status", (_req, res) => {
-  res.json({ running: scrapeRunning, pid: scrapeProc?.pid ?? null });
-});
-
-app.post("/api/scrape", (req, res) => {
-  if (scrapeRunning || importRunning) {
+app.post("/api/c/:state/:county/scrape", async (req, res) => {
+  let ctx;
+  try {
+    ctx = resolveCtx(req);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+  const key = countyKey(ctx);
+  if (isCountyBusy(key)) {
     return res.status(409).json({
-      message: importRunning
-        ? "Import is running. Wait for it to finish."
-        : "Scraper already running. Use Stop, or wait for it to finish.",
+      message: importRunningKeys.has(key)
+        ? "Import is running for this county. Wait for it to finish."
+        : "Scraper already running for this county. Use Stop, or wait for it to finish.",
       running: true,
+      busy: busyCounties(),
+    });
+  }
+
+  const source = await findCadSource(ctx.state, ctx.slug);
+  if (source && source.scrape_strategy !== "arcgis_rest") {
+    return res.status(501).json({
+      message: `Scrape not implemented for strategy "${source.scrape_strategy}" yet.`,
+      scrape_strategy: source.scrape_strategy,
     });
   }
 
@@ -259,14 +396,17 @@ app.post("/api/scrape", (req, res) => {
     skipEmpty = false,
   } = req.body || {};
 
+  await mkdir(ctx.csvDir, { recursive: true });
+  await mkdir(ctx.processedDir, { recursive: true });
+
   const args = [
     "scrape_neighborhoods.py",
     "--out-dir",
-    CSV_DIR,
+    ctx.csvDir,
     "--processed-dir",
-    PROCESSED_DIR,
+    ctx.processedDir,
     "--index",
-    join(DATA, "neighborhoods.json"),
+    join(ctx.dataDir, "neighborhoods.json"),
   ];
   if (Number(limit) > 0) args.push("--limit", String(Number(limit)));
   if (force) args.push("--force");
@@ -278,111 +418,137 @@ app.post("/api/scrape", (req, res) => {
     }
   }
 
-  scrapeRunning = true;
-  logger.info(`Starting scraper: python3 ${args.join(" ")}`, "scraper");
+  logger.info(`Starting scraper [${key}]: python3 ${args.join(" ")}`, "scraper");
 
   const proc = spawn("python3", args, {
     cwd: ROOT,
     env: {
       ...process.env,
       PYTHONUNBUFFERED: "1",
-      DATA_DIR: DATA,
-      CSV_DIR,
-      PROCESSED_DIR,
+      DATA_DIR: ctx.dataDir,
+      CSV_DIR: ctx.csvDir,
+      PROCESSED_DIR: ctx.processedDir,
     },
   });
-  scrapeProc = proc;
+  scrapeProcs.set(key, proc);
   pipeChildOutput(proc, "scraper");
 
   proc.on("error", (err) => {
-    logger.error(`Failed to start python: ${err.message}`, "scraper");
-    scrapeRunning = false;
-    scrapeProc = null;
+    logger.error(`Failed to start python [${key}]: ${err.message}`, "scraper");
+    if (scrapeProcs.get(key) === proc) scrapeProcs.delete(key);
   });
 
   proc.on("close", (code, signal) => {
-    scrapeRunning = false;
-    scrapeProc = null;
-    if (signal) {
-      logger.warn(`Scraper stopped (signal ${signal})`, "scraper");
-    } else if (code === 0) {
-      logger.success(`Scraper finished successfully (exit ${code})`, "scraper");
-    } else if (code === 3) {
-      logger.warn(`Scraper aborted by guard (exit ${code})`, "scraper");
-    } else {
-      logger.error(`Scraper exited with code ${code}`, "scraper");
-    }
+    if (scrapeProcs.get(key) === proc) scrapeProcs.delete(key);
+    if (signal) logger.warn(`Scraper [${key}] stopped (signal ${signal})`, "scraper");
+    else if (code === 0) logger.success(`Scraper [${key}] finished successfully (exit ${code})`, "scraper");
+    else if (code === 3) logger.warn(`Scraper [${key}] aborted by guard (exit ${code})`, "scraper");
+    else logger.error(`Scraper [${key}] exited with code ${code}`, "scraper");
   });
 
-  res.json({
-    message: "Scraper started — watch Console Output",
-    args,
-    running: true,
-  });
+  res.json({ message: "Scraper started — watch Console Output", args, running: true, county: ctx.slug });
 });
 
-app.post("/api/scrape/stop", (_req, res) => {
-  if (!scrapeRunning || !scrapeProc) {
-    return res.json({ message: "No scraper is running", stopped: false });
-  }
-  logger.warn("Stop requested — sending SIGTERM to scraper…", "scraper");
+app.post("/api/c/:state/:county/scrape/stop", (req, res) => {
+  let ctx;
   try {
-    scrapeProc.kill("SIGTERM");
+    ctx = resolveCtx(req);
   } catch (err) {
-    logger.error(`Stop failed: ${err.message}`, "scraper");
+    return res.status(400).json({ error: err.message });
+  }
+  const key = countyKey(ctx);
+  const proc = scrapeProcs.get(key);
+  if (!proc) {
+    return res.json({ message: "No scraper is running for this county", stopped: false });
+  }
+  logger.warn(`Stop requested [${key}] — sending SIGTERM…`, "scraper");
+  try {
+    proc.kill("SIGTERM");
+  } catch (err) {
     return res.status(500).json({ error: err.message });
   }
   res.json({ message: "Stop signal sent", stopped: true });
 });
 
-app.post("/api/import", async (req, res) => {
-  if (scrapeRunning || importRunning) {
+app.post("/api/c/:state/:county/import", async (req, res) => {
+  let ctx;
+  try {
+    ctx = resolveCtx(req);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+  const key = countyKey(ctx);
+  if (isCountyBusy(key)) {
     return res.status(409).json({
-      message: scrapeRunning
-        ? "Scraper is running. Stop it or wait before importing."
-        : "Import already running.",
+      message: scrapeProcs.has(key)
+        ? "Scraper is running for this county. Stop it or wait before importing."
+        : "Import already running for this county.",
       running: true,
+      busy: busyCounties(),
     });
   }
 
-  importRunning = true;
-  res.json({
-    message: "Import started — watch Console Output",
-    running: true,
-  });
+  importRunningKeys.add(key);
+  res.json({ message: "Import started — watch Console Output", running: true });
 
   try {
+    await ensureCountyTables(ctx);
     await importCsvDirectory({
-      csvDir: CSV_DIR,
-      processedDir: PROCESSED_DIR,
+      csvDir: ctx.csvDir,
+      processedDir: ctx.processedDir,
+      neighborhoodsTable: ctx.neighborhoodsTable,
+      propertiesTable: ctx.propertiesTable,
       log: logger,
     });
   } catch (err) {
-    logger.error(`Import crashed: ${err.message}`, "import");
+    logger.error(`Import [${key}] crashed: ${err.message}`, "import");
   } finally {
-    importRunning = false;
+    importRunningKeys.delete(key);
   }
 });
 
-app.get("/api/import/status", (_req, res) => {
-  res.json({ running: importRunning });
+// Pages
+app.get("/", (_req, res) => {
+  res.sendFile(join(PUBLIC, "index.html"));
 });
 
-app.get("/api/browse/fields", (_req, res) => {
-  res.json({ fields: listBrowseFields() });
+app.get("/state.html", (_req, res) => {
+  res.sendFile(join(PUBLIC, "state.html"));
 });
 
-app.post("/api/browse/properties", async (req, res) => {
-  try {
-    const result = await browseProperties(req.body || {});
-    res.json(result);
-  } catch (err) {
-    logger.error(`Browse failed: ${err.message}`, "browse");
-    res.status(400).json({ error: err.message });
-  }
+app.get("/c/:state/:county", (_req, res) => {
+  res.sendFile(join(PUBLIC, "county.html"));
 });
 
-app.get("*", (_req, res) => {
+app.get("/c/:state/:county/", (_req, res) => {
+  res.sendFile(join(PUBLIC, "county.html"));
+});
+
+app.get("/c/:state/:county/browse", (_req, res) => {
+  res.sendFile(join(PUBLIC, "browse.html"));
+});
+
+app.get("/c/:state/:county/browse/", (_req, res) => {
+  res.sendFile(join(PUBLIC, "browse.html"));
+});
+
+app.get("/c/:state/:county/browse.html", (req, res) => {
+  res.redirect(302, `/c/${req.params.state}/${req.params.county}/browse`);
+});
+
+// Legacy redirects
+app.get("/browse.html", (_req, res) => {
+  res.redirect(302, "/c/tx/bexar/browse");
+});
+app.get("/scraper.html", (_req, res) => {
+  res.redirect(302, "/c/tx/bexar/");
+});
+
+app.use(express.static(PUBLIC));
+
+app.get("*", (req, res, next) => {
+  if (req.path.startsWith("/api/")) return next();
+  if (req.path.startsWith("/c/")) return res.status(404).send("County portal not found");
   res.sendFile(join(PUBLIC, "index.html"));
 });
 
@@ -390,14 +556,14 @@ app.listen(PORT, "0.0.0.0", async () => {
   const url = `http://localhost:${PORT}`;
   logger.success(`Prop tax scraper UI v${APP_VERSION} → ${url}`, "server");
   try {
-    await mkdir(CSV_DIR, { recursive: true });
-    await mkdir(PROCESSED_DIR, { recursive: true });
-    logger.info(`Data dirs ready: csv=${CSV_DIR} processed=${PROCESSED_DIR}`, "server");
-  } catch (err) {
-    logger.error(`Data dir init failed: ${err.message}`, "server");
-  }
-  try {
     await ensureSchema();
+    const mig = await migrateLegacyBexarTables();
+    if (mig.migrated) {
+      logger.success(
+        `Migrated legacy tables → bexar_tx_* (props=${mig.copiedProps}, hoods=${mig.copiedHoods})`,
+        "server"
+      );
+    }
     logger.success("Postgres schema ready", "server");
   } catch (err) {
     logger.error(`Schema init failed: ${err.message}`, "server");

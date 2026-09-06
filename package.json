@@ -1,13 +1,14 @@
 {
   "name": "prop-tax-scraper",
-  "version": "0.2.9",
-  "description": "Bexar CAD neighborhood property scraper with live console UI",
+  "version": "0.3.0",
+  "description": "Multi-county CAD property scraper with live console UI",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
     "start": "bun src/server.js",
     "dev": "bun --watch src/server.js",
-    "scrape": "python3 scrape_neighborhoods.py"
+    "scrape": "python3 scrape_neighborhoods.py",
+    "build:tx-map": "bun scripts/build-texas-map.js"
   },
   "dependencies": {
     "csv-parse": "^7.0.2",
@@ -15,5 +16,9 @@
     "express": "^4.22.1",
     "open": "^10.2.0",
     "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "d3-geo": "^3.1.1",
+    "topojson-client": "^3.1.0"
   }
 }

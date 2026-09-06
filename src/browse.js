@@ -89,6 +89,7 @@ function normalizeFields(fields) {
  *   offset?: number,
  *   sort?: string,
  *   order?: string,
+ *   propertiesTable?: string,
  * }} opts
  */
 export async function browseProperties(opts = {}) {
@@ -98,6 +99,11 @@ export async function browseProperties(opts = {}) {
   const offset = Math.max(parseInt(String(opts.offset ?? 0), 10) || 0, 0);
   const sort = FIELD_SET.has(opts.sort) ? opts.sort : "pacs_prop_id";
   const order = String(opts.order || "asc").toLowerCase() === "desc" ? "DESC" : "ASC";
+  const propertiesTable = opts.propertiesTable || "bexar_tx_properties";
+  if (!/^[a-z0-9_]+$/.test(propertiesTable)) {
+    throw new Error(`Invalid properties table: ${propertiesTable}`);
+  }
+  const fromTable = `"${propertiesTable}"`;
 
   const whereParts = [];
   const params = [];
@@ -129,7 +135,6 @@ export async function browseProperties(opts = {}) {
     if (value == null || String(value).trim() === "") continue;
 
     if (f.op === "has_token") {
-      // Match a whole comma-separated token (HS must not match DVHS).
       params.push(String(value).trim());
       whereParts.push(`EXISTS (
         SELECT 1
@@ -144,7 +149,6 @@ export async function browseProperties(opts = {}) {
       const pattern = raw.includes("%") ? raw : `%${raw}%`;
       params.push(pattern);
       if (f.op === "not_ilike") {
-        // Treat NULL as not containing the pattern so those rows are kept.
         whereParts.push(
           `COALESCE(${col}::text, '') NOT ILIKE $${params.length}`
         );
@@ -188,7 +192,7 @@ export async function browseProperties(opts = {}) {
   const selectList = fields.map((f) => quoteIdent(f)).join(", ");
 
   const countRes = await pool.query(
-    `SELECT COUNT(*)::int AS n FROM properties ${whereSql}`,
+    `SELECT COUNT(*)::int AS n FROM ${fromTable} ${whereSql}`,
     params
   );
   const total = countRes.rows[0]?.n ?? 0;
@@ -199,7 +203,7 @@ export async function browseProperties(opts = {}) {
   const dataRes = await pool.query(
     `
     SELECT ${selectList}
-    FROM properties
+    FROM ${fromTable}
     ${whereSql}
     ORDER BY ${quoteIdent(sort)} ${order}, pacs_prop_id ASC
     LIMIT $${limIdx}
@@ -215,6 +219,7 @@ export async function browseProperties(opts = {}) {
     limit,
     offset,
     total,
+    propertiesTable,
     rows: dataRes.rows,
   };
 }
