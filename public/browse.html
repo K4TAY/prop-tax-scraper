@@ -264,11 +264,13 @@
       <button type="button" class="ghost" onclick="addFilterRow()" style="margin-top:0.4rem;width:100%;">+ Add filter</button>
 
       <div class="section-label">Page size</div>
-      <select id="pageSize">
+      <select id="pageSize" aria-label="Records per page">
         <option value="25">25</option>
         <option value="50" selected>50</option>
         <option value="100">100</option>
         <option value="250">250</option>
+        <option value="500">500</option>
+        <option value="1000">1000</option>
       </select>
 
       <div class="actions">
@@ -647,6 +649,11 @@
       saveColumns(fields);
       lastFields = fields;
       const limit = Number(document.getElementById('pageSize').value) || 50;
+      // Clamp client-side to match server max (1000)
+      const safeLimit = Math.min(Math.max(limit, 1), 1000);
+      if (safeLimit !== limit) {
+        document.getElementById('pageSize').value = String(safeLimit);
+      }
 
       try {
         const res = await fetch(`${API}/browse/properties`, {
@@ -655,7 +662,7 @@
           body: JSON.stringify({
             fields,
             filters: collectFilters(),
-            limit,
+            limit: safeLimit,
             offset,
             sort,
             order,
@@ -667,11 +674,11 @@
         renderTable(data.fields || fields, data.rows || []);
         document.getElementById('shownCount').textContent = String((data.rows || []).length);
         document.getElementById('totalCount').textContent = String(total);
-        const page = Math.floor(offset / limit) + 1;
-        const pages = Math.max(1, Math.ceil(total / limit));
+        const page = Math.floor(offset / safeLimit) + 1;
+        const pages = Math.max(1, Math.ceil(total / safeLimit));
         document.getElementById('pageInfo').textContent = `Page ${page} / ${pages}`;
         document.getElementById('btnPrev').disabled = offset <= 0;
-        document.getElementById('btnNext').disabled = offset + limit >= total;
+        document.getElementById('btnNext').disabled = offset + safeLimit >= total;
       } catch (err) {
         showError(err.message || String(err));
       }
@@ -734,6 +741,10 @@
       const limit = Number(document.getElementById('pageSize').value) || 50;
       runSearch(offset + limit);
     }
+
+    document.getElementById('pageSize').addEventListener('change', () => {
+      runSearch(0);
+    });
 
     init();
   </script>

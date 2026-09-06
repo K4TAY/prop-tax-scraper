@@ -95,7 +95,7 @@ function normalizeFields(fields) {
 export async function browseProperties(opts = {}) {
   const fields = normalizeFields(opts.fields);
   const filters = normalizeFilters(opts.filters);
-  const limit = Math.min(Math.max(parseInt(String(opts.limit ?? 50), 10) || 50, 1), 500);
+  const limit = Math.min(Math.max(parseInt(String(opts.limit ?? 50), 10) || 50, 1), 1000);
   const offset = Math.max(parseInt(String(opts.offset ?? 0), 10) || 0, 0);
   const sort = FIELD_SET.has(opts.sort) ? opts.sort : "pacs_prop_id";
   const order = String(opts.order || "asc").toLowerCase() === "desc" ? "DESC" : "ASC";
