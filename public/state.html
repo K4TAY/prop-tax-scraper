@@ -248,12 +248,20 @@
       const props = Number(c.propertyCount) || 0;
       const unique = Number(c.uniqueParcelCount) || 0;
       const hoods = Number(c.neighborhoodCount) || 0;
+      const discovered = Number(c.discoveredNeighborhoodCount) || 0;
+      const processed = Number(c.processedCsvCount) || 0;
       const pending = Number(c.pendingCsvCount) || 0;
       const unassigned = Number(c.unassignedCount) || 0;
-      if (props === 0 && hoods === 0 && pending === 0) {
+      if (props === 0 && hoods === 0 && pending === 0 && processed === 0) {
         return '<div class="stats"><span class="muted">No data imported yet</span></div>';
       }
-      let html = `<div class="stats">${formatCount(unique)} unique parcels · ${formatCount(props)} records · ${formatCount(hoods)} neighborhoods`;
+      let html = `<div class="stats">${formatCount(unique)} unique parcels · ${formatCount(props)} records · ${formatCount(hoods)} imported hoods`;
+      if (discovered > 0 && discovered !== hoods) {
+        html += ` · <span class="warn">${formatCount(hoods)}/${formatCount(discovered)} discovered</span>`;
+      }
+      if (processed !== hoods) {
+        html += ` · <span class="warn">${formatCount(processed)} processed CSV</span>`;
+      }
       if (unassigned > 0) {
         html += ` · <span class="ok">${formatCount(unassigned)} unassigned</span>`;
       } else if (props > 0) {
@@ -311,6 +319,8 @@
             nullParcelIdCount: c.nullParcelIdCount,
             unassignedCount: c.unassignedCount,
             neighborhoodCount: c.neighborhoodCount,
+            discoveredNeighborhoodCount: c.discoveredNeighborhoodCount,
+            processedCsvCount: c.processedCsvCount,
             pendingCsvCount: c.pendingCsvCount,
             importComplete: c.importComplete,
           }])

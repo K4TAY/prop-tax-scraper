@@ -262,8 +262,12 @@
 
       <div class="stats" id="stats">
         <div class="stat-card">
-          <h3>Neighborhoods</h3>
+          <h3>Imported hoods</h3>
           <div class="number" id="statHoods">-</div>
+        </div>
+        <div class="stat-card">
+          <h3>Discovered</h3>
+          <div class="number" id="statDiscovered">-</div>
         </div>
         <div class="stat-card">
           <h3>CSV pending</h3>
@@ -542,6 +546,8 @@
         document.getElementById('countyMeta').textContent =
           `${STATE.toUpperCase()} · ${data.tables?.properties || ''}`;
         document.getElementById('statHoods').textContent = data.neighborhoodCount ?? '-';
+        document.getElementById('statDiscovered').textContent =
+          data.discoveredNeighborhoodCount ?? '-';
         document.getElementById('statCsv').textContent = data.csvCount ?? '-';
         document.getElementById('statProcessed').textContent = data.processedCount ?? '-';
         document.getElementById('statDbUnique').textContent =

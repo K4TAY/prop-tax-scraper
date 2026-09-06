@@ -16,6 +16,8 @@ class TexasCountiesMap {
    *     nullParcelIdCount?: number,
    *     unassignedCount?: number,
    *     neighborhoodCount?: number,
+   *     discoveredNeighborhoodCount?: number,
+   *     processedCsvCount?: number,
    *     pendingCsvCount?: number,
    *     importComplete?: boolean,
    *   }>,
@@ -124,11 +126,19 @@ class TexasCountiesMap {
     const props = Number(s.propertyCount) || 0;
     const unique = Number(s.uniqueParcelCount) || 0;
     const hoods = Number(s.neighborhoodCount) || 0;
+    const discovered = Number(s.discoveredNeighborhoodCount) || 0;
+    const processed = Number(s.processedCsvCount) || 0;
     const pending = Number(s.pendingCsvCount) || 0;
     const unassigned = Number(s.unassignedCount) || 0;
     const lines = [
-      `${this._fmt(unique)} unique parcels · ${this._fmt(props)} records · ${this._fmt(hoods)} neighborhoods`,
+      `${this._fmt(unique)} unique parcels · ${this._fmt(props)} records · ${this._fmt(hoods)} imported hoods`,
     ];
+    if (discovered > 0 && discovered !== hoods) {
+      lines.push(`${this._fmt(hoods)}/${this._fmt(discovered)} discovered scraped`);
+    }
+    if (processed !== hoods) {
+      lines.push(`${this._fmt(processed)} processed CSV (≠ imported hoods)`);
+    }
     if (unassigned > 0) {
       lines.push(`${this._fmt(unassigned)} unassigned`);
     } else if (props > 0) {

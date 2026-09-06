@@ -1,5 +1,6 @@
 import { existsSync } from "fs";
-import { readdir } from "fs/promises";
+import { readdir, readFile } from "fs/promises";
+import { join } from "path";
 import pool from "./db.js";
 
 /** @typedef {{ state: string, county: string, countyName: string, slug: string, prefix: string, neighborhoodsTable: string, propertiesTable: string, csvDir: string, processedDir: string, dataDir: string }} CountyContext */
@@ -392,15 +393,37 @@ export async function findCadSource(state, countySlugOrName, client = pool) {
  *   nullParcelIdCount: number,
  *   unassignedCount: number,
  *   neighborhoodCount: number,
+ *   discoveredNeighborhoodCount: number,
+ *   processedCsvCount: number,
  *   pendingCsvCount: number,
  * }>}
  */
 export async function getCountyImportStats(ctx, client = pool) {
   let pendingCsvCount = 0;
+  let processedCsvCount = 0;
+  let discoveredNeighborhoodCount = 0;
+
   if (existsSync(ctx.csvDir)) {
     try {
       const files = await readdir(ctx.csvDir);
       pendingCsvCount = files.filter((n) => n.endsWith(".csv")).length;
+    } catch {
+      /* ignore */
+    }
+  }
+  if (existsSync(ctx.processedDir)) {
+    try {
+      const files = await readdir(ctx.processedDir);
+      processedCsvCount = files.filter((n) => n.endsWith(".csv")).length;
+    } catch {
+      /* ignore */
+    }
+  }
+  const indexPath = join(ctx.dataDir, "neighborhoods.json");
+  if (existsSync(indexPath)) {
+    try {
+      const hoods = JSON.parse(await readFile(indexPath, "utf8"));
+      discoveredNeighborhoodCount = Array.isArray(hoods) ? hoods.length : 0;
     } catch {
       /* ignore */
     }
@@ -413,6 +436,8 @@ export async function getCountyImportStats(ctx, client = pool) {
     nullParcelIdCount: 0,
     unassignedCount: 0,
     neighborhoodCount: 0,
+    discoveredNeighborhoodCount,
+    processedCsvCount,
     pendingCsvCount,
   };
 
@@ -446,14 +471,20 @@ export async function getCountyImportStats(ctx, client = pool) {
   const propCount = propCounts.propertyCount;
   const unassignedCount = propCounts.unassignedCount;
   // Scrape is only complete when the blank-hood catch-all (__UNASSIGNED__) was imported
-  // along with every other neighborhood (no truncated / pending CSVs).
+  // along with every discovered neighborhood (DB rows match processed CSVs / discovery list).
   const hasUnassigned = unassignedCount > 0 || unassignedHoods > 0;
+  const hoodsMatchProcessed = neighborhoodCount === processedCsvCount;
+  const hoodsMatchDiscovered =
+    discoveredNeighborhoodCount === 0 ||
+    neighborhoodCount === discoveredNeighborhoodCount;
   const importComplete =
     pendingCsvCount === 0 &&
     propCount > 0 &&
     neighborhoodCount > 0 &&
     incomplete === 0 &&
-    hasUnassigned;
+    hasUnassigned &&
+    hoodsMatchProcessed &&
+    hoodsMatchDiscovered;
 
   return {
     importComplete,
@@ -462,6 +493,8 @@ export async function getCountyImportStats(ctx, client = pool) {
     nullParcelIdCount: propCounts.nullParcelIdCount,
     unassignedCount,
     neighborhoodCount,
+    discoveredNeighborhoodCount,
+    processedCsvCount,
     pendingCsvCount,
   };
 }
@@ -503,6 +536,8 @@ export async function mapImportStatsBySlug(stateRaw, counties, dataRoot, client 
           nullParcelIdCount: 0,
           unassignedCount: 0,
           neighborhoodCount: 0,
+          discoveredNeighborhoodCount: 0,
+          processedCsvCount: 0,
           pendingCsvCount: 0,
         });
       }

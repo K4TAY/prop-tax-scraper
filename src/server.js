@@ -148,7 +148,7 @@ async function getCountyStats(ctx) {
   let over1000 = 0;
   let metaCount = 0;
   let processedCount = 0;
-  let neighborhoodCount = 0;
+  let discoveredNeighborhoodCount = 0;
 
   await mkdir(ctx.csvDir, { recursive: true });
   await mkdir(ctx.processedDir, { recursive: true });
@@ -157,7 +157,7 @@ async function getCountyStats(ctx) {
   if (existsSync(indexPath)) {
     try {
       const hoods = JSON.parse(await readFile(indexPath, "utf8"));
-      neighborhoodCount = Array.isArray(hoods) ? hoods.length : 0;
+      discoveredNeighborhoodCount = Array.isArray(hoods) ? hoods.length : 0;
     } catch {
       /* ignore */
     }
@@ -182,6 +182,10 @@ async function getCountyStats(ctx) {
   const scrapeRunning = scrapeProcs.has(key);
   const importRunning = importRunningKeys.has(key);
 
+  // Imported neighborhoods (= DB rows) should match processed CSVs after import.
+  // neighborhoods.json is only the scrape discovery list and can be larger.
+  const neighborhoodCount = db.neighborhoodDbCount ?? 0;
+
   return {
     version: APP_VERSION,
     state: ctx.state,
@@ -198,6 +202,7 @@ async function getCountyStats(ctx) {
     importRunning,
     busy: busyCounties(),
     neighborhoodCount,
+    discoveredNeighborhoodCount,
     csvCount,
     over1000,
     metaCount,
@@ -428,6 +433,8 @@ app.get("/api/cad-sources", async (req, res) => {
           nullParcelIdCount: 0,
           unassignedCount: 0,
           neighborhoodCount: 0,
+          discoveredNeighborhoodCount: 0,
+          processedCsvCount: 0,
           pendingCsvCount: 0,
         };
         return {
@@ -438,6 +445,8 @@ app.get("/api/cad-sources", async (req, res) => {
           nullParcelIdCount: stats.nullParcelIdCount ?? 0,
           unassignedCount: stats.unassignedCount ?? 0,
           neighborhoodCount: stats.neighborhoodCount ?? 0,
+          discoveredNeighborhoodCount: stats.discoveredNeighborhoodCount ?? 0,
+          processedCsvCount: stats.processedCsvCount ?? 0,
           pendingCsvCount: stats.pendingCsvCount ?? 0,
         };
       }),
