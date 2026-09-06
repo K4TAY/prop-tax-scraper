@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rename, stat } from "fs/promises";
 import { basename, join } from "path";
 import { parse } from "csv-parse";
 import pool from "./db.js";
+import { ensureCadSourcesSchema, seedCadSources } from "./cadSources.js";
 
 const PROPERTY_COLUMNS = [
   "pacs_prop_id",
@@ -93,6 +94,9 @@ export async function ensureSchema(client = pool) {
 
   // Migrate older installs that used a composite PK (pacs_prop_id, prop_val_yr)
   await migratePropertiesPrimaryKey(client);
+
+  await ensureCadSourcesSchema(client);
+  await seedCadSources(client);
 }
 
 async function migratePropertiesPrimaryKey(client) {

@@ -54,6 +54,18 @@ This loads each `data/csv/<id>.csv` into tables `neighborhoods` + `properties`, 
 
 Scrapes skip neighborhoods that already have a CSV in `data/csv` **or** `data/processed` (unless `--force` / Force re-download).
 
+## CAD sources catalog
+
+Postgres table `cad_sources` stores other counties/assessors that appear to use Harris Govern / True Automation PACS (same family as Bexar), plus fields describing how to pull data (`client_id`, PropAccess / Map Search URLs, ArcGIS MapServer, `scrape_strategy`, etc.).
+
+Seed / refresh:
+
+```bash
+bun scripts/seed-cad-sources.js
+```
+
+Also runs automatically on server boot via `ensureSchema()`.
+
 ## Railway file storage
 
 Production uses a Railway **volume** (`csv-data`) mounted at `/data` (S3 buckets are not filesystem-mountable; a volume supports write + `mv` into `processed`). Set:

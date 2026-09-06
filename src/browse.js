@@ -39,6 +39,7 @@ const OPS = new Set([
   "eq",
   "neq",
   "ilike",
+  "not_ilike",
   "like",
   "gt",
   "gte",
@@ -138,15 +139,22 @@ export async function browseProperties(opts = {}) {
       continue;
     }
 
-    if (f.op === "ilike" || f.op === "like") {
+    if (f.op === "ilike" || f.op === "not_ilike" || f.op === "like") {
       const raw = String(value);
       const pattern = raw.includes("%") ? raw : `%${raw}%`;
       params.push(pattern);
-      whereParts.push(
-        f.op === "ilike"
-          ? `${col}::text ILIKE $${params.length}`
-          : `${col}::text LIKE $${params.length}`
-      );
+      if (f.op === "not_ilike") {
+        // Treat NULL as not containing the pattern so those rows are kept.
+        whereParts.push(
+          `COALESCE(${col}::text, '') NOT ILIKE $${params.length}`
+        );
+      } else {
+        whereParts.push(
+          f.op === "ilike"
+            ? `${col}::text ILIKE $${params.length}`
+            : `${col}::text LIKE $${params.length}`
+        );
+      }
       continue;
     }
 
