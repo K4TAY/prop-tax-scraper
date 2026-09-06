@@ -45,6 +45,21 @@ HOOD_FILTER_FIELD = "hood_cd"
 # Synthetic hood codes when the property layer has no usable neighborhood values
 ALL_PARCELS_HOOD = "__ALL__"
 UNASSIGNED_HOOD = "__UNASSIGNED__"
+# Path separators in hood codes (e.g. Bandera "DF/WW/KER") must not create nested folders.
+_HOOD_SLASH_TOKEN = "__SLASH__"
+
+
+def hood_file_stem(hood_cd: str) -> str:
+    """Flat filesystem stem for a hood code (no directories)."""
+    return (
+        str(hood_cd)
+        .replace("\\", _HOOD_SLASH_TOKEN)
+        .replace("/", _HOOD_SLASH_TOKEN)
+    )
+
+
+def hood_cd_from_stem(stem: str) -> str:
+    return str(stem).replace(_HOOD_SLASH_TOKEN, "/")
 SETUP_URL = f"{MAP_SEARCH_ORIGIN}/mapSearch/api/{CID}/setup.json"
 
 USER_AGENT = (
@@ -333,7 +348,8 @@ def hood_where(hood_cd: str) -> str:
     if hood_cd == UNASSIGNED_HOOD:
         return f"({HOOD_FILTER_FIELD} IS NULL OR {HOOD_FILTER_FIELD} = '')"
     safe = hood_cd.replace("'", "''")
-    return f"{HOOD_FILTER_FIELD} LIKE '{safe}%'"
+    # Exact match only — LIKE 'X%' wrongly matches longer codes (YR2-RA1 → YR2-RA10).
+    return f"{HOOD_FILTER_FIELD} = '{safe}'"
 
 
 def count_properties_for_hood(hood_cd: str, *, max_retries: int) -> int:
@@ -531,7 +547,7 @@ def write_hood_meta(path: Path, *, hood_cd: str, hood_name: str, result: dict[st
 
 def touch_over_1000_marker(out_dir: Path, hood_cd: str, *, total: int, exported: int) -> Path:
     """Marker file so oversized hoods stand out (full export still written)."""
-    marker = out_dir / f"{hood_cd}.OVER_1000"
+    marker = out_dir / f"{hood_file_stem(hood_cd)}.OVER_1000"
     marker.write_text(
         f"Neighborhood {hood_cd} has {total} parcels (over {OVER_1000_MARK}). "
         f"Full export written: {exported} rows.\n",
@@ -760,10 +776,18 @@ def main(argv: list[str] | None = None) -> int:
         for i, hood in enumerate(hoods, start=1):
             hood_cd = hood["hood_cd"]
             hood_name = hood["hood_name"]
-            out_path = args.out_dir / f"{hood_cd}.csv"
-            processed_path = args.processed_dir / f"{hood_cd}.csv"
-            meta_path = args.out_dir / f"{hood_cd}.meta.json"
-            marker_path = args.out_dir / f"{hood_cd}.OVER_1000"
+            stem = hood_file_stem(hood_cd)
+            out_path = args.out_dir / f"{stem}.csv"
+            processed_path = args.processed_dir / f"{stem}.csv"
+            meta_path = args.out_dir / f"{stem}.meta.json"
+            marker_path = args.out_dir / f"{stem}.OVER_1000"
+            # Legacy mistake: hood codes with "/" were written as nested paths.
+            legacy_out = args.out_dir.joinpath(*Path(hood_cd).parts).with_suffix(".csv") if "/" in hood_cd or "\\" in hood_cd else None
+            legacy_processed = (
+                args.processed_dir.joinpath(*Path(hood_cd).parts).with_suffix(".csv")
+                if "/" in hood_cd or "\\" in hood_cd
+                else None
+            )
 
             if not args.force:
                 if out_path.exists():
@@ -776,6 +800,33 @@ def main(argv: list[str] | None = None) -> int:
                         i,
                         total,
                         processed_path,
+                    )
+                    skipped += 1
+                    continue
+                if legacy_out and legacy_out.exists():
+                    log.info(
+                        "[%s/%s] flattening legacy nested CSV %s → %s",
+                        i,
+                        total,
+                        legacy_out,
+                        out_path,
+                    )
+                    out_path.parent.mkdir(parents=True, exist_ok=True)
+                    legacy_out.replace(out_path)
+                    legacy_meta = Path(str(legacy_out)[: -len(".csv")] + ".meta.json")
+                    if legacy_meta.exists():
+                        legacy_meta.replace(meta_path)
+                    legacy_marker = Path(str(legacy_out)[: -len(".csv")] + ".OVER_1000")
+                    if legacy_marker.exists():
+                        legacy_marker.replace(marker_path)
+                    skipped += 1
+                    continue
+                if legacy_processed and legacy_processed.exists():
+                    log.info(
+                        "[%s/%s] skip already imported legacy nested %s",
+                        i,
+                        total,
+                        legacy_processed,
                     )
                     skipped += 1
                     continue

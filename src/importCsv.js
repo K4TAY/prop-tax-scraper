@@ -1,6 +1,6 @@
 import { createReadStream } from "fs";
 import { mkdir, readdir, readFile, rename, stat } from "fs/promises";
-import { basename, join } from "path";
+import { basename, dirname, join, relative } from "path";
 import { parse } from "csv-parse";
 import pool from "./db.js";
 import { ensureCadSourcesSchema, seedCadSources } from "./cadSources.js";
@@ -12,6 +12,16 @@ import {
   resolveCounty,
   getCountyDbCounts,
 } from "./county.js";
+
+const HOOD_SLASH_TOKEN = "__SLASH__";
+
+function hoodCdFromFileStem(stem) {
+  return String(stem).replaceAll(HOOD_SLASH_TOKEN, "/");
+}
+
+function hoodFileStem(hoodCd) {
+  return String(hoodCd).replaceAll("\\", HOOD_SLASH_TOKEN).replaceAll("/", HOOD_SLASH_TOKEN);
+}
 
 const PROPERTY_COLUMNS = [
   "pacs_prop_id",
@@ -254,12 +264,12 @@ async function upsertNeighborhood(
   );
 }
 
-async function moveHoodFiles(csvDir, processedDir, hoodCd) {
+async function moveHoodFiles(csvDir, processedDir, fileStem) {
   await mkdir(processedDir, { recursive: true });
   const names = [
-    `${hoodCd}.csv`,
-    `${hoodCd}.meta.json`,
-    `${hoodCd}.OVER_1000`,
+    `${fileStem}.csv`,
+    `${fileStem}.meta.json`,
+    `${fileStem}.OVER_1000`,
   ];
   const moved = [];
   for (const name of names) {
@@ -274,6 +284,74 @@ async function moveHoodFiles(csvDir, processedDir, hoodCd) {
     moved.push(name);
   }
   return moved;
+}
+
+/**
+ * Hood codes containing "/" were historically written as nested paths
+ * (e.g. csv/DF/WW/KER.csv). Flatten them to DF__SLASH__WW__SLASH__KER.csv
+ * so import + processed counts stay in sync with neighborhoods.json.
+ */
+async function flattenNestedHoodFiles(rootDir, log = console) {
+  if (!rootDir) return 0;
+  let flattened = 0;
+
+  async function walk(dir) {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      const full = join(dir, ent.name);
+      if (ent.isDirectory()) {
+        await walk(full);
+        continue;
+      }
+      if (!ent.isFile()) continue;
+      if (
+        !ent.name.endsWith(".csv") &&
+        !ent.name.endsWith(".meta.json") &&
+        !ent.name.endsWith(".OVER_1000")
+      ) {
+        continue;
+      }
+      const rel = relative(rootDir, full);
+      if (!rel.includes("/") && !rel.includes("\\")) continue;
+
+      let hoodCd;
+      let suffix;
+      if (ent.name.endsWith(".meta.json")) {
+        hoodCd = rel.slice(0, -".meta.json".length);
+        suffix = ".meta.json";
+      } else if (ent.name.endsWith(".OVER_1000")) {
+        hoodCd = rel.slice(0, -".OVER_1000".length);
+        suffix = ".OVER_1000";
+      } else {
+        hoodCd = rel.slice(0, -".csv".length);
+        suffix = ".csv";
+      }
+      hoodCd = hoodCd.replaceAll("\\", "/");
+      const dest = join(rootDir, `${hoodFileStem(hoodCd)}${suffix}`);
+      if (dest === full) continue;
+      await mkdir(dirname(dest), { recursive: true });
+      if (dest !== full) {
+        try {
+          await stat(dest);
+          log.warn?.(`  flatten skip (exists): ${rel} → ${basename(dest)}`, "import");
+          continue;
+        } catch {
+          /* dest free */
+        }
+        await rename(full, dest);
+        flattened += 1;
+        log.info?.(`  flattened ${rel} → ${basename(dest)}`, "import");
+      }
+    }
+  }
+
+  await walk(rootDir);
+  return flattened;
 }
 
 /**
@@ -303,6 +381,15 @@ export async function importCsvDirectory({
     neighborhoodsTable,
     propertiesTable,
   });
+
+  const flatCsv = await flattenNestedHoodFiles(csvDir, log);
+  const flatProcessed = await flattenNestedHoodFiles(processedDir, log);
+  if (flatCsv || flatProcessed) {
+    log.info?.(
+      `Flattened nested hood files: csv=${flatCsv} processed=${flatProcessed}`,
+      "import"
+    );
+  }
 
   let files;
   try {
@@ -334,9 +421,9 @@ export async function importCsvDirectory({
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
-    const hoodCd = basename(file, ".csv");
+    const fileStem = basename(file, ".csv");
     const csvPath = join(csvDir, file);
-    const metaPath = join(csvDir, `${hoodCd}.meta.json`);
+    const metaPath = join(csvDir, `${fileStem}.meta.json`);
 
     log.info?.(`[${i + 1}/${files.length}] ${file}`, "import");
 
@@ -348,6 +435,8 @@ export async function importCsvDirectory({
       } catch {
         /* optional */
       }
+      const hoodCd =
+        blankToNull(meta?.hood_cd) || hoodCdFromFileStem(fileStem);
 
       const st = await stat(csvPath);
       if (st.size === 0) {
@@ -362,7 +451,7 @@ export async function importCsvDirectory({
           neighborhoodsTable,
         });
         await client.query("COMMIT");
-        const moved = await moveHoodFiles(csvDir, processedDir, hoodCd);
+        const moved = await moveHoodFiles(csvDir, processedDir, fileStem);
         summary.moved += moved.length;
         summary.imported += 1;
         continue;
@@ -384,7 +473,7 @@ export async function importCsvDirectory({
       }
       await client.query("COMMIT");
 
-      const moved = await moveHoodFiles(csvDir, processedDir, hoodCd);
+      const moved = await moveHoodFiles(csvDir, processedDir, fileStem);
       summary.rows += rows.length;
       summary.moved += moved.length;
       summary.imported += 1;

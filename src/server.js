@@ -18,6 +18,7 @@ import {
   mapImportStatsBySlug,
   migrateAllPropertiesTables,
   quoteTable,
+  countCsvFilesRecursive,
 } from "./county.js";
 import { moveProcessedToCsv } from "./moveProcessedToCsv.js";
 
@@ -166,15 +167,12 @@ async function getCountyStats(ctx) {
   if (existsSync(ctx.csvDir)) {
     const files = await readdir(ctx.csvDir);
     for (const name of files) {
-      if (name.endsWith(".csv")) csvCount += 1;
       if (name.endsWith(".OVER_1000")) over1000 += 1;
       if (name.endsWith(".meta.json")) metaCount += 1;
     }
   }
-  if (existsSync(ctx.processedDir)) {
-    const files = await readdir(ctx.processedDir);
-    processedCount = files.filter((n) => n.endsWith(".csv")).length;
-  }
+  csvCount = await countCsvFilesRecursive(ctx.csvDir);
+  processedCount = await countCsvFilesRecursive(ctx.processedDir);
 
   const db = await getCountyDbCounts(ctx);
   const source = await findCadSource(ctx.state, ctx.slug);

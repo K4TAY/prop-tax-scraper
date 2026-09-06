@@ -8,6 +8,26 @@ import pool from "./db.js";
 const STATE_RE = /^[a-z]{2}$/;
 const SLUG_RE = /^[a-z0-9_]+$/;
 
+export async function countCsvFilesRecursive(dir) {
+  if (!existsSync(dir)) return 0;
+  let n = 0;
+  async function walk(d) {
+    let entries;
+    try {
+      entries = await readdir(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      const full = join(d, ent.name);
+      if (ent.isDirectory()) await walk(full);
+      else if (ent.isFile() && ent.name.endsWith(".csv")) n += 1;
+    }
+  }
+  await walk(dir);
+  return n;
+}
+
 export function countySlug(name) {
   return String(name || "")
     .trim()
@@ -403,21 +423,15 @@ export async function getCountyImportStats(ctx, client = pool) {
   let processedCsvCount = 0;
   let discoveredNeighborhoodCount = 0;
 
-  if (existsSync(ctx.csvDir)) {
-    try {
-      const files = await readdir(ctx.csvDir);
-      pendingCsvCount = files.filter((n) => n.endsWith(".csv")).length;
-    } catch {
-      /* ignore */
-    }
+  try {
+    pendingCsvCount = await countCsvFilesRecursive(ctx.csvDir);
+  } catch {
+    /* ignore */
   }
-  if (existsSync(ctx.processedDir)) {
-    try {
-      const files = await readdir(ctx.processedDir);
-      processedCsvCount = files.filter((n) => n.endsWith(".csv")).length;
-    } catch {
-      /* ignore */
-    }
+  try {
+    processedCsvCount = await countCsvFilesRecursive(ctx.processedDir);
+  } catch {
+    /* ignore */
   }
   const indexPath = join(ctx.dataDir, "neighborhoods.json");
   if (existsSync(indexPath)) {
