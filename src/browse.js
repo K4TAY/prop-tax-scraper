@@ -2,6 +2,7 @@ import pool from "./db.js";
 
 /** Whitelist of browsable property columns (matches Postgres `properties` table). */
 export const PROPERTY_FIELDS = [
+  { name: "id", label: "Row ID", type: "number", defaultVisible: false },
   { name: "pacs_prop_id", label: "Property ID", type: "number", defaultVisible: true },
   { name: "prop_val_yr", label: "Tax year", type: "number", defaultVisible: false },
   { name: "geo_id", label: "Geo ID", type: "text", defaultVisible: true },
@@ -97,7 +98,7 @@ export async function browseProperties(opts = {}) {
   const filters = normalizeFilters(opts.filters);
   const limit = Math.min(Math.max(parseInt(String(opts.limit ?? 50), 10) || 50, 1), 1000);
   const offset = Math.max(parseInt(String(opts.offset ?? 0), 10) || 0, 0);
-  const sort = FIELD_SET.has(opts.sort) ? opts.sort : "pacs_prop_id";
+  const sort = FIELD_SET.has(opts.sort) ? opts.sort : "id";
   const order = String(opts.order || "asc").toLowerCase() === "desc" ? "DESC" : "ASC";
   const propertiesTable = opts.propertiesTable || "bexar_tx_properties";
   if (!/^[a-z0-9_]+$/.test(propertiesTable)) {
@@ -205,7 +206,7 @@ export async function browseProperties(opts = {}) {
     SELECT ${selectList}
     FROM ${fromTable}
     ${whereSql}
-    ORDER BY ${quoteIdent(sort)} ${order}, pacs_prop_id ASC
+    ORDER BY ${quoteIdent(sort)} ${order} NULLS LAST, id ASC
     LIMIT $${limIdx}
     OFFSET $${offIdx}
     `,

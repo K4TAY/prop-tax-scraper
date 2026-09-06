@@ -82,7 +82,8 @@ const NEIGHBORHOODS_DDL = (t) => `
 
 const PROPERTIES_DDL = (t) => `
   CREATE TABLE IF NOT EXISTS ${quoteTable(t)} (
-    pacs_prop_id BIGINT PRIMARY KEY,
+    id BIGSERIAL PRIMARY KEY,
+    pacs_prop_id BIGINT,
     prop_val_yr INTEGER NOT NULL DEFAULT 0,
     geo_id TEXT,
     prop_type_cd TEXT,
@@ -113,15 +114,91 @@ const PROPERTIES_DDL = (t) => `
     jurisdictions TEXT,
     imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   );
+  CREATE INDEX IF NOT EXISTS ${quoteTable(`${t}_pacs_prop_id_idx`)} ON ${quoteTable(t)} (pacs_prop_id);
   CREATE INDEX IF NOT EXISTS ${quoteTable(`${t}_hood_cd_idx`)} ON ${quoteTable(t)} (hood_cd);
   CREATE INDEX IF NOT EXISTS ${quoteTable(`${t}_owner_name_idx`)} ON ${quoteTable(t)} (owner_name);
   CREATE INDEX IF NOT EXISTS ${quoteTable(`${t}_situs_idx`)} ON ${quoteTable(t)} (situs);
   CREATE INDEX IF NOT EXISTS ${quoteTable(`${t}_geo_id_idx`)} ON ${quoteTable(t)} (geo_id);
 `;
 
+/**
+ * Migrate a properties table from pacs_prop_id PK → surrogate id PK so we can
+ * store duplicate and null remote property ids (one row per scraped feature).
+ */
+export async function migratePropertiesToRowId(client, tableName) {
+  if (!(await tableExists(client, tableName))) {
+    return { migrated: false, reason: "missing" };
+  }
+  const q = quoteTable(tableName);
+
+  const { rows: idCol } = await client.query(
+    `
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = $1 AND column_name = 'id'
+    `,
+    [tableName]
+  );
+  if (!idCol.length) {
+    await client.query(`ALTER TABLE ${q} ADD COLUMN id BIGSERIAL`);
+  }
+
+  const { rows: pks } = await client.query(
+    `
+    SELECT c.conname, pg_get_constraintdef(c.oid) AS def
+    FROM pg_constraint c
+    JOIN pg_class t ON c.conrelid = t.oid
+    JOIN pg_namespace n ON t.relnamespace = n.oid
+    WHERE t.relname = $1 AND n.nspname = 'public' AND c.contype = 'p'
+    `,
+    [tableName]
+  );
+
+  const pkOnId = pks.some((p) => /\(id\)/i.test(String(p.def || "")));
+  if (!pkOnId) {
+    for (const pk of pks) {
+      const con = String(pk.conname).replace(/"/g, '""');
+      await client.query(`ALTER TABLE ${q} DROP CONSTRAINT "${con}"`);
+    }
+    await client.query(`ALTER TABLE ${q} ALTER COLUMN pacs_prop_id DROP NOT NULL`);
+    await client.query(`ALTER TABLE ${q} ALTER COLUMN id SET NOT NULL`);
+    await client.query(`ALTER TABLE ${q} ADD PRIMARY KEY (id)`);
+  } else {
+    try {
+      await client.query(`ALTER TABLE ${q} ALTER COLUMN pacs_prop_id DROP NOT NULL`);
+    } catch {
+      /* already nullable */
+    }
+  }
+
+  await client.query(
+    `CREATE INDEX IF NOT EXISTS ${quoteTable(`${tableName}_pacs_prop_id_idx`)} ON ${q} (pacs_prop_id)`
+  );
+  return { migrated: true, table: tableName };
+}
+
+export async function migrateAllPropertiesTables(client = pool) {
+  const { rows } = await client.query(`
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND (
+        table_name = 'properties'
+        OR table_name LIKE '%\\_properties' ESCAPE '\\'
+      )
+    ORDER BY table_name
+  `);
+  const results = [];
+  for (const { table_name } of rows) {
+    results.push(await migratePropertiesToRowId(client, table_name));
+  }
+  return results;
+}
+
 export async function ensureCountyTables(ctx, client = pool) {
   await client.query(NEIGHBORHOODS_DDL(ctx.neighborhoodsTable));
   await client.query(PROPERTIES_DDL(ctx.propertiesTable));
+  await migratePropertiesToRowId(client, ctx.propertiesTable);
 }
 
 async function tableExists(client, name) {
@@ -139,6 +216,28 @@ async function tableCount(client, name) {
     `SELECT COUNT(*)::int AS n FROM ${quoteTable(name)}`
   );
   return rows[0]?.n ?? 0;
+}
+
+/** Total rows + distinct non-null pacs_prop_id (partial ownership → more rows than parcels). */
+async function propertyImportCounts(client, tableName) {
+  if (!(await tableExists(client, tableName))) {
+    return { propertyCount: 0, uniqueParcelCount: 0, nullParcelIdCount: 0 };
+  }
+  const { rows } = await client.query(
+    `
+    SELECT
+      COUNT(*)::int AS property_count,
+      COUNT(DISTINCT pacs_prop_id) FILTER (WHERE pacs_prop_id IS NOT NULL)::int AS unique_parcel_count,
+      COUNT(*) FILTER (WHERE pacs_prop_id IS NULL)::int AS null_parcel_id_count
+    FROM ${quoteTable(tableName)}
+    `
+  );
+  const r = rows[0] || {};
+  return {
+    propertyCount: r.property_count ?? 0,
+    uniqueParcelCount: r.unique_parcel_count ?? 0,
+    nullParcelIdCount: r.null_parcel_id_count ?? 0,
+  };
 }
 
 /**
@@ -162,9 +261,20 @@ export async function migrateLegacyBexarTables(client = pool) {
 
   if (oldProps > 0 && newProps === 0) {
     await client.query(`
-      INSERT INTO ${quoteTable(bexar.propertiesTable)}
-      SELECT * FROM properties
-      ON CONFLICT (pacs_prop_id) DO NOTHING
+      INSERT INTO ${quoteTable(bexar.propertiesTable)} (
+        pacs_prop_id, prop_val_yr, geo_id, prop_type_cd, prop_type_desc, dba_name,
+        appraised_val, appraised_val_num, abs_subdv_cd, mapsco, map_id, agent_cd,
+        hood_cd, hood_name, owner_name, owner_id, addr_line1, addr_line2, addr_line3,
+        addr_city, addr_state, addr_zip, addr_country, pct_ownership, exemptions,
+        state_cd, legal_desc, situs, jurisdictions, imported_at
+      )
+      SELECT
+        pacs_prop_id, prop_val_yr, geo_id, prop_type_cd, prop_type_desc, dba_name,
+        appraised_val, appraised_val_num, abs_subdv_cd, mapsco, map_id, agent_cd,
+        hood_cd, hood_name, owner_name, owner_id, addr_line1, addr_line2, addr_line3,
+        addr_city, addr_state, addr_zip, addr_country, pct_ownership, exemptions,
+        state_cd, legal_desc, situs, jurisdictions, imported_at
+      FROM properties
     `);
     copiedProps = await tableCount(client, bexar.propertiesTable);
   }
@@ -189,17 +299,17 @@ export async function migrateLegacyBexarTables(client = pool) {
 export async function getCountyDbCounts(ctx, client = pool) {
   await ensureCountyTables(ctx, client);
   try {
-    const [p, n] = await Promise.all([
-      client.query(
-        `SELECT COUNT(*)::int AS n FROM ${quoteTable(ctx.propertiesTable)}`
-      ),
+    const [props, n] = await Promise.all([
+      propertyImportCounts(client, ctx.propertiesTable),
       client.query(
         `SELECT COUNT(*)::int AS n FROM ${quoteTable(ctx.neighborhoodsTable)}`
       ),
     ]);
     return {
       connected: true,
-      propertyCount: p.rows[0]?.n ?? 0,
+      propertyCount: props.propertyCount,
+      uniqueParcelCount: props.uniqueParcelCount,
+      nullParcelIdCount: props.nullParcelIdCount,
       neighborhoodDbCount: n.rows[0]?.n ?? 0,
       propertiesTable: ctx.propertiesTable,
       neighborhoodsTable: ctx.neighborhoodsTable,
@@ -209,6 +319,8 @@ export async function getCountyDbCounts(ctx, client = pool) {
       connected: false,
       error: err.message,
       propertyCount: null,
+      uniqueParcelCount: null,
+      nullParcelIdCount: null,
       neighborhoodDbCount: null,
     };
   }
@@ -239,6 +351,8 @@ export async function findCadSource(state, countySlugOrName, client = pool) {
  * @returns {Promise<{
  *   importComplete: boolean,
  *   propertyCount: number,
+ *   uniqueParcelCount: number,
+ *   nullParcelIdCount: number,
  *   neighborhoodCount: number,
  *   pendingCsvCount: number,
  * }>}
@@ -257,6 +371,8 @@ export async function getCountyImportStats(ctx, client = pool) {
   const empty = {
     importComplete: false,
     propertyCount: 0,
+    uniqueParcelCount: 0,
+    nullParcelIdCount: 0,
     neighborhoodCount: 0,
     pendingCsvCount,
   };
@@ -264,8 +380,8 @@ export async function getCountyImportStats(ctx, client = pool) {
   if (!(await tableExists(client, ctx.propertiesTable))) return empty;
   if (!(await tableExists(client, ctx.neighborhoodsTable))) return empty;
 
-  const [propCount, hoodRows] = await Promise.all([
-    tableCount(client, ctx.propertiesTable),
+  const [propCounts, hoodRows] = await Promise.all([
+    propertyImportCounts(client, ctx.propertiesTable),
     client.query(
       `
       SELECT
@@ -285,6 +401,7 @@ export async function getCountyImportStats(ctx, client = pool) {
 
   const neighborhoodCount = hoodRows.rows[0]?.hoods ?? 0;
   const incomplete = hoodRows.rows[0]?.incomplete ?? 0;
+  const propCount = propCounts.propertyCount;
   const importComplete =
     pendingCsvCount === 0 &&
     propCount > 0 &&
@@ -294,6 +411,8 @@ export async function getCountyImportStats(ctx, client = pool) {
   return {
     importComplete,
     propertyCount: propCount,
+    uniqueParcelCount: propCounts.uniqueParcelCount,
+    nullParcelIdCount: propCounts.nullParcelIdCount,
     neighborhoodCount,
     pendingCsvCount,
   };
@@ -313,6 +432,8 @@ export async function isCountyFullyImported(ctx, client = pool) {
  * @returns {Promise<Map<string, {
  *   importComplete: boolean,
  *   propertyCount: number,
+ *   uniqueParcelCount: number,
+ *   nullParcelIdCount: number,
  *   neighborhoodCount: number,
  *   pendingCsvCount: number,
  * }>>}
@@ -329,6 +450,8 @@ export async function mapImportStatsBySlug(stateRaw, counties, dataRoot, client 
         out.set(slug, {
           importComplete: false,
           propertyCount: 0,
+          uniqueParcelCount: 0,
+          nullParcelIdCount: 0,
           neighborhoodCount: 0,
           pendingCsvCount: 0,
         });

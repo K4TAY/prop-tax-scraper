@@ -268,7 +268,11 @@
           <div class="number" id="statProcessed">-</div>
         </div>
         <div class="stat-card">
-          <h3>DB properties</h3>
+          <h3>Unique parcels</h3>
+          <div class="number" id="statDbUnique">-</div>
+        </div>
+        <div class="stat-card">
+          <h3>Imported records</h3>
           <div class="number" id="statDbProps">-</div>
         </div>
         <div class="stat-card">
@@ -415,7 +419,14 @@
         document.getElementById('statHoods').textContent = data.neighborhoodCount ?? '-';
         document.getElementById('statCsv').textContent = data.csvCount ?? '-';
         document.getElementById('statProcessed').textContent = data.processedCount ?? '-';
-        document.getElementById('statDbProps').textContent = data.db?.propertyCount ?? '-';
+        document.getElementById('statDbUnique').textContent =
+          data.db?.uniqueParcelCount != null
+            ? Number(data.db.uniqueParcelCount).toLocaleString('en-US')
+            : '-';
+        document.getElementById('statDbProps').textContent =
+          data.db?.propertyCount != null
+            ? Number(data.db.propertyCount).toLocaleString('en-US')
+            : '-';
         document.getElementById('statOver').textContent = data.over1000 ?? '-';
         const pill = document.getElementById('statStatus');
         const busy = data.scrapeRunning || data.importRunning;

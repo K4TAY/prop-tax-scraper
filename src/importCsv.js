@@ -7,6 +7,7 @@ import { ensureCadSourcesSchema, seedCadSources } from "./cadSources.js";
 import {
   ensureCountyTables,
   migrateLegacyBexarTables,
+  migrateAllPropertiesTables,
   quoteTable,
   resolveCounty,
   getCountyDbCounts,
@@ -58,10 +59,10 @@ export async function ensureSchema(client = pool) {
       imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
-    -- pacs_prop_id is the remote PACS / TrueAutomation property unique id
-    -- (same value as PROP_ID on the parcel layer; used in property detail URLs).
+    -- One row per scraped feature. pacs_prop_id may be null or duplicated.
     CREATE TABLE IF NOT EXISTS properties (
-      pacs_prop_id BIGINT PRIMARY KEY,
+      id BIGSERIAL PRIMARY KEY,
+      pacs_prop_id BIGINT,
       prop_val_yr INTEGER NOT NULL DEFAULT 0,
       geo_id TEXT,
       prop_type_cd TEXT,
@@ -93,14 +94,14 @@ export async function ensureSchema(client = pool) {
       imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE INDEX IF NOT EXISTS properties_pacs_prop_id_idx ON properties (pacs_prop_id);
     CREATE INDEX IF NOT EXISTS properties_hood_cd_idx ON properties (hood_cd);
     CREATE INDEX IF NOT EXISTS properties_owner_name_idx ON properties (owner_name);
     CREATE INDEX IF NOT EXISTS properties_situs_idx ON properties (situs);
     CREATE INDEX IF NOT EXISTS properties_geo_id_idx ON properties (geo_id);
   `);
 
-  // Migrate older installs that used a composite PK (pacs_prop_id, prop_val_yr)
-  await migratePropertiesPrimaryKey(client);
+  await migrateAllPropertiesTables(client);
 
   await ensureCadSourcesSchema(client);
   await seedCadSources(client);
@@ -108,42 +109,6 @@ export async function ensureSchema(client = pool) {
   const bexar = resolveCounty("tx", "bexar", "/tmp");
   await ensureCountyTables(bexar, client);
   await migrateLegacyBexarTables(client);
-}
-
-async function migratePropertiesPrimaryKey(client) {
-  const { rows } = await client.query(`
-    SELECT c.conname, pg_get_constraintdef(c.oid) AS def
-    FROM pg_constraint c
-    JOIN pg_class t ON c.conrelid = t.oid
-    JOIN pg_namespace n ON t.relnamespace = n.oid
-    WHERE t.relname = 'properties'
-      AND n.nspname = 'public'
-      AND c.contype = 'p'
-  `);
-  if (!rows.length) {
-    await client.query(`
-      ALTER TABLE properties ADD CONSTRAINT properties_pkey PRIMARY KEY (pacs_prop_id)
-    `);
-    return;
-  }
-
-  const pk = rows[0];
-  const def = String(pk.def || "");
-  // Already correct: PRIMARY KEY (pacs_prop_id)
-  if (/PRIMARY KEY \(pacs_prop_id\)\s*$/i.test(def)) return;
-
-  // Deduplicate if needed before switching to single-column PK
-  await client.query(`
-    DELETE FROM properties a
-    USING properties b
-    WHERE a.pacs_prop_id = b.pacs_prop_id
-      AND a.ctid < b.ctid
-  `);
-
-  await client.query(`ALTER TABLE properties DROP CONSTRAINT ${quoteIdent(pk.conname)}`);
-  await client.query(`
-    ALTER TABLE properties ADD CONSTRAINT properties_pkey PRIMARY KEY (pacs_prop_id)
-  `);
 }
 
 function quoteIdent(name) {
@@ -178,11 +143,9 @@ function parseFloatOrNull(v) {
 }
 
 function normalizeRow(raw) {
-  const pacs = parseIntOrNull(raw.pacs_prop_id);
-  if (pacs == null) return null;
-
+  // Keep every CSV feature row — pacs_prop_id may be null or duplicated.
   return {
-    pacs_prop_id: pacs,
+    pacs_prop_id: parseIntOrNull(raw.pacs_prop_id),
     prop_val_yr: parseIntOrNull(raw.prop_val_yr) ?? 0,
     geo_id: blankToNull(raw.geo_id),
     prop_type_cd: blankToNull(raw.prop_type_cd),
@@ -226,17 +189,10 @@ async function insertBatch(client, rows, propertiesTable) {
     return `(${nums.join(", ")})`;
   });
 
-  const updates = cols
-    .filter((c) => c !== "pacs_prop_id")
-    .map((c) => `${c} = EXCLUDED.${c}`)
-    .concat(["imported_at = NOW()"]);
-
   await client.query(
     `
     INSERT INTO ${quoteTable(propertiesTable)} (${cols.join(", ")})
     VALUES ${placeholders.join(", ")}
-    ON CONFLICT (pacs_prop_id) DO UPDATE SET
-      ${updates.join(", ")}
     `,
     values
   );
@@ -244,7 +200,7 @@ async function insertBatch(client, rows, propertiesTable) {
 }
 
 async function readCsvRows(csvPath) {
-  const byId = new Map();
+  const rows = [];
   const parser = createReadStream(csvPath).pipe(
     parse({
       columns: true,
@@ -256,10 +212,9 @@ async function readCsvRows(csvPath) {
   );
 
   for await (const record of parser) {
-    const row = normalizeRow(record);
-    if (row) byId.set(row.pacs_prop_id, row);
+    rows.push(normalizeRow(record));
   }
-  return [...byId.values()];
+  return rows;
 }
 
 async function upsertNeighborhood(

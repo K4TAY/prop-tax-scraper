@@ -12,6 +12,8 @@ class TexasCountiesMap {
    *   importedSlugs?: Iterable<string>,
    *   statsBySlug?: Record<string, {
    *     propertyCount?: number,
+   *     uniqueParcelCount?: number,
+   *     nullParcelIdCount?: number,
    *     neighborhoodCount?: number,
    *     pendingCsvCount?: number,
    *     importComplete?: boolean,
@@ -119,9 +121,12 @@ class TexasCountiesMap {
     const s = this.statsBySlug[slug];
     if (!s) return ["No import data"];
     const props = Number(s.propertyCount) || 0;
+    const unique = Number(s.uniqueParcelCount) || 0;
     const hoods = Number(s.neighborhoodCount) || 0;
     const pending = Number(s.pendingCsvCount) || 0;
-    const lines = [`${this._fmt(props)} properties · ${this._fmt(hoods)} neighborhoods`];
+    const lines = [
+      `${this._fmt(unique)} unique parcels · ${this._fmt(props)} records · ${this._fmt(hoods)} neighborhoods`,
+    ];
     if (pending > 0) lines.push(`${this._fmt(pending)} CSV${pending === 1 ? "" : "s"} pending import`);
     return lines;
   }

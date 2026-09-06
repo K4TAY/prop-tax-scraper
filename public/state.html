@@ -229,12 +229,13 @@
 
     function importStatsHtml(c) {
       const props = Number(c.propertyCount) || 0;
+      const unique = Number(c.uniqueParcelCount) || 0;
       const hoods = Number(c.neighborhoodCount) || 0;
       const pending = Number(c.pendingCsvCount) || 0;
       if (props === 0 && hoods === 0 && pending === 0) {
         return '<div class="stats"><span class="muted">No data imported yet</span></div>';
       }
-      let html = `<div class="stats">${formatCount(props)} properties · ${formatCount(hoods)} neighborhoods`;
+      let html = `<div class="stats">${formatCount(unique)} unique parcels · ${formatCount(props)} records · ${formatCount(hoods)} neighborhoods`;
       if (pending > 0) {
         html += ` · <span class="muted">${formatCount(pending)} CSV pending</span>`;
       }
@@ -263,8 +264,9 @@
       const counties = data.counties || [];
       const importedCount = counties.filter((c) => c.importComplete).length;
       const propTotal = counties.reduce((sum, c) => sum + (Number(c.propertyCount) || 0), 0);
+      const uniqueTotal = counties.reduce((sum, c) => sum + (Number(c.uniqueParcelCount) || 0), 0);
       document.getElementById('meta').textContent =
-        `${counties.length} counties in catalog · ${importedCount} fully imported · ${formatCount(propTotal)} properties in DB`;
+        `${counties.length} counties in catalog · ${importedCount} fully imported · ${formatCount(uniqueTotal)} unique parcels · ${formatCount(propTotal)} records in DB`;
 
       if (state === 'TX') {
         document.getElementById('lead').textContent =
@@ -282,6 +284,8 @@
         const statsBySlug = Object.fromEntries(
           counties.map((c) => [c.slug, {
             propertyCount: c.propertyCount,
+            uniqueParcelCount: c.uniqueParcelCount,
+            nullParcelIdCount: c.nullParcelIdCount,
             neighborhoodCount: c.neighborhoodCount,
             pendingCsvCount: c.pendingCsvCount,
             importComplete: c.importComplete,
