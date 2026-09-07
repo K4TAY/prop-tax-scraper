@@ -118,11 +118,29 @@
     }
     .meta strong { color: #e6edf3; }
     .err { color: #f85149; font-size: 0.9rem; }
+    .legends {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      border-bottom: 1px solid #30363d;
+      background: #0d1117;
+    }
+    @media (max-width: 1100px) {
+      .legends { grid-template-columns: 1fr; }
+    }
     .legend {
       margin: 0;
       padding: 0.75rem 1.25rem 0.9rem;
-      border-bottom: 1px solid #30363d;
-      background: #0d1117;
+      min-width: 0;
+    }
+    .legend + .legend {
+      border-left: 1px solid #30363d;
+    }
+    @media (max-width: 1100px) {
+      .legend + .legend {
+        border-left: none;
+        border-top: 1px solid #30363d;
+      }
     }
     .legend-head {
       display: flex;
@@ -242,16 +260,28 @@
     </div>
   </div>
 
-  <section class="legend" aria-label="Exemption code legend">
-    <div class="legend-head">
-      <strong>Exemption codes</strong>
-      <div class="legend-actions">
-        <span class="legend-active" id="legendActiveSummary">Click a code to filter</span>
-        <button type="button" class="ghost" id="btnClearExemptions" onclick="clearExemptionFilters()" disabled>Clear</button>
+  <div class="legends">
+    <section class="legend" aria-label="Exemption code legend">
+      <div class="legend-head">
+        <strong>Exemption codes</strong>
+        <div class="legend-actions">
+          <span class="legend-active" id="legendActiveSummary">Click a code to filter</span>
+          <button type="button" class="ghost" id="btnClearExemptions" onclick="clearExemptionFilters()" disabled>Clear</button>
+        </div>
       </div>
-    </div>
-    <div class="legend-grid" id="exemptionLegend"></div>
-  </section>
+      <div class="legend-grid" id="exemptionLegend"></div>
+    </section>
+    <section class="legend" aria-label="State code legend">
+      <div class="legend-head">
+        <strong>State codes</strong>
+        <div class="legend-actions">
+          <span class="legend-active" id="stateLegendActiveSummary">Click a code to filter</span>
+          <button type="button" class="ghost" id="btnClearStateCodes" onclick="clearStateCodeFilters()" disabled>Clear</button>
+        </div>
+      </div>
+      <div class="legend-grid" id="stateCodeLegend"></div>
+    </section>
+  </div>
 
   <div class="layout">
     <aside class="panel">
@@ -355,6 +385,37 @@
       { code: 'EX-XV', label: 'Other exempt (public, religious, charitable, etc.)' },
     ];
 
+    /**
+     * PTD / CAD state category codes present in scraped county data.
+     * Labels follow Texas Comptroller property classification + common CAD subcodes.
+     */
+    const STATE_CODE_LEGEND = [
+      { code: 'A', label: 'Real — single-family residential (category)' },
+      { code: 'A1', label: 'Real — residential, single-family' },
+      { code: 'A2', label: 'Real — residential, mobile home on owner land' },
+      { code: 'A3', label: 'Real — residential, condominiums' },
+      { code: 'B1', label: 'Real — residential, multi-family' },
+      { code: 'B2', label: 'Real — residential, two-family / duplex' },
+      { code: 'B6', label: 'Real — residential, multi-family (CAD B6)' },
+      { code: 'C', label: 'Real — vacant lots / tracts (category)' },
+      { code: 'C1', label: 'Real — vacant lots and land tracts' },
+      { code: 'D1', label: 'Real — qualified open-space / agricultural land' },
+      { code: 'D2', label: 'Real — farm/ranch improvements on qualified open-space' },
+      { code: 'E1', label: 'Real — rural land / farm & ranch improvements (non-qualified)' },
+      { code: 'E2', label: 'Real — mobile homes on rural land' },
+      { code: 'F1', label: 'Real — commercial' },
+      { code: 'F2', label: 'Real — industrial / manufacturing' },
+      { code: 'F3', label: 'Real — commercial (CAD F3)' },
+      { code: 'G1', label: 'Real — oil, gas, and mineral reserves' },
+      { code: 'J4', label: 'Utility — telephone companies' },
+      { code: 'J5', label: 'Utility — railroads' },
+      { code: 'J7', label: 'Utility — radio, TV, and cable' },
+      { code: 'M1', label: 'Personal — mobile home (land owned by someone else)' },
+      { code: 'O1', label: 'Real — residential inventory' },
+      { code: 'O2', label: 'Real — inventory (CAD O2)' },
+      { code: 'X', label: 'Totally exempt property' },
+    ];
+
     let fieldMeta = [];
     let sort = 'pacs_prop_id';
     let order = 'asc';
@@ -363,6 +424,8 @@
     let lastFields = [];
     /** @type {Set<string>} */
     const selectedExemptionCodes = new Set();
+    /** @type {Set<string>} */
+    const selectedStateCodes = new Set();
 
     const pathMatch = location.pathname.match(/^\/c\/([a-z]{2})\/([a-z0-9_]+)\/browse\/?/i);
     if (!pathMatch) {
@@ -449,6 +512,27 @@
       syncLegendActive();
     }
 
+    function renderStateCodeLegend() {
+      const el = document.getElementById('stateCodeLegend');
+      el.innerHTML = STATE_CODE_LEGEND.map(({ code, label }) =>
+        `<div class="legend-item">
+          <code role="button" tabindex="0" data-code="${escapeHtml(code)}" title="Filter by ${escapeHtml(code)}">${escapeHtml(code)}</code>
+          <span>${escapeHtml(label)}</span>
+        </div>`
+      ).join('');
+      el.querySelectorAll('code[data-code]').forEach((btn) => {
+        const activate = () => addStateCodeFilter(btn.getAttribute('data-code'));
+        btn.addEventListener('click', activate);
+        btn.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            activate();
+          }
+        });
+      });
+      syncStateLegendActive();
+    }
+
     function syncLegendActive() {
       document.querySelectorAll('#exemptionLegend code[data-code]').forEach((el) => {
         const code = el.getAttribute('data-code');
@@ -465,31 +549,58 @@
       clearBtn.disabled = codes.length === 0;
     }
 
-    function ensureExemptionsColumn() {
-      const box = document.querySelector('#columnList input[data-field="exemptions"]');
+    function syncStateLegendActive() {
+      document.querySelectorAll('#stateCodeLegend code[data-code]').forEach((el) => {
+        const code = el.getAttribute('data-code');
+        el.classList.toggle('active', selectedStateCodes.has(code));
+      });
+      const summary = document.getElementById('stateLegendActiveSummary');
+      const clearBtn = document.getElementById('btnClearStateCodes');
+      const codes = [...selectedStateCodes];
+      if (!codes.length) {
+        summary.textContent = 'Click a code to filter (multi-select)';
+      } else {
+        summary.innerHTML = `Filtering: <strong>${escapeHtml(codes.join(', '))}</strong>`;
+      }
+      clearBtn.disabled = codes.length === 0;
+    }
+
+    function ensureColumnChecked(fieldName) {
+      const box = document.querySelector(`#columnList input[data-field="${fieldName}"]`);
       if (box && !box.checked) {
         box.checked = true;
         saveColumns(selectedFields());
       }
     }
 
-    function addExemptionFilter(code) {
-      if (!code || selectedExemptionCodes.has(code)) return;
-      selectedExemptionCodes.add(code);
-      // Drop empty default filter rows so legend filters are the active set.
+    function ensureExemptionsColumn() {
+      ensureColumnChecked('exemptions');
+    }
+
+    function ensureStateCodeColumn() {
+      ensureColumnChecked('state_cd');
+    }
+
+    function pruneEmptyFilterRows(keepField) {
       [...document.querySelectorAll('#filterList .filter-row')].forEach((row) => {
         const field = row.querySelector('.f-field')?.value;
         const value = row.querySelector('.f-value')?.value;
         const op = row.querySelector('.f-op')?.value;
         const empty =
           !['is_null', 'not_null'].includes(op) && String(value || '').trim() === '';
-        if (empty && field !== 'exemptions') row.remove();
+        if (empty && field !== keepField) row.remove();
       });
+    }
+
+    function addExemptionFilter(code) {
+      if (!code || selectedExemptionCodes.has(code)) return;
+      selectedExemptionCodes.add(code);
+      pruneEmptyFilterRows('exemptions');
       addFilterRow({
         field: 'exemptions',
         op: 'has_token',
         value: code,
-        fromLegend: true,
+        fromLegend: 'exemption',
       });
       ensureExemptionsColumn();
       syncLegendActive();
@@ -498,13 +609,49 @@
 
     function clearExemptionFilters() {
       selectedExemptionCodes.clear();
-      document.querySelectorAll('#filterList .filter-row[data-from-legend="1"]').forEach((row) => {
+      document.querySelectorAll('#filterList .filter-row[data-from-legend="exemption"]').forEach((row) => {
         row.remove();
       });
       if (![...document.querySelectorAll('#filterList .filter-row')].length) {
         addFilterRow();
       }
       syncLegendActive();
+      runSearch(0);
+    }
+
+    function rebuildStateCodeFilterRow() {
+      document.querySelectorAll('#filterList .filter-row[data-from-legend="state_cd"]').forEach((row) => {
+        row.remove();
+      });
+      const codes = [...selectedStateCodes];
+      if (!codes.length) return;
+      pruneEmptyFilterRows('state_cd');
+      addFilterRow({
+        field: 'state_cd',
+        op: 'in',
+        value: codes.join(','),
+        fromLegend: 'state_cd',
+      });
+      ensureStateCodeColumn();
+    }
+
+    function addStateCodeFilter(code) {
+      if (!code || selectedStateCodes.has(code)) return;
+      selectedStateCodes.add(code);
+      rebuildStateCodeFilterRow();
+      syncStateLegendActive();
+      runSearch(0);
+    }
+
+    function clearStateCodeFilters() {
+      selectedStateCodes.clear();
+      document.querySelectorAll('#filterList .filter-row[data-from-legend="state_cd"]').forEach((row) => {
+        row.remove();
+      });
+      if (![...document.querySelectorAll('#filterList .filter-row')].length) {
+        addFilterRow();
+      }
+      syncStateLegendActive();
       runSearch(0);
     }
 
@@ -539,6 +686,7 @@
       }
 
       renderExemptionLegend();
+      renderStateCodeLegend();
       renderColumns();
       addFilterRow();
       runSearch(0);
@@ -598,9 +746,11 @@
       const wrap = document.getElementById('filterList');
       const row = document.createElement('div');
       row.className = 'filter-row';
-      if (preset.fromLegend) {
-        row.dataset.fromLegend = '1';
+      if (preset.fromLegend === 'exemption') {
+        row.dataset.fromLegend = 'exemption';
         row.dataset.exemptionCode = String(preset.value || '');
+      } else if (preset.fromLegend === 'state_cd') {
+        row.dataset.fromLegend = 'state_cd';
       }
       const field = preset.field || 'owner_name';
       const op = preset.op || 'ilike';
@@ -614,10 +764,19 @@
         </div>
       `;
       row.querySelector('button').onclick = () => {
-        const code = row.dataset.exemptionCode;
-        if (code) selectedExemptionCodes.delete(code);
-        row.remove();
-        syncLegendActive();
+        const legend = row.dataset.fromLegend;
+        if (legend === 'exemption') {
+          const code = row.dataset.exemptionCode;
+          if (code) selectedExemptionCodes.delete(code);
+          row.remove();
+          syncLegendActive();
+        } else if (legend === 'state_cd') {
+          selectedStateCodes.clear();
+          row.remove();
+          syncStateLegendActive();
+        } else {
+          row.remove();
+        }
       };
       const opEl = row.querySelector('.f-op');
       const valEl = row.querySelector('.f-value');
@@ -633,9 +792,11 @@
 
     function clearFilters() {
       selectedExemptionCodes.clear();
+      selectedStateCodes.clear();
       document.getElementById('filterList').innerHTML = '';
       addFilterRow();
       syncLegendActive();
+      syncStateLegendActive();
     }
 
     function collectFilters() {
