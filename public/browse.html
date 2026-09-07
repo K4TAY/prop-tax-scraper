@@ -230,12 +230,16 @@
     .pager { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
     .pager button:disabled { opacity: 0.45; cursor: not-allowed; }
     .empty { padding: 2rem; text-align: center; color: #8b949e; }
+    #authBar { display: flex; align-items: center; }
   </style>
 </head>
 <body>
   <div class="top">
     <h1 id="pageTitle">Browse properties <span id="version" style="color:#8b949e;font-size:0.85rem;font-weight:400;"></span></h1>
-    <a id="backLink" href="/">← County portal</a>
+    <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+      <a id="backLink" href="/">← Counties</a>
+      <div id="authBar"></div>
+    </div>
   </div>
 
   <section class="legend" aria-label="Exemption code legend">
@@ -300,6 +304,7 @@
     </main>
   </div>
 
+  <script src="/auth.js"></script>
   <script>
     const OPS = [
       { value: 'ilike', label: 'contains' },
@@ -366,7 +371,7 @@
     const STATE = pathMatch[1].toLowerCase();
     const COUNTY = pathMatch[2].toLowerCase();
     const API = `/api/c/${STATE}/${COUNTY}`;
-    document.getElementById('backLink').href = `/c/${STATE}/${COUNTY}/`;
+    document.getElementById('backLink').href = `/state.html?state=${STATE.toUpperCase()}`;
     document.title = `Browse — ${COUNTY} (${STATE.toUpperCase()})`;
 
     const STORAGE_COLS = `propTaxBrowseCols_${STATE}_${COUNTY}`;
@@ -504,10 +509,25 @@
     }
 
     async function init() {
+      const me = await PropTaxAuth.requireLogin();
+      if (!me) return;
+      PropTaxAuth.renderAuthBar(document.getElementById('authBar'), me);
+      if (me.user.role === 'ADMIN') {
+        document.getElementById('backLink').href = `/c/${STATE}/${COUNTY}/`;
+        document.getElementById('backLink').textContent = '← County portal';
+      }
+
       const [fieldsRes, statsRes] = await Promise.all([
-        fetch(`${API}/browse/fields`),
-        fetch(`${API}/stats`),
+        PropTaxAuth.authFetch(`${API}/browse/fields`),
+        PropTaxAuth.authFetch(`${API}/stats`),
       ]);
+      if (statsRes.status === 403 || fieldsRes.status === 403) {
+        showError('You do not have access to this county. Request access from the state page.');
+        setTimeout(() => {
+          window.location.href = `/state.html?state=${STATE.toUpperCase()}`;
+        }, 2000);
+        return;
+      }
       const fieldsData = await fieldsRes.json();
       fieldMeta = fieldsData.fields || [];
       const stats = await statsRes.json().catch(() => ({}));
@@ -656,9 +676,8 @@
       }
 
       try {
-        const res = await fetch(`${API}/browse/properties`, {
+        const res = await PropTaxAuth.authFetch(`${API}/browse/properties`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             fields,
             filters: collectFilters(),

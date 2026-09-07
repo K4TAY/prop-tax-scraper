@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Register — Prop Tax Scraper</title>
+  <meta name="color-scheme" content="dark">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f1419;
+      color: #e6edf3;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .card {
+      width: 100%;
+      max-width: 480px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 1.5rem;
+    }
+    h1 { margin: 0 0 0.35rem; font-size: 1.35rem; }
+    .lead { color: #8b949e; font-size: 0.9rem; margin: 0 0 1.25rem; }
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: #c9d1d9;
+      margin-bottom: 0.35rem;
+    }
+    input {
+      width: 100%;
+      padding: 0.55rem 0.7rem;
+      border-radius: 8px;
+      border: 1px solid #30363d;
+      background: #0d1117;
+      color: #e6edf3;
+      font-size: 0.95rem;
+      margin-bottom: 0.85rem;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem;
+    }
+    @media (max-width: 520px) { .row { grid-template-columns: 1fr; } }
+    .btn {
+      width: 100%;
+      padding: 0.65rem 1rem;
+      border-radius: 8px;
+      border: 1px solid #2ea043;
+      background: #238636;
+      color: #fff;
+      font-size: 0.95rem;
+      cursor: pointer;
+      margin-top: 0.25rem;
+    }
+    .btn:hover { background: #2ea043; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .links { margin-top: 1rem; font-size: 0.85rem; }
+    .links a { color: #58a6ff; text-decoration: none; }
+    .err { color: #f85149; font-size: 0.85rem; margin: 0 0 0.75rem; min-height: 1.2em; }
+    .hint { color: #8b949e; font-size: 0.75rem; margin: -0.55rem 0 0.85rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Create account</h1>
+    <p class="lead">New accounts get the USER role with no county access until an admin approves a request.</p>
+    <div class="err" id="error"></div>
+    <form id="form">
+      <div class="row">
+        <div>
+          <label for="firstName">First name</label>
+          <input id="firstName" required>
+        </div>
+        <div>
+          <label for="lastName">Last name</label>
+          <input id="lastName" required>
+        </div>
+      </div>
+      <label for="email">Email</label>
+      <input id="email" type="email" autocomplete="email" required>
+      <label for="mobile">Mobile (optional)</label>
+      <input id="mobile" type="text" autocomplete="tel" placeholder="e.g. 2105551234">
+      <p class="hint">If provided, you can sign in with either email or mobile.</p>
+      <label for="company">Company name</label>
+      <input id="company" required>
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="new-password" minlength="8" required>
+      <button class="btn" type="submit" id="submit">Register</button>
+    </form>
+    <div class="links">
+      <a href="/login.html">Already have an account? Sign in</a>
+    </div>
+  </div>
+  <script src="/auth.js"></script>
+  <script>
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = document.getElementById('error');
+      const btn = document.getElementById('submit');
+      err.textContent = '';
+      btn.disabled = true;
+      const body = {
+        firstName: document.getElementById('firstName').value.trim(),
+        lastName: document.getElementById('lastName').value.trim(),
+        email: document.getElementById('email').value.trim(),
+        mobile: document.getElementById('mobile').value.trim() || null,
+        companyName: document.getElementById('company').value.trim(),
+        password: document.getElementById('password').value,
+      };
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Registration failed');
+        PropTaxAuth.setToken(data.token);
+        PropTaxAuth.setCachedUser(data.user);
+        window.location.href = '/';
+      } catch (ex) {
+        err.textContent = ex.message || String(ex);
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

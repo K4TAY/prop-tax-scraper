@@ -87,17 +87,21 @@
       vertical-align: -1px;
     }
     .err { color: #f85149; margin-top: 1rem; }
+    #authBar { display: flex; align-items: center; flex-wrap: wrap; gap: 0.25rem; }
   </style>
 </head>
 <body>
   <div class="top">
     <h1>Property tax data portals</h1>
-    <span class="version" id="version"></span>
+    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+      <span class="version" id="version"></span>
+      <div id="authBar"></div>
+    </div>
   </div>
   <div class="main">
     <p class="lead">
       Click a highlighted state to see counties with Harris Govern / True Automation PACS sources.
-      Each county has its own portal and database tables.
+      Request access to a county to view its data. Scrape and import tools are admin-only.
     </p>
     <div id="usa-map-container"></div>
     <div class="legend">
@@ -106,6 +110,7 @@
     </div>
     <div class="err" id="error" style="display:none;"></div>
   </div>
+  <script src="/auth.js"></script>
   <script src="/usa-map-select.js"></script>
   <script>
     const available = new Set();
@@ -128,10 +133,14 @@
     }
 
     async function init() {
+      const me = await PropTaxAuth.requireLogin();
+      if (!me) return;
+      PropTaxAuth.renderAuthBar(document.getElementById('authBar'), me);
+
       const ver = await fetch('/api/version').then((r) => r.json()).catch(() => ({}));
       if (ver.version) document.getElementById('version').textContent = `v${ver.version}`;
 
-      const data = await fetch('/api/cad-sources/states').then((r) => r.json());
+      const data = await PropTaxAuth.authFetch('/api/cad-sources/states').then((r) => r.json());
       for (const s of data.states || []) {
         if (s.countyCount > 0) available.add(String(s.state).trim().toUpperCase());
       }
@@ -152,7 +161,6 @@
       });
 
       highlightAvailable();
-      // Re-apply after map paints inline fills
       setTimeout(highlightAvailable, 0);
     }
 

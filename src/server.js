@@ -21,6 +21,14 @@ import {
   countCsvFilesRecursive,
 } from "./county.js";
 import { moveProcessedToCsv } from "./moveProcessedToCsv.js";
+import { ensureAuthSchema } from "./auth/schema.js";
+import { bootstrapAdmin } from "./auth/bootstrapAdmin.js";
+import authRoutes, { adminCountyAccessRouter } from "./auth/routes.js";
+import {
+  requireAuth,
+  requireAdmin,
+  requireCountyAccess,
+} from "./auth/middleware.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -276,6 +284,9 @@ app.get("/api/version", (_req, res) => {
   res.json({ version: APP_VERSION });
 });
 
+app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminCountyAccessRouter);
+
 /** Move processed/ CSVs back to csv/; migrate schema; truncate property tables. */
 app.post("/api/admin/prepare-reimport", async (req, res) => {
   if (!DATA_UPLOAD_TOKEN) {
@@ -365,7 +376,7 @@ app.post("/api/admin/move-processed-to-csv", async (req, res) => {
   }
 });
 
-app.get("/api/cad-sources/states", async (_req, res) => {
+app.get("/api/cad-sources/states", requireAuth, async (_req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT state_code AS state,
@@ -389,7 +400,7 @@ app.get("/api/cad-sources/states", async (_req, res) => {
   }
 });
 
-app.get("/api/cad-sources", async (req, res) => {
+app.get("/api/cad-sources", requireAuth, async (req, res) => {
   try {
     const state = String(req.query.state || "")
       .trim()
@@ -455,36 +466,51 @@ app.get("/api/cad-sources", async (req, res) => {
 });
 
 // --- County-scoped APIs ---
-app.get("/api/c/:state/:county/stats", async (req, res) => {
-  try {
-    const ctx = resolveCtx(req);
-    await ensureCountyTables(ctx);
-    res.json(await getCountyStats(ctx));
-  } catch (err) {
-    res.status(400).json({ error: err.message });
+app.get(
+  "/api/c/:state/:county/stats",
+  requireAuth,
+  requireCountyAccess,
+  async (req, res) => {
+    try {
+      const ctx = resolveCtx(req);
+      await ensureCountyTables(ctx);
+      res.json(await getCountyStats(ctx));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   }
-});
+);
 
-app.get("/api/c/:state/:county/browse/fields", (_req, res) => {
-  res.json({ fields: listBrowseFields() });
-});
-
-app.post("/api/c/:state/:county/browse/properties", async (req, res) => {
-  try {
-    const ctx = resolveCtx(req);
-    await ensureCountyTables(ctx);
-    const result = await browseProperties({
-      ...(req.body || {}),
-      propertiesTable: ctx.propertiesTable,
-    });
-    res.json(result);
-  } catch (err) {
-    logger.error(`Browse failed: ${err.message}`, "browse");
-    res.status(400).json({ error: err.message });
+app.get(
+  "/api/c/:state/:county/browse/fields",
+  requireAuth,
+  requireCountyAccess,
+  (_req, res) => {
+    res.json({ fields: listBrowseFields() });
   }
-});
+);
 
-app.get("/api/logs/stream", (req, res) => {
+app.post(
+  "/api/c/:state/:county/browse/properties",
+  requireAuth,
+  requireCountyAccess,
+  async (req, res) => {
+    try {
+      const ctx = resolveCtx(req);
+      await ensureCountyTables(ctx);
+      const result = await browseProperties({
+        ...(req.body || {}),
+        propertiesTable: ctx.propertiesTable,
+      });
+      res.json(result);
+    } catch (err) {
+      logger.error(`Browse failed: ${err.message}`, "browse");
+      res.status(400).json({ error: err.message });
+    }
+  }
+);
+
+app.get("/api/logs/stream", requireAuth, requireAdmin, (req, res) => {
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
   res.setHeader("Connection", "keep-alive");
@@ -492,17 +518,21 @@ app.get("/api/logs/stream", (req, res) => {
   req.on("close", () => logger.removeClient(res));
 });
 
-app.get("/api/logs", (req, res) => {
+app.get("/api/logs", requireAuth, requireAdmin, (req, res) => {
   const limit = parseInt(String(req.query.limit || "100"), 10) || 100;
   res.json({ logs: logger.getRecentLogs(limit) });
 });
 
-app.post("/api/logs/clear", (_req, res) => {
+app.post("/api/logs/clear", requireAuth, requireAdmin, (_req, res) => {
   logger.clear();
   res.json({ message: "Logs cleared" });
 });
 
-app.post("/api/c/:state/:county/scrape", async (req, res) => {
+app.post(
+  "/api/c/:state/:county/scrape",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
   let ctx;
   try {
     ctx = resolveCtx(req);
@@ -619,9 +649,14 @@ app.post("/api/c/:state/:county/scrape", async (req, res) => {
   });
 
   res.json({ message: "Scraper started — watch Console Output", args, running: true, county: ctx.slug });
-});
+  }
+);
 
-app.post("/api/c/:state/:county/scrape/stop", (req, res) => {
+app.post(
+  "/api/c/:state/:county/scrape/stop",
+  requireAuth,
+  requireAdmin,
+  (req, res) => {
   let ctx;
   try {
     ctx = resolveCtx(req);
@@ -640,9 +675,14 @@ app.post("/api/c/:state/:county/scrape/stop", (req, res) => {
     return res.status(500).json({ error: err.message });
   }
   res.json({ message: "Stop signal sent", stopped: true });
-});
+  }
+);
 
-app.post("/api/c/:state/:county/import", async (req, res) => {
+app.post(
+  "/api/c/:state/:county/import",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
   let ctx;
   try {
     ctx = resolveCtx(req);
@@ -679,11 +719,32 @@ app.post("/api/c/:state/:county/import", async (req, res) => {
   } finally {
     importRunningKeys.delete(key);
   }
-});
+  }
+);
 
 // Pages
 app.get("/", (_req, res) => {
   res.sendFile(join(PUBLIC, "index.html"));
+});
+
+app.get("/login.html", (_req, res) => {
+  res.sendFile(join(PUBLIC, "login.html"));
+});
+
+app.get("/register.html", (_req, res) => {
+  res.sendFile(join(PUBLIC, "register.html"));
+});
+
+app.get("/forgot-password.html", (_req, res) => {
+  res.sendFile(join(PUBLIC, "forgot-password.html"));
+});
+
+app.get("/reset-password.html", (_req, res) => {
+  res.sendFile(join(PUBLIC, "reset-password.html"));
+});
+
+app.get("/admin.html", (_req, res) => {
+  res.sendFile(join(PUBLIC, "admin.html"));
 });
 
 app.get("/state.html", (_req, res) => {
@@ -731,6 +792,8 @@ app.listen(PORT, "0.0.0.0", async () => {
   logger.success(`Prop tax scraper UI v${APP_VERSION} → ${url}`, "server");
   try {
     await ensureSchema();
+    await ensureAuthSchema();
+    await bootstrapAdmin();
     const mig = await migrateLegacyBexarTables();
     if (mig.migrated) {
       logger.success(

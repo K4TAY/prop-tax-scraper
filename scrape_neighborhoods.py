@@ -260,6 +260,49 @@ def query_layer(
     return data
 
 
+# Cached per MAP_SERVER + layer id: maxRecordCount / objectIdField
+_LAYER_INFO_CACHE: dict[str, dict[str, Any]] = {}
+
+
+def get_layer_info(layer_id: int, *, max_retries: int) -> dict[str, Any]:
+    """Fetch ArcGIS layer metadata (maxRecordCount, objectIdField)."""
+    cache_key = f"{MAP_SERVER}|{layer_id}"
+    cached = _LAYER_INFO_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    url = f"{MAP_SERVER}/{layer_id}?f=json"
+    data = http_get_json(url, max_retries=max_retries)
+    if data.get("error"):
+        err = data["error"]
+        code = err.get("code") if isinstance(err, dict) else None
+        blocked = code in BLOCK_STATUSES
+        raise RequestFailed(f"ArcGIS layer info error: {err}", blocked=blocked, status=code)
+
+    max_records = int(data.get("maxRecordCount") or 0) or DEFAULT_PAGE_SIZE
+    object_id_field = str(data.get("objectIdField") or "").strip() or None
+    info = {
+        "maxRecordCount": max_records,
+        "objectIdField": object_id_field,
+        "name": data.get("name"),
+    }
+    _LAYER_INFO_CACHE[cache_key] = info
+    log.info(
+        "Layer %s maxRecordCount=%s objectIdField=%s",
+        layer_id,
+        max_records,
+        object_id_field or "(none)",
+    )
+    return info
+
+
+def clamp_page_size(requested: int, max_record_count: int) -> int:
+    """Never request more than the layer will return in one page."""
+    req = max(1, int(requested or DEFAULT_PAGE_SIZE))
+    cap = max(1, int(max_record_count or DEFAULT_PAGE_SIZE))
+    return min(req, cap)
+
+
 def count_blank_hood_parcels(max_retries: int) -> int:
     """Parcels whose neighborhood filter field is NULL or empty string."""
     return int(
@@ -292,46 +335,120 @@ def maybe_append_unassigned(
     return hoods
 
 
+def fetch_all_features(
+    layer_id: int,
+    *,
+    where: str,
+    out_fields: str,
+    max_retries: int,
+    order_by: str | None = None,
+    return_distinct: bool = False,
+    page_size: int | None = None,
+) -> list[dict[str, Any]]:
+    """Paginate an ArcGIS query until all features are collected.
+
+    Honors exceededTransferLimit and clamps page size to layer maxRecordCount
+    so distinct-hood discovery (and large hood layers) are not truncated.
+    """
+    layer_info = get_layer_info(layer_id, max_retries=max_retries)
+    effective_page = clamp_page_size(
+        page_size or DEFAULT_PAGE_SIZE, layer_info["maxRecordCount"]
+    )
+    # Stable ordering is required for offset pagination of distinct values.
+    effective_order = order_by
+    if not effective_order:
+        if return_distinct:
+            # Distinct pages must be ordered by the distinct field itself.
+            first_field = str(out_fields).split(",")[0].strip()
+            effective_order = f"{first_field} ASC" if first_field and first_field != "*" else None
+        elif layer_info.get("objectIdField"):
+            effective_order = f"{layer_info['objectIdField']} ASC"
+
+    features: list[dict[str, Any]] = []
+    offset = 0
+    pages = 0
+    while True:
+        data = query_layer(
+            layer_id,
+            where=where,
+            out_fields=out_fields,
+            return_geometry=False,
+            order_by=effective_order,
+            result_offset=offset,
+            result_record_count=effective_page,
+            return_distinct=return_distinct,
+            max_retries=max_retries,
+        )
+        batch = data.get("features") or []
+        exceeded = data.get("exceededTransferLimit") is True
+        pages += 1
+        if not batch:
+            break
+        features.extend(batch)
+        got = len(batch)
+        if not exceeded and got < effective_page:
+            break
+        offset += got
+        if pages > 500:
+            log.error(
+                "Feature pagination safety stop after %s pages (%s features)",
+                pages,
+                len(features),
+            )
+            break
+    return features
+
+
 def fetch_neighborhoods(max_retries: int) -> list[dict[str, str]]:
     """Load neighborhood codes/names from hood layer, or distinct hood_cd on props."""
     if HOOD_TABLE_ID is not None and HOOD_TABLE_ID >= 0:
-        data = query_layer(
+        feats = fetch_all_features(
             HOOD_TABLE_ID,
             where="1=1",
             out_fields="hood_cd,hood_name",
-            return_geometry=False,
+            order_by="hood_cd ASC",
             max_retries=max_retries,
         )
         hoods: list[dict[str, str]] = []
-        for feat in data.get("features") or []:
+        seen: set[str] = set()
+        for feat in feats:
             attrs = feat.get("attributes") or {}
             hood_cd = str(attrs.get("hood_cd") or "").strip()
             hood_name = str(attrs.get("hood_name") or "").strip()
-            if not hood_cd:
+            if not hood_cd or hood_cd in seen:
                 continue
+            seen.add(hood_cd)
             hoods.append({"hood_cd": hood_cd, "hood_name": hood_name or hood_cd})
         hoods.sort(key=lambda h: h["hood_cd"])
         # Hood layers omit blank codes — still export parcels with no neighborhood.
         return maybe_append_unassigned(hoods, max_retries)
 
-    # No dedicated hood layer — distinct codes from the property layer
-    data = query_layer(
+    # No dedicated hood layer — paginate distinct codes from the property layer.
+    # A single distinct query is capped at maxRecordCount (e.g. El Paso 2000),
+    # which previously truncated neighborhoods.json to ~2001 including __UNASSIGNED__.
+    feats = fetch_all_features(
         PROP_TABLE_ID,
         where=f"{HOOD_FILTER_FIELD} IS NOT NULL AND {HOOD_FILTER_FIELD} <> ''",
         out_fields=HOOD_FILTER_FIELD,
-        return_geometry=False,
+        order_by=f"{HOOD_FILTER_FIELD} ASC",
         return_distinct=True,
-        result_record_count=10000,
         max_retries=max_retries,
     )
     hoods = []
-    for feat in data.get("features") or []:
+    seen: set[str] = set()
+    for feat in feats:
         attrs = feat.get("attributes") or {}
         hood_cd = str(attrs.get(HOOD_FILTER_FIELD) or "").strip()
-        if not hood_cd:
+        if not hood_cd or hood_cd in seen:
             continue
+        seen.add(hood_cd)
         hoods.append({"hood_cd": hood_cd, "hood_name": hood_cd})
     hoods.sort(key=lambda h: h["hood_cd"])
+    log.info(
+        "Distinct %s discovery returned %s neighborhoods (paginated)",
+        HOOD_FILTER_FIELD,
+        len(hoods),
+    )
 
     total = int(
         query_layer(
@@ -476,16 +593,40 @@ def fetch_properties_for_hood(
     guard: AdaptiveGuard,
     max_retries: int,
 ) -> dict[str, Any]:
-    """Fetch all properties for a neighborhood via paginated ArcGIS queries."""
+    """Fetch all properties for a neighborhood via paginated ArcGIS queries.
+
+    Critical: ArcGIS often caps a page at layer maxRecordCount and sets
+    exceededTransferLimit=true even when fewer rows than requested were returned.
+    Stopping on ``len(features) < page_size`` alone truncates large hoods
+    (e.g. El Paso JS83800000 stopped at 2000 of 8794).
+    """
     where = hood_where(hood_cd)
     total_available = count_properties_for_hood(hood_cd, max_retries=max_retries)
     guard.record_success()
+
+    layer_info = get_layer_info(PROP_TABLE_ID, max_retries=max_retries)
+    guard.record_success()
+    effective_page = clamp_page_size(page_size, layer_info["maxRecordCount"])
+    if effective_page != page_size:
+        log.info(
+            "  clamping page size %s → %s (layer maxRecordCount)",
+            page_size,
+            effective_page,
+        )
+
+    # ObjectID pagination is the most reliable ArcGIS strategy when available.
+    object_id_field = layer_info.get("objectIdField")
+    order_by = (
+        f"{object_id_field} ASC"
+        if object_id_field
+        else f"{PROP_ID_FIELD} ASC"
+    )
 
     over_1000 = total_available > OVER_1000_MARK
 
     rows: list[dict[str, Any]] = []
     offset = 0
-    order_by = f"{PROP_ID_FIELD} ASC"
+    pages = 0
     while True:
         data = query_layer(
             PROP_TABLE_ID,
@@ -494,12 +635,19 @@ def fetch_properties_for_hood(
             return_geometry=False,
             order_by=order_by,
             result_offset=offset,
-            result_record_count=page_size,
+            result_record_count=effective_page,
             max_retries=max_retries,
         )
         guard.record_success()
         features = data.get("features") or []
+        exceeded = data.get("exceededTransferLimit") is True
+        pages += 1
         if not features:
+            if exceeded:
+                log.warning(
+                    "  empty page with exceededTransferLimit at offset=%s — stopping",
+                    offset,
+                )
             break
         for feat in features:
             row = normalize_property_attrs(feat.get("attributes") or {})
@@ -509,17 +657,45 @@ def fetch_properties_for_hood(
             if not row.get("hood_name"):
                 row["hood_name"] = hood_cd
             rows.append(row)
-        if len(features) < page_size:
+
+        got = len(features)
+        # Continue while the server says more rows remain, even if this page
+        # was shorter than requested (maxRecordCount clamp / payload limits).
+        if not exceeded and got < effective_page:
             break
-        offset += page_size
+        if not exceeded and got == 0:
+            break
+        offset += got
+        # Safety: if count is known and we've collected them all, stop.
+        if total_available > 0 and len(rows) >= total_available:
+            break
+        # Guard against runaway loops if the server keeps repeating a page.
+        if pages > max(2, (total_available // max(1, effective_page)) + 5):
+            log.error(
+                "  pagination safety stop after %s pages (got %s/%s)",
+                pages,
+                len(rows),
+                total_available,
+            )
+            break
         guard.sleep(extra=0.0)
+
+    truncated = total_available > 0 and len(rows) < total_available
+    if truncated:
+        log.warning(
+            "  TRUNCATED pagination for %s: exported %s of %s "
+            "(exceededTransferLimit / page clamp issue — re-run with --force)",
+            hood_cd,
+            len(rows),
+            total_available,
+        )
 
     return {
         "rows": rows,
         "total_available": total_available,
         "exported": len(rows),
         "over_1000": over_1000,
-        "truncated": False,
+        "truncated": truncated,
     }
 
 
@@ -557,6 +733,8 @@ def write_hood_meta(path: Path, *, hood_cd: str, hood_name: str, result: dict[st
     }
     if result["over_1000"]:
         meta["marks"].append(f"OVER_{OVER_1000_MARK}_FULL_EXPORT")
+    if result.get("truncated"):
+        meta["marks"].append("TRUNCATED_EXPORT")
     path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
 
@@ -866,8 +1044,9 @@ def main(argv: list[str] | None = None) -> int:
                 write_hood_meta(meta_path, hood_cd=hood_cd, hood_name=hood_name, result=result)
 
                 marker_name = ""
-                if result["over_1000"]:
-                    over_1000_count += 1
+                if result["over_1000"] or result["truncated"]:
+                    if result["over_1000"]:
+                        over_1000_count += 1
                     touch_over_1000_marker(
                         args.out_dir,
                         hood_cd,
@@ -875,11 +1054,18 @@ def main(argv: list[str] | None = None) -> int:
                         exported=result["exported"],
                     )
                     marker_name = marker_path.name
-                    log.warning(
-                        "  OVER 1000: %s parcels — full export wrote %s rows (exceeds map UI limit)",
-                        result["total_available"],
-                        result["exported"],
-                    )
+                    if result["truncated"]:
+                        log.warning(
+                            "  INCOMPLETE: %s parcels available — only wrote %s rows",
+                            result["total_available"],
+                            result["exported"],
+                        )
+                    else:
+                        log.warning(
+                            "  OVER 1000: %s parcels — full export wrote %s rows (exceeds map UI limit)",
+                            result["total_available"],
+                            result["exported"],
+                        )
                     append_report_row(
                         over_report_path,
                         {
@@ -887,8 +1073,8 @@ def main(argv: list[str] | None = None) -> int:
                             "hood_name": hood_name,
                             "total_available": result["total_available"],
                             "exported": result["exported"],
-                            "over_1000": True,
-                            "truncated": False,
+                            "over_1000": result["over_1000"],
+                            "truncated": result["truncated"],
                             "csv_file": out_path.name,
                             "meta_file": meta_path.name,
                             "marker_file": marker_name,

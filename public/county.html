@@ -212,6 +212,7 @@
     .status-idle { background: #21262d; color: #8b949e; }
     .status-run { background: #12261e; color: #3fb950; }
     .hint { color: #8b949e; font-size: 0.8rem; line-height: 1.4; }
+    #authBar { display: flex; align-items: center; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -221,6 +222,7 @@
         <h1 id="brandTitle">County portal</h1>
         <p class="version" id="appVersion">v…</p>
         <p class="version" id="countyMeta" style="margin-top:0.25rem;"></p>
+        <div id="authBar" style="margin-top:0.75rem;"></div>
       </div>
 
       <div>
@@ -319,6 +321,7 @@
     </main>
   </div>
 
+  <script src="/auth.js"></script>
   <script>
     const pathMatch = location.pathname.match(/^\/c\/([a-z]{2})\/([a-z0-9_]+)\/?/i);
     if (!pathMatch) {
@@ -492,7 +495,8 @@
 
     function connectToLogs() {
       if (eventSource) eventSource.close();
-      eventSource = new EventSource('/api/logs/stream');
+      const token = encodeURIComponent(PropTaxAuth.getToken());
+      eventSource = new EventSource(`/api/logs/stream?token=${token}`);
       eventSource.onmessage = (event) => {
         try {
           appendLog(JSON.parse(event.data));
@@ -511,7 +515,7 @@
     }
 
     async function clearLogs() {
-      await fetch('/api/logs/clear', { method: 'POST' });
+      await PropTaxAuth.authFetch('/api/logs/clear', { method: 'POST' });
       logBuffer.length = 0;
       logBuffer.push({
         timestamp: new Date().toISOString(),
@@ -529,7 +533,7 @@
 
     async function refreshStats() {
       try {
-        const res = await fetch(`${API}/stats`);
+        const res = await PropTaxAuth.authFetch(`${API}/stats`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'stats failed');
         document.getElementById('appVersion').textContent = `v${data.version}`;
@@ -584,7 +588,7 @@
 
     async function startImport() {
       try {
-        const res = await fetch(`${API}/import`, { method: 'POST' });
+        const res = await PropTaxAuth.authFetch(`${API}/import`, { method: 'POST' });
         const data = await res.json().catch(() => ({}));
         if (res.status === 409) {
           showMessage(data.message || 'Busy', 'error');
@@ -612,9 +616,8 @@
         : [];
 
       try {
-        const res = await fetch(`${API}/scrape`, {
+        const res = await PropTaxAuth.authFetch(`${API}/scrape`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ limit, delay, force, skipEmpty, hoods }),
         });
         const data = await res.json().catch(() => ({}));
@@ -635,7 +638,7 @@
 
     async function stopScrape() {
       try {
-        const res = await fetch(`${API}/scrape/stop`, { method: 'POST' });
+        const res = await PropTaxAuth.authFetch(`${API}/scrape/stop`, { method: 'POST' });
         const data = await res.json().catch(() => ({}));
         showMessage(data.message || 'Stop sent', data.stopped ? 'success' : 'error');
         setTimeout(refreshStats, 500);
@@ -644,9 +647,24 @@
       }
     }
 
-    connectToLogs();
-    refreshStats();
-    setInterval(refreshStats, 4000);
+    (async () => {
+      const me = await PropTaxAuth.requireLogin();
+      if (!me) return;
+      if (me.user.role !== 'ADMIN') {
+        const access = PropTaxAuth.accessStatusMap(me);
+        const key = PropTaxAuth.countyAccessKey(STATE.toUpperCase(), COUNTY);
+        if (access.grants.has(key)) {
+          window.location.replace(`/c/${STATE}/${COUNTY}/browse`);
+        } else {
+          window.location.replace(`/state.html?state=${STATE.toUpperCase()}`);
+        }
+        return;
+      }
+      PropTaxAuth.renderAuthBar(document.getElementById('authBar'), me);
+      connectToLogs();
+      refreshStats();
+      setInterval(refreshStats, 4000);
+    })();
   </script>
 </body>
 </html>

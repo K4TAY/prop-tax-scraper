@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — Prop Tax Scraper</title>
+  <meta name="color-scheme" content="dark">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f1419;
+      color: #e6edf3;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .card {
+      width: 100%;
+      max-width: 420px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 1.5rem;
+    }
+    h1 { margin: 0 0 0.35rem; font-size: 1.35rem; }
+    .lead { color: #8b949e; font-size: 0.9rem; margin: 0 0 1.25rem; }
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: #c9d1d9;
+      margin-bottom: 0.35rem;
+    }
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      padding: 0.55rem 0.7rem;
+      border-radius: 8px;
+      border: 1px solid #30363d;
+      background: #0d1117;
+      color: #e6edf3;
+      font-size: 0.95rem;
+      margin-bottom: 0.9rem;
+    }
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: #c9d1d9;
+      margin-bottom: 1rem;
+    }
+    .btn {
+      width: 100%;
+      padding: 0.65rem 1rem;
+      border-radius: 8px;
+      border: 1px solid #2ea043;
+      background: #238636;
+      color: #fff;
+      font-size: 0.95rem;
+      cursor: pointer;
+    }
+    .btn:hover { background: #2ea043; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .links {
+      margin-top: 1rem;
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+      font-size: 0.85rem;
+    }
+    .links a { color: #58a6ff; text-decoration: none; }
+    .links a:hover { text-decoration: underline; }
+    .err { color: #f85149; font-size: 0.85rem; margin: 0 0 0.75rem; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Sign in</h1>
+    <p class="lead">Use your email or mobile number and password.</p>
+    <div class="err" id="error"></div>
+    <form id="form">
+      <label for="username">Email or mobile</label>
+      <input id="username" name="username" type="text" autocomplete="username" required>
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+      <label class="check">
+        <input type="checkbox" id="saveCreds">
+        Save credentials on this device
+      </label>
+
+      <button class="btn" type="submit" id="submit">Sign in</button>
+    </form>
+    <div class="links">
+      <a href="/register.html">Create account</a>
+      <a href="/forgot-password.html">Forgot password?</a>
+    </div>
+  </div>
+  <script src="/auth.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const next = params.get('next') || '/';
+    const saved = PropTaxAuth.loadSavedCredentials();
+    if (saved.username) {
+      document.getElementById('username').value = saved.username;
+      document.getElementById('password').value = saved.password;
+      document.getElementById('saveCreds').checked = true;
+    }
+
+    if (PropTaxAuth.getToken()) {
+      window.location.replace(next);
+    }
+
+    document.getElementById('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const err = document.getElementById('error');
+      const btn = document.getElementById('submit');
+      err.textContent = '';
+      btn.disabled = true;
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Login failed');
+        PropTaxAuth.setToken(data.token);
+        PropTaxAuth.setCachedUser(data.user);
+        if (document.getElementById('saveCreds').checked) {
+          PropTaxAuth.saveCredentials(username, password);
+        } else {
+          PropTaxAuth.clearSavedCredentials();
+        }
+        window.location.href = next.startsWith('/') ? next : '/';
+      } catch (ex) {
+        err.textContent = ex.message || String(ex);
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

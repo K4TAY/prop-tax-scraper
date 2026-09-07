@@ -199,16 +199,43 @@
     .badge.not-processed { background: #f8514933; border-color: #f85149; color: #ff7b72; font-weight: 600; }
     .badge.ready { background: #d4a01733; border-color: #d4a017; color: #e3b341; }
     .badge.soon { background: #21262d; color: #8b949e; }
+    .badge.access-granted { background: #23863633; border-color: #2ea043; color: #3fb950; }
+    .badge.access-pending { background: #d4a01733; border-color: #d4a017; color: #e3b341; }
+    .badge.access-denied { background: #f8514933; border-color: #f85149; color: #ff7b72; }
+    .badge.access-none { background: #21262d; color: #8b949e; }
+    .row-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.4rem;
+    }
+    .btn-access {
+      font-size: 0.75rem;
+      padding: 0.35rem 0.65rem;
+      border-radius: 8px;
+      border: 1px solid #30363d;
+      background: #21262d;
+      color: #e6edf3;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn-access:hover { background: #30363d; }
+    .btn-access:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn-access.primary { background: #1f6feb; border-color: #388bfd; color: #fff; }
     .err { color: #f85149; }
+    #authBar { display: flex; align-items: center; }
   </style>
 </head>
 <body>
   <div class="top">
     <h1 id="title">State</h1>
-    <a href="/">← USA map</a>
+    <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+      <a href="/">← USA map</a>
+      <div id="authBar"></div>
+    </div>
   </div>
   <div class="main">
-    <p class="lead" id="lead">Open a county portal. Each county uses its own Postgres tables and data folders.</p>
+    <p class="lead" id="lead">Browse counties in this state. Request access to view data. Admins can open the scrape/import portal.</p>
     <div class="meta" id="meta"></div>
 
     <div id="tx-map-wrap">
@@ -225,10 +252,14 @@
     <div class="list" id="list"></div>
     <div class="err" id="error"></div>
   </div>
+  <script src="/auth.js"></script>
   <script src="/texas-counties-map.js"></script>
   <script>
     const params = new URLSearchParams(location.search);
     const state = (params.get('state') || '').trim().toUpperCase();
+    let me = null;
+    let access = { grants: new Set(), pending: new Set(), denied: new Set() };
+    let isAdmin = false;
 
     function escapeHtml(s) {
       return String(s ?? '')
@@ -274,72 +305,67 @@
       return html;
     }
 
-    function portalBySlug(counties) {
-      const map = new Map();
-      for (const c of counties) map.set(c.slug, c.portalPath);
-      return map;
+    function countyHref(c) {
+      const browse = `/c/${String(c.state_code).trim().toLowerCase()}/${c.slug}/browse`;
+      if (isAdmin) return c.portalPath;
+      const key = PropTaxAuth.countyAccessKey(state, c.slug);
+      if (access.grants.has(key)) return browse;
+      return null;
     }
 
-    async function init() {
-      if (!/^[A-Z]{2}$/.test(state)) {
-        document.getElementById('error').textContent = 'Missing or invalid ?state=XX';
-        return;
+    function accessUi(c) {
+      if (isAdmin) {
+        return {
+          badge: '<span class="badge access-granted">admin access</span>',
+          action: `<a class="btn-access primary" href="${escapeHtml(c.portalPath)}">Open portal</a>
+                   <a class="btn-access" href="/c/${escapeHtml(String(c.state_code).trim().toLowerCase())}/${escapeHtml(c.slug)}/browse">Browse data</a>`,
+        };
       }
-      document.getElementById('title').textContent = `${state} counties`;
-      document.title = `${state} counties — Prop Tax Scraper`;
+      const key = PropTaxAuth.countyAccessKey(state, c.slug);
+      if (access.grants.has(key)) {
+        return {
+          badge: '<span class="badge access-granted">access granted</span>',
+          action: `<a class="btn-access primary" href="/c/${escapeHtml(String(c.state_code).trim().toLowerCase())}/${escapeHtml(c.slug)}/browse">View data</a>`,
+        };
+      }
+      if (access.pending.has(key)) {
+        return {
+          badge: '<span class="badge access-pending">request pending</span>',
+          action: '<button class="btn-access" disabled>Pending approval</button>',
+        };
+      }
+      if (access.denied.has(key)) {
+        return {
+          badge: '<span class="badge access-denied">request denied</span>',
+          action: `<button class="btn-access primary" data-request="${escapeHtml(c.slug)}">Request again</button>`,
+        };
+      }
+      return {
+        badge: '<span class="badge access-none">no access</span>',
+        action: `<button class="btn-access primary" data-request="${escapeHtml(c.slug)}">Request access</button>`,
+      };
+    }
 
-      const res = await fetch(`/api/cad-sources?state=${encodeURIComponent(state)}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load counties');
-
-      const counties = data.counties || [];
-      const importedCount = counties.filter((c) => c.importComplete).length;
-      const propTotal = counties.reduce((sum, c) => sum + (Number(c.propertyCount) || 0), 0);
-      const uniqueTotal = counties.reduce((sum, c) => sum + (Number(c.uniqueParcelCount) || 0), 0);
-      document.getElementById('meta').textContent =
-        `${counties.length} counties in catalog · ${importedCount} fully imported · ${formatCount(uniqueTotal)} unique parcels · ${formatCount(propTotal)} records in DB`;
-
-      if (state === 'TX') {
-        document.getElementById('lead').textContent =
-          'Click a highlighted county on the map, or use the list below. Green = fully imported; gold = scrape ready; blue = in catalog.';
-        document.getElementById('tx-map-wrap').classList.add('show');
-        document.getElementById('listLabel').textContent = 'All catalog counties';
-
-        const availableSlugs = counties.map((c) => c.slug);
-        const readySlugs = counties
-          .filter((c) => c.scrape_strategy === 'arcgis_rest')
-          .map((c) => c.slug);
-        const importedSlugs = counties
-          .filter((c) => c.importComplete)
-          .map((c) => c.slug);
-        const statsBySlug = Object.fromEntries(
-          counties.map((c) => [c.slug, {
-            propertyCount: c.propertyCount,
-            uniqueParcelCount: c.uniqueParcelCount,
-            nullParcelIdCount: c.nullParcelIdCount,
-            unassignedCount: c.unassignedCount,
-            neighborhoodCount: c.neighborhoodCount,
-            discoveredNeighborhoodCount: c.discoveredNeighborhoodCount,
-            processedCsvCount: c.processedCsvCount,
-            pendingCsvCount: c.pendingCsvCount,
-            importComplete: c.importComplete,
-          }])
-        );
-        const portals = portalBySlug(counties);
-
-        const map = new TexasCountiesMap('tx-map-container', {
-          availableSlugs,
-          readySlugs,
-          importedSlugs,
-          statsBySlug,
-          onCountyClick: (county) => {
-            const href = portals.get(county.slug);
-            if (href) window.location.href = href;
-          },
+    async function requestAccess(slug, btn) {
+      btn.disabled = true;
+      try {
+        const res = await PropTaxAuth.authFetch('/api/auth/county-access/request', {
+          method: 'POST',
+          body: JSON.stringify({ state, county: slug }),
         });
-        await map.load('/geo/texas-counties.json');
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Request failed');
+        me = await PropTaxAuth.fetchMe();
+        access = PropTaxAuth.accessStatusMap(me);
+        await renderList(window.__countiesCache || []);
+      } catch (ex) {
+        document.getElementById('error').textContent = ex.message || String(ex);
+        btn.disabled = false;
       }
+    }
 
+    async function renderList(counties) {
+      window.__countiesCache = counties;
       const list = document.getElementById('list');
       if (!counties.length) {
         list.innerHTML = '<p class="lead">No counties found for this state.</p>';
@@ -363,35 +389,125 @@
         const ready = c.scrape_strategy === 'arcgis_rest';
         const incomplete = ready && !c.importComplete;
         const props = Number(c.propertyCount) || 0;
-        const pending = Number(c.pendingCsvCount) || 0;
-        let badge;
+        const pendingCsv = Number(c.pendingCsvCount) || 0;
+        let importBadge;
         let rowClass = 'row';
         if (c.importComplete) {
-          badge = '<span class="badge imported">fully imported</span>';
+          importBadge = '<span class="badge imported">fully imported</span>';
           rowClass += ' complete';
         } else if (incomplete) {
-          if (props > 0 || pending > 0) {
+          if (props > 0 || pendingCsv > 0) {
             rowClass += ' incomplete';
-            badge = '<span class="badge incomplete">incomplete</span>';
+            importBadge = '<span class="badge incomplete">incomplete</span>';
           } else {
             rowClass += ' not-processed';
-            badge = '<span class="badge not-processed">not processed</span>';
+            importBadge = '<span class="badge not-processed">not processed</span>';
           }
         } else if (ready) {
-          badge = '<span class="badge ready">scrape ready</span>';
+          importBadge = '<span class="badge ready">scrape ready</span>';
         } else {
-          badge = `<span class="badge soon">${escapeHtml(c.scrape_strategy || 'investigate')}</span>`;
+          importBadge = `<span class="badge soon">${escapeHtml(c.scrape_strategy || 'investigate')}</span>`;
         }
+        const au = accessUi(c);
+        const href = countyHref(c);
+        const titleBlock = href
+          ? `<a href="${escapeHtml(href)}" style="color:inherit;text-decoration:none;"><strong>${escapeHtml(c.county_name)}</strong></a>`
+          : `<strong>${escapeHtml(c.county_name)}</strong>`;
         return `
-          <a class="${rowClass}" href="${escapeHtml(c.portalPath)}" id="county-${escapeHtml(c.slug)}">
+          <div class="${rowClass}" id="county-${escapeHtml(c.slug)}">
             <div>
-              <strong>${escapeHtml(c.county_name)}</strong>
+              ${titleBlock}
               <div class="sub">${escapeHtml(c.slug)} · tables ${escapeHtml(c.slug)}_${escapeHtml(String(c.state_code).trim().toLowerCase())}_*</div>
               ${importStatsHtml(c)}
             </div>
-            ${badge}
-          </a>`;
+            <div class="row-actions">
+              ${au.badge}
+              ${importBadge}
+              ${au.action}
+            </div>
+          </div>`;
       }).join('');
+
+      list.querySelectorAll('[data-request]').forEach((btn) => {
+        btn.addEventListener('click', () => requestAccess(btn.getAttribute('data-request'), btn));
+      });
+    }
+
+    async function init() {
+      me = await PropTaxAuth.requireLogin();
+      if (!me) return;
+      isAdmin = me.user.role === 'ADMIN';
+      access = PropTaxAuth.accessStatusMap(me);
+      PropTaxAuth.renderAuthBar(document.getElementById('authBar'), me);
+
+      if (!/^[A-Z]{2}$/.test(state)) {
+        document.getElementById('error').textContent = 'Missing or invalid ?state=XX';
+        return;
+      }
+      document.getElementById('title').textContent = `${state} counties`;
+      document.title = `${state} counties — Prop Tax Scraper`;
+
+      const res = await PropTaxAuth.authFetch(`/api/cad-sources?state=${encodeURIComponent(state)}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to load counties');
+
+      const counties = data.counties || [];
+      const importedCount = counties.filter((c) => c.importComplete).length;
+      const propTotal = counties.reduce((sum, c) => sum + (Number(c.propertyCount) || 0), 0);
+      const uniqueTotal = counties.reduce((sum, c) => sum + (Number(c.uniqueParcelCount) || 0), 0);
+      document.getElementById('meta').textContent =
+        `${counties.length} counties in catalog · ${importedCount} fully imported · ${formatCount(uniqueTotal)} unique parcels · ${formatCount(propTotal)} records in DB`;
+
+      if (state === 'TX') {
+        document.getElementById('lead').textContent =
+          'Click a county you have access to, or request access from the list. Green = fully imported; gold = scrape ready; blue = in catalog.';
+        document.getElementById('tx-map-wrap').classList.add('show');
+        document.getElementById('listLabel').textContent = 'All catalog counties';
+
+        const availableSlugs = counties.map((c) => c.slug);
+        const readySlugs = counties
+          .filter((c) => c.scrape_strategy === 'arcgis_rest')
+          .map((c) => c.slug);
+        const importedSlugs = counties
+          .filter((c) => c.importComplete)
+          .map((c) => c.slug);
+        const statsBySlug = Object.fromEntries(
+          counties.map((c) => [c.slug, {
+            propertyCount: c.propertyCount,
+            uniqueParcelCount: c.uniqueParcelCount,
+            nullParcelIdCount: c.nullParcelIdCount,
+            unassignedCount: c.unassignedCount,
+            neighborhoodCount: c.neighborhoodCount,
+            discoveredNeighborhoodCount: c.discoveredNeighborhoodCount,
+            processedCsvCount: c.processedCsvCount,
+            pendingCsvCount: c.pendingCsvCount,
+            importComplete: c.importComplete,
+          }])
+        );
+
+        const map = new TexasCountiesMap('tx-map-container', {
+          availableSlugs,
+          readySlugs,
+          importedSlugs,
+          statsBySlug,
+          onCountyClick: (county) => {
+            const c = counties.find((x) => x.slug === county.slug);
+            if (!c) return;
+            const href = countyHref(c);
+            if (href) {
+              window.location.href = href;
+              return;
+            }
+            document.getElementById('error').textContent =
+              `No access to ${county.name || county.slug}. Request access from the list below.`;
+            const el = document.getElementById(`county-${county.slug}`);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          },
+        });
+        await map.load('/geo/texas-counties.json');
+      }
+
+      await renderList(counties);
     }
 
     init().catch((err) => {
