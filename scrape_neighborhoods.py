@@ -260,6 +260,38 @@ def query_layer(
     return data
 
 
+def count_blank_hood_parcels(max_retries: int) -> int:
+    """Parcels whose neighborhood filter field is NULL or empty string."""
+    return int(
+        query_layer(
+            PROP_TABLE_ID,
+            where=f"({HOOD_FILTER_FIELD} IS NULL OR {HOOD_FILTER_FIELD} = '')",
+            return_count_only=True,
+            max_retries=max_retries,
+        ).get("count")
+        or 0
+    )
+
+
+def maybe_append_unassigned(
+    hoods: list[dict[str, str]], max_retries: int
+) -> list[dict[str, str]]:
+    """Ensure blank-hood parcels are covered by the synthetic __UNASSIGNED__ bucket."""
+    if any(h.get("hood_cd") == UNASSIGNED_HOOD for h in hoods):
+        return hoods
+    blank = count_blank_hood_parcels(max_retries)
+    if blank <= 0:
+        return hoods
+    log.info(
+        "Adding %s for %s parcels with blank %s",
+        UNASSIGNED_HOOD,
+        blank,
+        HOOD_FILTER_FIELD,
+    )
+    hoods.append({"hood_cd": UNASSIGNED_HOOD, "hood_name": "Unassigned"})
+    return hoods
+
+
 def fetch_neighborhoods(max_retries: int) -> list[dict[str, str]]:
     """Load neighborhood codes/names from hood layer, or distinct hood_cd on props."""
     if HOOD_TABLE_ID is not None and HOOD_TABLE_ID >= 0:
@@ -279,7 +311,8 @@ def fetch_neighborhoods(max_retries: int) -> list[dict[str, str]]:
                 continue
             hoods.append({"hood_cd": hood_cd, "hood_name": hood_name or hood_cd})
         hoods.sort(key=lambda h: h["hood_cd"])
-        return hoods
+        # Hood layers omit blank codes — still export parcels with no neighborhood.
+        return maybe_append_unassigned(hoods, max_retries)
 
     # No dedicated hood layer — distinct codes from the property layer
     data = query_layer(
@@ -309,15 +342,6 @@ def fetch_neighborhoods(max_retries: int) -> list[dict[str, str]]:
         ).get("count")
         or 0
     )
-    blank = int(
-        query_layer(
-            PROP_TABLE_ID,
-            where=f"({HOOD_FILTER_FIELD} IS NULL OR {HOOD_FILTER_FIELD} = '')",
-            return_count_only=True,
-            max_retries=max_retries,
-        ).get("count")
-        or 0
-    )
 
     if not hoods:
         if total <= 0:
@@ -330,16 +354,7 @@ def fetch_neighborhoods(max_retries: int) -> list[dict[str, str]]:
         )
         return [{"hood_cd": ALL_PARCELS_HOOD, "hood_name": "All parcels"}]
 
-    if blank > 0:
-        log.info(
-            "Adding %s for %s parcels with blank %s",
-            UNASSIGNED_HOOD,
-            blank,
-            HOOD_FILTER_FIELD,
-        )
-        hoods.append({"hood_cd": UNASSIGNED_HOOD, "hood_name": "Unassigned"})
-
-    return hoods
+    return maybe_append_unassigned(hoods, max_retries)
 
 
 def hood_where(hood_cd: str) -> str:
