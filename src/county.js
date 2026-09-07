@@ -265,6 +265,8 @@ async function tableCount(client, name) {
 
 /** Hood code used when ArcGIS parcels have a blank neighborhood id. */
 export const UNASSIGNED_HOOD_CD = "__UNASSIGNED__";
+/** Synthetic hood when the property layer has no usable neighborhood codes. */
+export const ALL_PARCELS_HOOD_CD = "__ALL__";
 
 /** Total rows + distinct non-null pacs_prop_id (partial ownership → more rows than parcels). */
 async function propertyImportCounts(client, tableName) {
@@ -472,21 +474,25 @@ export async function getCountyImportStats(ctx, client = pool) {
                AND exported < total_available
              )
         )::int AS incomplete,
-        COUNT(*) FILTER (WHERE hood_cd = $1)::int AS unassigned_hoods
+        COUNT(*) FILTER (WHERE hood_cd = $1)::int AS unassigned_hoods,
+        COUNT(*) FILTER (WHERE hood_cd = $2)::int AS all_parcels_hoods
       FROM ${quoteTable(ctx.neighborhoodsTable)}
       `,
-      [UNASSIGNED_HOOD_CD]
+      [UNASSIGNED_HOOD_CD, ALL_PARCELS_HOOD_CD]
     ),
   ]);
 
   const neighborhoodCount = hoodRows.rows[0]?.hoods ?? 0;
   const incomplete = hoodRows.rows[0]?.incomplete ?? 0;
   const unassignedHoods = hoodRows.rows[0]?.unassigned_hoods ?? 0;
+  const allParcelsHoods = hoodRows.rows[0]?.all_parcels_hoods ?? 0;
   const propCount = propCounts.propertyCount;
   const unassignedCount = propCounts.unassignedCount;
-  // Scrape is only complete when the blank-hood catch-all (__UNASSIGNED__) was imported
-  // along with every discovered neighborhood (DB rows match processed CSVs / discovery list).
-  const hasUnassigned = unassignedCount > 0 || unassignedHoods > 0;
+  // Coverage is complete when either:
+  // - blank-hood catch-all (__UNASSIGNED__) was imported, or
+  // - the layer had no hood codes and was exported as the synthetic __ALL__ bucket.
+  const hasCoverageBucket =
+    unassignedCount > 0 || unassignedHoods > 0 || allParcelsHoods > 0;
   const hoodsMatchProcessed = neighborhoodCount === processedCsvCount;
   const hoodsMatchDiscovered =
     discoveredNeighborhoodCount === 0 ||
@@ -496,7 +502,7 @@ export async function getCountyImportStats(ctx, client = pool) {
     propCount > 0 &&
     neighborhoodCount > 0 &&
     incomplete === 0 &&
-    hasUnassigned &&
+    hasCoverageBucket &&
     hoodsMatchProcessed &&
     hoodsMatchDiscovered;
 
