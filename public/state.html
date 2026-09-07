@@ -25,6 +25,7 @@
       flex-wrap: wrap;
     }
     .top h1 { margin: 0; font-size: 1.25rem; }
+    .top .version { color: #8b949e; font-size: 0.85rem; font-family: ui-monospace, monospace; }
     .top a { color: #58a6ff; text-decoration: none; font-size: 0.9rem; }
     .top a:hover { text-decoration: underline; }
     .main { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
@@ -147,6 +148,8 @@
       text-decoration: none;
       color: inherit;
     }
+    a.row { cursor: pointer; }
+    .row.clickable { cursor: pointer; }
     .row:hover { border-color: #58a6ff; }
     .row.complete {
       border-color: #2ea043;
@@ -203,25 +206,13 @@
     .badge.access-pending { background: #d4a01733; border-color: #d4a017; color: #e3b341; }
     .badge.access-denied { background: #f8514933; border-color: #f85149; color: #ff7b72; }
     .badge.access-none { background: #21262d; color: #8b949e; }
-    .row-actions {
+    .row-badges {
       display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: 0.4rem;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 0.35rem;
+      max-width: 14rem;
     }
-    .btn-access {
-      font-size: 0.75rem;
-      padding: 0.35rem 0.65rem;
-      border-radius: 8px;
-      border: 1px solid #30363d;
-      background: #21262d;
-      color: #e6edf3;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .btn-access:hover { background: #30363d; }
-    .btn-access:disabled { opacity: 0.55; cursor: not-allowed; }
-    .btn-access.primary { background: #1f6feb; border-color: #388bfd; color: #fff; }
     .err { color: #f85149; }
     #authBar { display: flex; align-items: center; }
   </style>
@@ -230,12 +221,13 @@
   <div class="top">
     <h1 id="title">State</h1>
     <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+      <span class="version" id="version"></span>
       <a href="/">← USA map</a>
       <div id="authBar"></div>
     </div>
   </div>
   <div class="main">
-    <p class="lead" id="lead">Browse counties in this state. Request access to view data. Admins can open the scrape/import portal.</p>
+    <p class="lead" id="lead">Click a county card to open it. Admins go to the scrape/import portal; users with access go to browse. Request access by clicking a county you do not have yet.</p>
     <div class="meta" id="meta"></div>
 
     <div id="tx-map-wrap">
@@ -313,41 +305,32 @@
       return null;
     }
 
-    function accessUi(c) {
+    function accessBadge(c) {
       if (isAdmin) {
-        return {
-          badge: '<span class="badge access-granted">admin access</span>',
-          action: `<a class="btn-access primary" href="${escapeHtml(c.portalPath)}">Open portal</a>
-                   <a class="btn-access" href="/c/${escapeHtml(String(c.state_code).trim().toLowerCase())}/${escapeHtml(c.slug)}/browse">Browse data</a>`,
-        };
+        return '<span class="badge access-granted">admin access</span>';
       }
       const key = PropTaxAuth.countyAccessKey(state, c.slug);
       if (access.grants.has(key)) {
-        return {
-          badge: '<span class="badge access-granted">access granted</span>',
-          action: `<a class="btn-access primary" href="/c/${escapeHtml(String(c.state_code).trim().toLowerCase())}/${escapeHtml(c.slug)}/browse">View data</a>`,
-        };
+        return '<span class="badge access-granted">access granted</span>';
       }
       if (access.pending.has(key)) {
-        return {
-          badge: '<span class="badge access-pending">request pending</span>',
-          action: '<button class="btn-access" disabled>Pending approval</button>',
-        };
+        return '<span class="badge access-pending">request pending</span>';
       }
       if (access.denied.has(key)) {
-        return {
-          badge: '<span class="badge access-denied">request denied</span>',
-          action: `<button class="btn-access primary" data-request="${escapeHtml(c.slug)}">Request again</button>`,
-        };
+        return '<span class="badge access-denied">request denied</span>';
       }
-      return {
-        badge: '<span class="badge access-none">no access</span>',
-        action: `<button class="btn-access primary" data-request="${escapeHtml(c.slug)}">Request access</button>`,
-      };
+      return '<span class="badge access-none">no access</span>';
     }
 
-    async function requestAccess(slug, btn) {
-      btn.disabled = true;
+    function canRequestAccess(c) {
+      if (isAdmin) return false;
+      const key = PropTaxAuth.countyAccessKey(state, c.slug);
+      if (access.grants.has(key) || access.pending.has(key)) return false;
+      return true;
+    }
+
+    async function requestAccess(slug, el) {
+      if (el) el.setAttribute('aria-busy', 'true');
       try {
         const res = await PropTaxAuth.authFetch('/api/auth/county-access/request', {
           method: 'POST',
@@ -360,7 +343,7 @@
         await renderList(window.__countiesCache || []);
       } catch (ex) {
         document.getElementById('error').textContent = ex.message || String(ex);
-        btn.disabled = false;
+        if (el) el.removeAttribute('aria-busy');
       }
     }
 
@@ -376,12 +359,17 @@
         String(a.county_name || a.slug).localeCompare(String(b.county_name || b.slug), undefined, {
           sensitivity: 'base',
         });
-      const isIncompleteCard = (c) =>
-        c.scrape_strategy === 'arcgis_rest' && !c.importComplete;
+      // Match map colors: yellow (scrape ready, not done) → blue (catalog only) → green (imported).
+      // Black (no CAD source) counties are map-only and not in this catalog list.
+      const mapActionPriority = (c) => {
+        if (c.importComplete) return 2; // green
+        if (c.scrape_strategy === 'arcgis_rest') return 0; // yellow
+        return 1; // blue
+      };
       const sorted = [...counties].sort((a, b) => {
-        const aInc = isIncompleteCard(a) ? 0 : 1;
-        const bInc = isIncompleteCard(b) ? 0 : 1;
-        if (aInc !== bInc) return aInc - bInc;
+        const pa = mapActionPriority(a);
+        const pb = mapActionPriority(b);
+        if (pa !== pb) return pa - pb;
         return byName(a, b);
       });
 
@@ -408,28 +396,39 @@
         } else {
           importBadge = `<span class="badge soon">${escapeHtml(c.scrape_strategy || 'investigate')}</span>`;
         }
-        const au = accessUi(c);
         const href = countyHref(c);
-        const titleBlock = href
-          ? `<a href="${escapeHtml(href)}" style="color:inherit;text-decoration:none;"><strong>${escapeHtml(c.county_name)}</strong></a>`
-          : `<strong>${escapeHtml(c.county_name)}</strong>`;
-        return `
-          <div class="${rowClass}" id="county-${escapeHtml(c.slug)}">
+        const requestable = canRequestAccess(c);
+        const badges = `
+            <div class="row-badges">
+              ${accessBadge(c)}
+              ${importBadge}
+            </div>`;
+        const body = `
             <div>
-              ${titleBlock}
+              <strong>${escapeHtml(c.county_name)}</strong>
               <div class="sub">${escapeHtml(c.slug)} · tables ${escapeHtml(c.slug)}_${escapeHtml(String(c.state_code).trim().toLowerCase())}_*</div>
               ${importStatsHtml(c)}
             </div>
-            <div class="row-actions">
-              ${au.badge}
-              ${importBadge}
-              ${au.action}
-            </div>
-          </div>`;
+            ${badges}`;
+        if (href) {
+          return `<a class="${rowClass}" id="county-${escapeHtml(c.slug)}" href="${escapeHtml(href)}">${body}</a>`;
+        }
+        if (requestable) {
+          return `<div class="${rowClass} clickable" id="county-${escapeHtml(c.slug)}" role="button" tabindex="0" data-request="${escapeHtml(c.slug)}">${body}</div>`;
+        }
+        return `<div class="${rowClass}" id="county-${escapeHtml(c.slug)}">${body}</div>`;
       }).join('');
 
-      list.querySelectorAll('[data-request]').forEach((btn) => {
-        btn.addEventListener('click', () => requestAccess(btn.getAttribute('data-request'), btn));
+      list.querySelectorAll('[data-request]').forEach((el) => {
+        const slug = el.getAttribute('data-request');
+        const go = () => requestAccess(slug, el);
+        el.addEventListener('click', go);
+        el.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            go();
+          }
+        });
       });
     }
 
@@ -439,6 +438,10 @@
       isAdmin = me.user.role === 'ADMIN';
       access = PropTaxAuth.accessStatusMap(me);
       PropTaxAuth.renderAuthBar(document.getElementById('authBar'), me);
+      try {
+        const ver = await fetch('/api/version').then((r) => r.json());
+        if (ver.version) document.getElementById('version').textContent = `v${ver.version}`;
+      } catch (_) { /* ignore */ }
 
       if (!/^[A-Z]{2}$/.test(state)) {
         document.getElementById('error').textContent = 'Missing or invalid ?state=XX';
@@ -460,7 +463,7 @@
 
       if (state === 'TX') {
         document.getElementById('lead').textContent =
-          'Click a county you have access to, or request access from the list. Green = fully imported; gold = scrape ready; blue = in catalog.';
+          'Click a county card to open it (portal for admins, browse for users). Click a county without access to request it. Green = fully imported; gold = scrape ready; blue = in catalog.';
         document.getElementById('tx-map-wrap').classList.add('show');
         document.getElementById('listLabel').textContent = 'All catalog counties';
 
