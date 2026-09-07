@@ -173,32 +173,57 @@ export const CAD_SOURCES_SEED = [
     evidence_source: "live_portal",
   },
 
-  // Texas — known propaccess cid values (no public BIS FeatureServer yet)
-  ...txPropaccess([
-    ["Cooke", 6],
-    ["Rockwall", 42],
-    ["Navarro", 91],
-    ["Sherman", 53],
-  ]),
+  // Texas — PropAccess cid known; public ArcGIS scrape endpoint still missing
+  {
+    ...txPropaccessEntry("Navarro", 91),
+  },
+  {
+    ...txPropaccessEntry("Sherman", 53),
+  },
+  {
+    ...txPropaccessEntry("Cooke", 6),
+    map_search_url: "https://gis.bisclient.com/cookecad/",
+    notes:
+      "PropAccess cid=6. Also has True Prodigy office lookup on cookecad.org and a BIS GIS app, but no public utility.arcgis FeatureServer id discovered yet for arcgis_rest.",
+    evidence_source: "live_probe",
+  },
+  {
+    ...txPropaccessEntry("Rockwall", 42),
+    propaccess_base_url: "https://propaccess.trueautomation.com/clientdb/?cid=42",
+    notes:
+      "PropAccess cid=42. Also runs True Prodigy public portal at rockwallcad.com — needs separate true_prodigy scraper; ArcGIS MapServer not yet wired.",
+    evidence_source: "live_probe",
+  },
 
-  // Texas — PACS-family evidence, no public ArcGIS scrape endpoint yet
-  ...txUnknownCid([
-    "Collin",
-    "Denton",
-    "DeWitt",
-    "Ellis",
-    "Haskell",
-    "Hunt",
-    "Maverick",
-    "McLennan",
-    "Nacogdoches",
-    "Somervell",
-    "Throckmorton",
-    "Upton",
-    "Webb",
-  ]),
+  // Collin — public AGOL FeatureServer (not BIS utility proxy)
+  {
+    county_name: "Collin",
+    state_code: "TX",
+    software_vendor: "Collin CAD / ArcGIS Online",
+    software_product: "CCAD Parcel Feature Set",
+    client_id: null,
+    property_search_host: "www.collincad.org",
+    propaccess_base_url: "https://www.collincad.org/",
+    map_search_url: "https://gis.bisclient.com/collincad/",
+    clientdb_url: "https://www.collincad.org/",
+    arcgis_mapserver_url:
+      "https://services2.arcgis.com/uXyoacYrZTPTKD3R/ArcGIS/rest/services/CCAD_Parcel_Feature_Set/FeatureServer",
+    neighborhoods_layer_id: -1,
+    properties_layer_id: 4,
+    properties_table_name: "Parcels",
+    hood_filter_field: "nbhdCode",
+    property_id_field: "propID",
+    scrape_strategy: "arcgis_rest",
+    supports_map_search: true,
+    supports_propaccess: false,
+    supports_arcgis: true,
+    same_stack_as_bexar: false,
+    notes:
+      "Public AGOL FeatureServer (~434k parcels). Hoods from distinct nbhdCode; field names are camelCase (ownerName, geoID, situsConcat). Not TrueAutomation PropAccess.",
+    evidence_source: "live_probe",
+  },
 
-  // Custom TrueAutomation-branded host (same software)
+  // Wichita — TrueAutomation ClientDB + public Parcels MapServer (NBHD field)
   {
     county_name: "Wichita",
     state_code: "TX",
@@ -207,16 +232,44 @@ export const CAD_SOURCES_SEED = [
     client_id: 1,
     property_search_host: "propaccess.wadtx.com",
     propaccess_base_url: "https://propaccess.wadtx.com/clientdb/?cid=1",
-    map_search_url: null,
+    map_search_url: "https://gis.bisclient.com/wichitacad/",
     clientdb_url: "https://propaccess.wadtx.com/clientdb/?cid=1",
-    scrape_strategy: "propaccess",
-    supports_map_search: false,
+    arcgis_mapserver_url:
+      "https://propaccess.wadtx.com/arcgis/rest/services/WCAD/Parcels/MapServer",
+    neighborhoods_layer_id: -1,
+    properties_layer_id: 1,
+    properties_table_name: "prop_id",
+    hood_filter_field: "NBHD",
+    property_id_field: "prop_id",
+    scrape_strategy: "arcgis_rest",
+    supports_map_search: true,
     supports_propaccess: true,
-    supports_arcgis: false,
+    supports_arcgis: true,
     same_stack_as_bexar: true,
-    notes: "TrueAutomation ClientDB on a custom county domain. Parcels MapServer exists but uses NBHD (not hood_cd).",
-    evidence_source: "cad_directory",
+    notes:
+      "Custom TrueAutomation host. Attribute-rich parcels layer is MapServer/1 (not /0). Neighborhood field is NBHD (~58k parcels).",
+    evidence_source: "live_probe",
   },
+
+  // True Prodigy public portal counties (no ArcGIS scrape path yet)
+  ...txTrueProdigy([
+    ["Webb", "www.webbcad.org"],
+    ["Denton", "www.dentoncad.com"],
+    ["Ellis", "www.elliscad.com"],
+    ["Hunt", "hunt-cad.org"],
+    ["Maverick", "www.maverickcad.org"],
+    ["McLennan", "mclennancad.org"],
+  ]),
+
+  // Still unresolved — probed 2026-09-07
+  ...txUnknownCid([
+    "DeWitt",
+    "Haskell",
+    "Nacogdoches",
+    "Somervell",
+    "Throckmorton",
+    "Upton",
+  ]),
 ];
 
 /**
@@ -256,8 +309,8 @@ function txBisFeatureServers(rows) {
   });
 }
 
-function txPropaccess(pairs) {
-  return pairs.map(([county_name, client_id]) => ({
+function txPropaccessEntry(county_name, client_id) {
+  return {
     county_name,
     state_code: "TX",
     software_vendor: "Harris Govern",
@@ -281,20 +334,64 @@ function txPropaccess(pairs) {
     notes:
       "Public ClientDB cid known. ArcGIS MapServer URL not yet discovered — probe CAD GIS if adding a scraper.",
     evidence_source: "propaccess_cid",
-  }));
+  };
+}
+
+function txPropaccess(pairs) {
+  return pairs.map(([county_name, client_id]) => txPropaccessEntry(county_name, client_id));
+}
+
+/** True Prodigy CAD public portal counties (webbcad-style). */
+function txTrueProdigy(pairs) {
+  return pairs.map(([county_name, host]) => {
+    const h = String(host).replace(/^https?:\/\//, "").replace(/\/$/, "");
+    return {
+      county_name,
+      state_code: "TX",
+      software_vendor: "True Prodigy",
+      software_product: "Public Portal / GAMA",
+      client_id: null,
+      property_search_host: h,
+      propaccess_base_url: `https://${h}/`,
+      map_search_url: `https://${h}/maps`,
+      clientdb_url: `https://${h}/property-search`,
+      arcgis_mapserver_url: null,
+      neighborhoods_layer_id: null,
+      properties_layer_id: null,
+      properties_table_name: null,
+      hood_filter_field: null,
+      property_id_field: "pid",
+      scrape_strategy: "true_prodigy",
+      supports_map_search: true,
+      supports_propaccess: false,
+      supports_arcgis: false,
+      same_stack_as_bexar: false,
+      notes:
+        `True Prodigy portal (office confirmed via officelookup on ${h}). API host prod-container.trueprodigyapi.com. Parcel GIS is GAMA/PostGIS tiles, not public ArcGIS FeatureServer. Needs a true_prodigy scraper — current arcgis_rest pipeline cannot import.`,
+      evidence_source: "live_probe",
+    };
+  });
 }
 
 function txUnknownCid(names) {
+  const extras = {
+    DeWitt: "No True Prodigy office hit; no BIS GIS slug. Confirm CAD vendor and public GIS before scrape.",
+    Haskell: "No True Prodigy office hit; no BIS GIS slug. Confirm CAD vendor and public GIS before scrape.",
+    Nacogdoches: "esearch.nacocad.org responds (BIS-style esearch). No public FeatureServer id discovered yet.",
+    Somervell: "No True Prodigy office hit; no BIS GIS slug. Confirm CAD vendor and public GIS before scrape.",
+    Throckmorton: "BIS GIS app at gis.bisclient.com/throckmortoncad exists (Experience Builder). No public FeatureServer id extracted yet.",
+    Upton: "No True Prodigy office hit; no BIS GIS slug. Confirm CAD vendor and public GIS before scrape.",
+  };
   return names.map((county_name) => ({
     county_name,
     state_code: "TX",
-    software_vendor: "Harris Govern",
-    software_product: "PACS",
+    software_vendor: "Unknown / TBD",
+    software_product: "Unknown",
     client_id: null,
-    property_search_host: "propaccess.trueautomation.com",
-    propaccess_base_url: "https://propaccess.trueautomation.com/clientdb/",
-    map_search_url: "https://propaccess.trueautomation.com/mapSearch/",
-    clientdb_url: "https://propaccess.trueautomation.com/clientDB/PropertySearch.aspx",
+    property_search_host: null,
+    propaccess_base_url: null,
+    map_search_url: null,
+    clientdb_url: null,
     arcgis_mapserver_url: null,
     neighborhoods_layer_id: null,
     properties_layer_id: null,
@@ -303,12 +400,13 @@ function txUnknownCid(names) {
     property_id_field: "pacs_prop_id",
     scrape_strategy: "investigate",
     supports_map_search: null,
-    supports_propaccess: true,
+    supports_propaccess: null,
     supports_arcgis: null,
-    same_stack_as_bexar: true,
+    same_stack_as_bexar: false,
     notes:
-      "Listed as PACS/TrueAutomation from public directories, reappraisal plans, or Harris newsletters. Resolve client_id and ArcGIS endpoints before scraping.",
-    evidence_source: "public_directory_or_newsletter",
+      extras[county_name] ||
+      "Catalog placeholder. Resolve vendor, client_id, and ArcGIS/True Prodigy endpoints before scraping.",
+    evidence_source: "live_probe",
   }));
 }
 
@@ -335,7 +433,7 @@ export async function ensureCadSourcesSchema(client = pool) {
       property_id_field TEXT DEFAULT 'pacs_prop_id',
       -- Pull playbook
       scrape_strategy TEXT NOT NULL DEFAULT 'investigate',
-      -- investigate | arcgis_rest | propaccess | property_access | mapsearch | unknown
+      -- investigate | arcgis_rest | propaccess | property_access | mapsearch | true_prodigy | unknown
       supports_map_search BOOLEAN,
       supports_propaccess BOOLEAN,
       supports_arcgis BOOLEAN,
@@ -381,24 +479,28 @@ export async function seedCadSources(client = pool, { rows = CAD_SOURCES_SEED } 
       ON CONFLICT (county_name, state_code) DO UPDATE SET
         software_vendor = EXCLUDED.software_vendor,
         software_product = EXCLUDED.software_product,
-        client_id = COALESCE(EXCLUDED.client_id, cad_sources.client_id),
-        property_search_host = COALESCE(EXCLUDED.property_search_host, cad_sources.property_search_host),
-        propaccess_base_url = COALESCE(EXCLUDED.propaccess_base_url, cad_sources.propaccess_base_url),
-        map_search_url = COALESCE(EXCLUDED.map_search_url, cad_sources.map_search_url),
-        clientdb_url = COALESCE(EXCLUDED.clientdb_url, cad_sources.clientdb_url),
-        arcgis_mapserver_url = COALESCE(EXCLUDED.arcgis_mapserver_url, cad_sources.arcgis_mapserver_url),
-        neighborhoods_layer_id = COALESCE(EXCLUDED.neighborhoods_layer_id, cad_sources.neighborhoods_layer_id),
-        properties_layer_id = COALESCE(EXCLUDED.properties_layer_id, cad_sources.properties_layer_id),
-        properties_table_name = COALESCE(EXCLUDED.properties_table_name, cad_sources.properties_table_name),
-        hood_filter_field = COALESCE(EXCLUDED.hood_filter_field, cad_sources.hood_filter_field),
-        property_id_field = COALESCE(EXCLUDED.property_id_field, cad_sources.property_id_field),
+        client_id = EXCLUDED.client_id,
+        property_search_host = EXCLUDED.property_search_host,
+        propaccess_base_url = EXCLUDED.propaccess_base_url,
+        map_search_url = EXCLUDED.map_search_url,
+        clientdb_url = EXCLUDED.clientdb_url,
+        arcgis_mapserver_url = EXCLUDED.arcgis_mapserver_url,
+        neighborhoods_layer_id = EXCLUDED.neighborhoods_layer_id,
+        properties_layer_id = EXCLUDED.properties_layer_id,
+        properties_table_name = EXCLUDED.properties_table_name,
+        hood_filter_field = EXCLUDED.hood_filter_field,
+        property_id_field = EXCLUDED.property_id_field,
         scrape_strategy = EXCLUDED.scrape_strategy,
-        supports_map_search = COALESCE(EXCLUDED.supports_map_search, cad_sources.supports_map_search),
-        supports_propaccess = COALESCE(EXCLUDED.supports_propaccess, cad_sources.supports_propaccess),
-        supports_arcgis = COALESCE(EXCLUDED.supports_arcgis, cad_sources.supports_arcgis),
+        supports_map_search = EXCLUDED.supports_map_search,
+        supports_propaccess = EXCLUDED.supports_propaccess,
+        supports_arcgis = EXCLUDED.supports_arcgis,
         same_stack_as_bexar = EXCLUDED.same_stack_as_bexar,
         notes = EXCLUDED.notes,
         evidence_source = EXCLUDED.evidence_source,
+        last_verified_at = CASE
+          WHEN EXCLUDED.scrape_strategy = 'arcgis_rest' THEN NOW()
+          ELSE cad_sources.last_verified_at
+        END,
         updated_at = NOW()
       `,
       [

@@ -504,82 +504,142 @@ def _blank(v: Any) -> str | None:
 def compose_situs(attrs: dict[str, Any]) -> str | None:
     if _blank(attrs.get("situs")):
         return _blank(attrs.get("situs"))
+    if _blank(attrs.get("situsConcat")):
+        return _blank(attrs.get("situsConcat"))
+    if _blank(attrs.get("situsConcatShort")):
+        return _blank(attrs.get("situsConcatShort"))
     parts = [
-        _blank(attrs.get("situs_num")),
-        _blank(attrs.get("situs_street_prefx")),
-        _blank(attrs.get("situs_street")),
-        _blank(attrs.get("situs_street_sufix")),
+        _blank(attrs.get("situs_num")) or _blank(attrs.get("SITUS_NUM")),
+        _blank(attrs.get("situs_street_prefx"))
+        or _blank(attrs.get("STREET_PREFIX"))
+        or _blank(attrs.get("situsStreetPrefix")),
+        _blank(attrs.get("situs_street"))
+        or _blank(attrs.get("STREET"))
+        or _blank(attrs.get("situsStreetName")),
+        _blank(attrs.get("situs_street_sufix")) or _blank(attrs.get("situsStreetSuffix")),
     ]
     street = " ".join(p for p in parts if p)
-    city = _blank(attrs.get("situs_city"))
-    state = _blank(attrs.get("situs_state"))
-    zipc = _blank(attrs.get("situs_zip"))
+    unit = _blank(attrs.get("situsUnit"))
+    if street and unit:
+        street = f"{street} {unit}"
+    city = _blank(attrs.get("situs_city")) or _blank(attrs.get("situsCity"))
+    state = _blank(attrs.get("situs_state")) or _blank(attrs.get("situsState"))
+    zipc = (
+        _blank(attrs.get("situs_zip"))
+        or _blank(attrs.get("situsZip"))
+        or _blank(attrs.get("zip"))
+    )
     tail = ", ".join(p for p in [city, " ".join(p for p in [state, zipc] if p)] if p)
     if street and tail:
-        return f"{street} {tail}"
+        return f"{street}, {tail}"
     return street or tail or None
+
+
+def _first(*vals: Any) -> Any:
+    for v in vals:
+        if v is None:
+            continue
+        if isinstance(v, str) and not v.strip():
+            continue
+        return v
+    return None
 
 
 def normalize_property_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
     """Map county-specific ArcGIS fields onto the CSV schema importCsv expects."""
-    prop_id = attrs.get(PROP_ID_FIELD)
-    if prop_id is None:
-        prop_id = attrs.get("pacs_prop_id")
-    if prop_id is None:
-        prop_id = attrs.get("prop_id")
+    prop_id = _first(
+        attrs.get(PROP_ID_FIELD),
+        attrs.get("pacs_prop_id"),
+        attrs.get("prop_id"),
+        attrs.get("propID"),
+        attrs.get("PROP_ID"),
+        attrs.get("pid"),
+    )
 
-    owner = attrs.get("owner_name")
-    if owner is None:
-        owner = attrs.get("file_as_name")
+    owner = _first(
+        attrs.get("owner_name"),
+        attrs.get("file_as_name"),
+        attrs.get("ownerName"),
+        attrs.get("NAME"),
+    )
 
-    prop_val_yr = attrs.get("prop_val_yr")
-    if prop_val_yr is None:
-        prop_val_yr = attrs.get("owner_tax_yr")
+    prop_val_yr = _first(
+        attrs.get("prop_val_yr"),
+        attrs.get("owner_tax_yr"),
+        attrs.get("propYear"),
+        attrs.get("currValYear"),
+    )
 
-    appraised = attrs.get("appraised_val")
-    if appraised is None and attrs.get("market") is not None:
-        appraised = attrs.get("market")
+    appraised = _first(
+        attrs.get("appraised_val"),
+        attrs.get("market"),
+        attrs.get("currValAppraised"),
+        attrs.get("currValMarket"),
+        attrs.get("currValAssessed"),
+    )
 
-    hood_cd = _blank(attrs.get(HOOD_FILTER_FIELD) or attrs.get("hood_cd"))
+    hood_cd = _blank(
+        _first(
+            attrs.get(HOOD_FILTER_FIELD),
+            attrs.get("hood_cd"),
+            attrs.get("nbhdCode"),
+            attrs.get("NBHD"),
+        )
+    )
     hood_name = _blank(attrs.get("hood_name")) or hood_cd
 
-    legal = attrs.get("legal_desc")
+    legal = _first(
+        attrs.get("legal_desc"),
+        attrs.get("legalDescription"),
+        attrs.get("LEGAL_DESC"),
+    )
     if legal is None:
         chunks = [attrs.get("legal_desc"), attrs.get("legal_desc2"), attrs.get("legal_desc3")]
-        legal = " ".join(str(c) for c in chunks if c)
+        legal = " ".join(str(c) for c in chunks if c) or None
 
     return {
         "pacs_prop_id": prop_id,
         "prop_val_yr": prop_val_yr,
-        "geo_id": attrs.get("geo_id"),
-        "prop_type_cd": attrs.get("prop_type_cd"),
-        "prop_type_desc": attrs.get("prop_type_desc"),
-        "dba_name": attrs.get("dba_name"),
+        "geo_id": _first(attrs.get("geo_id"), attrs.get("geoID"), attrs.get("GeoID")),
+        "prop_type_cd": _first(attrs.get("prop_type_cd"), attrs.get("propType"), attrs.get("PROP_TYPE")),
+        "prop_type_desc": _first(
+            attrs.get("prop_type_desc"),
+            attrs.get("propType"),
+            attrs.get("PROP_TYPE"),
+        ),
+        "dba_name": _first(attrs.get("dba_name"), attrs.get("dbaName"), attrs.get("dba")),
         "appraised_val": appraised,
-        "abs_subdv_cd": attrs.get("abs_subdv_cd"),
+        "abs_subdv_cd": _first(
+            attrs.get("abs_subdv_cd"),
+            attrs.get("legalAbsSubCode"),
+        ),
         "mapsco": attrs.get("mapsco"),
-        "map_id": attrs.get("map_id"),
-        "agent_cd": attrs.get("agent_cd"),
+        "map_id": _first(attrs.get("map_id"), attrs.get("mapID")),
+        "agent_cd": _first(attrs.get("agent_cd"), attrs.get("taxAgentID")),
         "hood_cd": hood_cd,
         "hood_name": hood_name,
         "owner_name": owner,
-        "owner_id": attrs.get("owner_id"),
-        "addr_line1": attrs.get("addr_line1"),
-        "addr_line2": attrs.get("addr_line2"),
+        "owner_id": _first(attrs.get("owner_id"), attrs.get("ownerID")),
+        "addr_line1": _first(attrs.get("addr_line1"), attrs.get("ownerAddrLine1")),
+        "addr_line2": _first(attrs.get("addr_line2"), attrs.get("ownerAddrLine2")),
         "addr_line3": attrs.get("addr_line3"),
-        "addr_city": attrs.get("addr_city"),
-        "addr_state": attrs.get("addr_state"),
-        "addr_zip": attrs.get("addr_zip"),
-        "addr_country": attrs.get("addr_country"),
+        "addr_city": _first(attrs.get("addr_city"), attrs.get("ownerAddrCity")),
+        "addr_state": _first(attrs.get("addr_state"), attrs.get("ownerAddrState")),
+        "addr_zip": _first(attrs.get("addr_zip"), attrs.get("ownerAddrZip"), attrs.get("zip")),
+        "addr_country": _first(attrs.get("addr_country"), attrs.get("ownerAddrCountry")),
         "pct_ownership": attrs.get("pct_ownership"),
-        "exemptions": attrs.get("exemptions"),
-        "state_cd": attrs.get("state_cd"),
+        "exemptions": _first(attrs.get("exemptions"), attrs.get("exemptCodes")),
+        "state_cd": _first(attrs.get("state_cd"), attrs.get("STATE_CD"), attrs.get("propCategoryCode")),
         "legal_desc": legal,
         "situs": compose_situs(attrs),
-        "jurisdictions": attrs.get("jurisdictions"),
-        "land_val": attrs.get("land_val"),
-        "imprv_val": attrs.get("imprv_val"),
-        "market": attrs.get("market"),
+        "jurisdictions": _first(
+            attrs.get("jurisdictions"),
+            attrs.get("entityCodes"),
+            attrs.get("Entities"),
+        ),
+        "land_val": _first(attrs.get("land_val"), attrs.get("currValLand")),
+        "imprv_val": _first(attrs.get("imprv_val"), attrs.get("currValImprv")),
+        "market": _first(attrs.get("market"), attrs.get("currValMarket")),
         "school": attrs.get("school"),
         "city": attrs.get("city"),
         "county": attrs.get("county"),
