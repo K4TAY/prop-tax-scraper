@@ -304,6 +304,11 @@ def resolve_field_name(requested: str, field_names: list[str]) -> str:
     return req
 
 
+def is_hoodless_mode() -> bool:
+    """True when county has no neighborhood field — export entire layer as __ALL__."""
+    return HOOD_FILTER_FIELD in ("", ALL_PARCELS_HOOD, "__NONE__", "none")
+
+
 def resolve_runtime_fields(layer_id: int, *, max_retries: int) -> None:
     """Rewrite PROP_ID_FIELD / HOOD_FILTER_FIELD to match layer schema."""
     global PROP_ID_FIELD, HOOD_FILTER_FIELD
@@ -312,7 +317,11 @@ def resolve_runtime_fields(layer_id: int, *, max_retries: int) -> None:
     if not names:
         return
     new_prop = resolve_field_name(PROP_ID_FIELD, names)
-    new_hood = resolve_field_name(HOOD_FILTER_FIELD, names)
+    new_hood = (
+        HOOD_FILTER_FIELD
+        if is_hoodless_mode()
+        else resolve_field_name(HOOD_FILTER_FIELD, names)
+    )
     if new_prop != PROP_ID_FIELD or new_hood != HOOD_FILTER_FIELD:
         log.info(
             "Resolved fields: hood %r → %r ; prop_id %r → %r",
@@ -636,6 +645,26 @@ def fetch_all_features(
 
 def fetch_neighborhoods(max_retries: int) -> list[dict[str, str]]:
     """Load neighborhood codes/names from hood layer, or distinct hood_cd on props."""
+    if is_hoodless_mode():
+        total = int(
+            query_layer(
+                PROP_TABLE_ID,
+                where="1=1",
+                return_count_only=True,
+                max_retries=max_retries,
+            ).get("count")
+            or 0
+        )
+        if total <= 0:
+            return []
+        log.info(
+            "Hoodless mode (%s) — exporting entire layer (%s parcels) as %s",
+            HOOD_FILTER_FIELD or "(empty)",
+            total,
+            ALL_PARCELS_HOOD,
+        )
+        return [{"hood_cd": ALL_PARCELS_HOOD, "hood_name": "All parcels"}]
+
     if HOOD_TABLE_ID is not None and HOOD_TABLE_ID >= 0:
         feats = fetch_all_features(
             HOOD_TABLE_ID,

@@ -342,6 +342,36 @@ export const CAD_SOURCES_SEED = [
     ["Williamson", "https://gisweb.wcad.org/server/rest/services/WCADGISDATA/WCADGISDATA/MapServer", 0, "NGHBRHDCD", "PropertyID", 290913, "WCAD GIS MapServer"],
   ]),
 
+  // Hidalgo: official CAD is True Prodigy, but GAMA/_parcels is broken and
+  // HidalgoCADWebService is token-locked. Best scrape path is the public RGV911
+  // ESD FeatureServer parcel mirror (rich CAD attrs, no hood_cd → __ALL__).
+  {
+    county_name: "Hidalgo",
+    state_code: "TX",
+    software_vendor: "True Prodigy (portal) / RGV911 (parcels)",
+    software_product: "ESD Map Parcels mirror",
+    client_id: null,
+    property_search_host: "hidalgo.prodigycad.com",
+    propaccess_base_url: "https://hidalgo.prodigycad.com/",
+    map_search_url: "https://hidalgo.prodigycad.com/maps",
+    clientdb_url: "https://hidalgo.prodigycad.com/property-search",
+    arcgis_mapserver_url:
+      "https://services2.arcgis.com/HZn9sYWTEUxVRQW9/arcgis/rest/services/Hidalgo_County_ESD_Map/FeatureServer",
+    neighborhoods_layer_id: -1,
+    properties_layer_id: 6,
+    properties_table_name: "Parcels",
+    hood_filter_field: "__ALL__",
+    property_id_field: "prop_id",
+    scrape_strategy: "arcgis_rest",
+    supports_map_search: true,
+    supports_propaccess: false,
+    supports_arcgis: true,
+    same_stack_as_bexar: false,
+    notes:
+      "Official portal hidalgo.prodigycad.com / www.hidalgoad.org (True Prodigy). Official HidalgoCADWebService is token-locked; GAMA parcel tables missing. Scrapes RGV911 Hidalgo County ESD Map FeatureServer layer 6 (~307843 parcels, ~305k with market). Snapshot ~2023-08; no hood_cd — exports as __ALL__. Switch to true_prodigy when GAMA is provisioned.",
+    evidence_source: "live_probe",
+  },
+
   // Pritchard & Abbott pandai MapServers (Location_Code ≈ hood, Account ≈ prop id)
   ...txPandai([
     ["Chambers", "Chambers", 38563],
@@ -374,9 +404,13 @@ export const CAD_SOURCES_SEED = [
   ...txTrueProdigy([
     ["Anderson", "www.andersoncad.net"],
     ["Bowie", "bowieappraisal.com"],
+    [
+      "Cameron",
+      "cameron.prodigycad.com",
+      "True Prodigy portal (office=Cameron). No public ArcGIS FeatureServer. Bulk all-parcels import: python3 scripts/prepare_cameron_bulk.py → data/tx/cameron/csv/__ALL__.csv, then portal Import CSV. Source: gissvr.cameroncad.org GCC certified xlsx (~224k accounts).",
+    ],
     ["Denton", "www.dentoncad.com"],
     ["Ellis", "www.elliscad.com"],
-    ["Hidalgo", "hidalgo.prodigycad.com"],
     ["Hunt", "hunt-cad.org"],
     ["Maverick", "www.maverickcad.org"],
     ["McLennan", "mclennancad.org"],
@@ -565,9 +599,12 @@ function txPropaccess(pairs) {
   return pairs.map(([county_name, client_id]) => txPropaccessEntry(county_name, client_id));
 }
 
-/** True Prodigy CAD public portal counties (webbcad-style). */
+/** True Prodigy CAD public portal counties (webbcad-style).
+ * Optional 3rd tuple element overrides the default notes string.
+ */
 function txTrueProdigy(pairs) {
-  return pairs.map(([county_name, host]) => {
+  return pairs.map((row) => {
+    const [county_name, host, notesOverride] = row;
     const h = String(host).replace(/^https?:\/\//, "").replace(/\/$/, "");
     return {
       county_name,
@@ -591,6 +628,7 @@ function txTrueProdigy(pairs) {
       supports_arcgis: false,
       same_stack_as_bexar: false,
       notes:
+        notesOverride ||
         `True Prodigy portal (office confirmed via officelookup on ${h}). API host prod-container.trueprodigyapi.com. Parcel GIS is GAMA/PostGIS tiles, not public ArcGIS FeatureServer. Needs a true_prodigy scraper — current arcgis_rest pipeline cannot import.`,
       evidence_source: "live_probe",
     };
