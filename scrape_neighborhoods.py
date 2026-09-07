@@ -264,8 +264,69 @@ def query_layer(
 _LAYER_INFO_CACHE: dict[str, dict[str, Any]] = {}
 
 
+def resolve_field_name(requested: str, field_names: list[str]) -> str:
+    """Match a configured field to the layer's actual name.
+
+    Pandai / joined layers often expose ``CountyCADWeb.DBO.Accounts.Location_Code``
+    while cad_sources stores the short suffix ``Location_Code``.
+    """
+    req = str(requested or "").strip()
+    if not req:
+        return req
+    names = [str(n) for n in field_names if n]
+    if req in names:
+        return req
+    # Exact case-insensitive
+    lower = {n.lower(): n for n in names}
+    if req.lower() in lower:
+        return lower[req.lower()]
+    # Suffix match: ".Location_Code" or endswith "Location_Code"
+    suffix = req.lower()
+    matches = [
+        n
+        for n in names
+        if n.lower() == suffix or n.lower().endswith("." + suffix)
+    ]
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        # Prefer Accounts.* over TaxParcels.* for Account/Location_Code
+        accounts = [m for m in matches if ".Accounts." in m or m.startswith("DBO.Accounts.")]
+        if len(accounts) == 1:
+            return accounts[0]
+        log.warning(
+            "Ambiguous field %r matches %s — using %s",
+            req,
+            matches,
+            matches[0],
+        )
+        return matches[0]
+    return req
+
+
+def resolve_runtime_fields(layer_id: int, *, max_retries: int) -> None:
+    """Rewrite PROP_ID_FIELD / HOOD_FILTER_FIELD to match layer schema."""
+    global PROP_ID_FIELD, HOOD_FILTER_FIELD
+    info = get_layer_info(layer_id, max_retries=max_retries)
+    names = list(info.get("fieldNames") or [])
+    if not names:
+        return
+    new_prop = resolve_field_name(PROP_ID_FIELD, names)
+    new_hood = resolve_field_name(HOOD_FILTER_FIELD, names)
+    if new_prop != PROP_ID_FIELD or new_hood != HOOD_FILTER_FIELD:
+        log.info(
+            "Resolved fields: hood %r → %r ; prop_id %r → %r",
+            HOOD_FILTER_FIELD,
+            new_hood,
+            PROP_ID_FIELD,
+            new_prop,
+        )
+    PROP_ID_FIELD = new_prop
+    HOOD_FILTER_FIELD = new_hood
+
+
 def get_layer_info(layer_id: int, *, max_retries: int) -> dict[str, Any]:
-    """Fetch ArcGIS layer metadata (maxRecordCount, objectIdField)."""
+    """Fetch ArcGIS layer metadata (maxRecordCount, objectIdField, pagination)."""
     cache_key = f"{MAP_SERVER}|{layer_id}"
     cached = _LAYER_INFO_CACHE.get(cache_key)
     if cached is not None:
@@ -281,19 +342,123 @@ def get_layer_info(layer_id: int, *, max_retries: int) -> dict[str, Any]:
 
     max_records = int(data.get("maxRecordCount") or 0) or DEFAULT_PAGE_SIZE
     object_id_field = str(data.get("objectIdField") or "").strip() or None
+    fields = data.get("fields") or []
+    field_names = [str(f.get("name") or "") for f in fields if f.get("name")]
+    if not object_id_field:
+        for f in fields:
+            if f.get("type") == "esriFieldTypeOID" and f.get("name"):
+                object_id_field = str(f["name"])
+                break
+    if not object_id_field:
+        # Joined pandai layers: prefer TaxParcels.OBJECTID over Accounts.OBJECTID
+        tax = [n for n in field_names if n.upper().endswith("TAXPARCELS.OBJECTID")]
+        any_oid = [n for n in field_names if n.upper().endswith(".OBJECTID") or n.upper() == "OBJECTID"]
+        object_id_field = (tax[0] if tax else None) or (any_oid[0] if any_oid else None)
+
+    adv = data.get("advancedQueryCapabilities") or {}
+    supports_pagination = adv.get("supportsPagination")
+    if supports_pagination is None:
+        supports_pagination = bool(data.get("supportsPagination", True))
+
     info = {
         "maxRecordCount": max_records,
         "objectIdField": object_id_field,
         "name": data.get("name"),
+        "fieldNames": field_names,
+        "supportsPagination": bool(supports_pagination),
+        "supportsDistinct": bool(adv.get("supportsDistinct", True)),
+        "supportsOrderBy": bool(adv.get("supportsOrderBy", True)),
     }
     _LAYER_INFO_CACHE[cache_key] = info
     log.info(
-        "Layer %s maxRecordCount=%s objectIdField=%s",
+        "Layer %s maxRecordCount=%s objectIdField=%s pagination=%s",
         layer_id,
         max_records,
         object_id_field or "(none)",
+        info["supportsPagination"],
     )
     return info
+
+
+def _feature_oid(feat: dict[str, Any], object_id_field: str) -> int | None:
+    attrs = feat.get("attributes") or {}
+    raw = attrs.get(object_id_field)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch_features_oid_window(
+    layer_id: int,
+    *,
+    where: str,
+    out_fields: str,
+    object_id_field: str,
+    max_retries: int,
+    return_distinct: bool = False,
+) -> list[dict[str, Any]]:
+    """Paginate via ``objectId > last`` windows when resultOffset is unsupported.
+
+    Used for Pritchard & Abbott pandai MapServers (supportsPagination=false).
+    """
+    # Always request the OID field so windowing can advance.
+    fields = [f.strip() for f in str(out_fields).split(",") if f.strip()]
+    if out_fields.strip() == "*":
+        page_fields = "*"
+    else:
+        if object_id_field not in fields:
+            fields.insert(0, object_id_field)
+        page_fields = ",".join(fields)
+
+    features: list[dict[str, Any]] = []
+    last_oid: int | None = None
+    pages = 0
+    while True:
+        page_where = where
+        if last_oid is not None:
+            page_where = f"({where}) AND {object_id_field} > {last_oid}"
+        data = query_layer(
+            layer_id,
+            where=page_where,
+            out_fields=page_fields,
+            return_geometry=False,
+            order_by=None,  # pandai often rejects orderBy
+            return_distinct=return_distinct,
+            max_retries=max_retries,
+        )
+        batch = data.get("features") or []
+        exceeded = data.get("exceededTransferLimit") is True
+        pages += 1
+        if not batch:
+            break
+        features.extend(batch)
+        oids = [_feature_oid(f, object_id_field) for f in batch]
+        oids_ok = [o for o in oids if o is not None]
+        if not oids_ok:
+            log.warning(
+                "OID-window page missing %s values — stopping after %s features",
+                object_id_field,
+                len(features),
+            )
+            break
+        next_oid = max(oids_ok)
+        if last_oid is not None and next_oid <= last_oid:
+            log.warning("OID-window did not advance (last=%s) — stopping", last_oid)
+            break
+        last_oid = next_oid
+        if not exceeded:
+            break
+        if pages > 500:
+            log.error(
+                "OID-window safety stop after %s pages (%s features)",
+                pages,
+                len(features),
+            )
+            break
+    return features
 
 
 def clamp_page_size(requested: int, max_record_count: int) -> int:
@@ -349,36 +514,106 @@ def fetch_all_features(
 
     Honors exceededTransferLimit and clamps page size to layer maxRecordCount
     so distinct-hood discovery (and large hood layers) are not truncated.
+
+    Falls back to objectId-window pagination when the layer rejects resultOffset
+    (common on pandai MapServers with supportsPagination=false).
     """
     layer_info = get_layer_info(layer_id, max_retries=max_retries)
     effective_page = clamp_page_size(
         page_size or DEFAULT_PAGE_SIZE, layer_info["maxRecordCount"]
     )
+    object_id_field = layer_info.get("objectIdField")
+    use_offset = bool(layer_info.get("supportsPagination", True))
+
     # Stable ordering is required for offset pagination of distinct values.
     effective_order = order_by
-    if not effective_order:
+    if use_offset and not effective_order:
         if return_distinct:
             # Distinct pages must be ordered by the distinct field itself.
             first_field = str(out_fields).split(",")[0].strip()
             effective_order = f"{first_field} ASC" if first_field and first_field != "*" else None
-        elif layer_info.get("objectIdField"):
-            effective_order = f"{layer_info['objectIdField']} ASC"
+        elif object_id_field:
+            effective_order = f"{object_id_field} ASC"
+
+    if not use_offset:
+        if not object_id_field:
+            raise RequestFailed(
+                "Layer does not support pagination and has no objectIdField "
+                "for OID-window fallback"
+            )
+        # Distinct is usually unsupported on these layers — collect unique values
+        # by scanning all rows instead.
+        if return_distinct:
+            log.info(
+                "Layer pagination disabled — scanning all rows for distinct %s via OID windows",
+                out_fields,
+            )
+            scanned = fetch_features_oid_window(
+                layer_id,
+                where=where,
+                out_fields=out_fields if out_fields != "*" else object_id_field,
+                object_id_field=object_id_field,
+                max_retries=max_retries,
+                return_distinct=False,
+            )
+            # Dedupe by out field value(s)
+            field = str(out_fields).split(",")[0].strip()
+            seen: set[str] = set()
+            unique: list[dict[str, Any]] = []
+            for feat in scanned:
+                attrs = feat.get("attributes") or {}
+                key = str(attrs.get(field) or "").strip()
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                unique.append({"attributes": {field: key}})
+            return unique
+        return fetch_features_oid_window(
+            layer_id,
+            where=where,
+            out_fields=out_fields,
+            object_id_field=object_id_field,
+            max_retries=max_retries,
+            return_distinct=False,
+        )
 
     features: list[dict[str, Any]] = []
     offset = 0
     pages = 0
     while True:
-        data = query_layer(
-            layer_id,
-            where=where,
-            out_fields=out_fields,
-            return_geometry=False,
-            order_by=effective_order,
-            result_offset=offset,
-            result_record_count=effective_page,
-            return_distinct=return_distinct,
-            max_retries=max_retries,
-        )
+        try:
+            data = query_layer(
+                layer_id,
+                where=where,
+                out_fields=out_fields,
+                return_geometry=False,
+                order_by=effective_order,
+                result_offset=offset,
+                result_record_count=effective_page,
+                return_distinct=return_distinct,
+                max_retries=max_retries,
+            )
+        except RequestFailed as exc:
+            msg = str(exc).lower()
+            if object_id_field and (
+                "pagination is not supported" in msg or "invalid or missing input" in msg
+            ):
+                log.warning(
+                    "Offset pagination failed (%s) — falling back to OID windows",
+                    exc,
+                )
+                # Remember for later calls on this layer
+                layer_info["supportsPagination"] = False
+                return fetch_all_features(
+                    layer_id,
+                    where=where,
+                    out_fields=out_fields,
+                    max_retries=max_retries,
+                    order_by=None,
+                    return_distinct=return_distinct,
+                    page_size=page_size,
+                )
+            raise
         batch = data.get("features") or []
         exceeded = data.get("exceededTransferLimit") is True
         pages += 1
@@ -501,6 +736,17 @@ def _blank(v: Any) -> str | None:
     return s if s else None
 
 
+def _attr_suffix(attrs: dict[str, Any], suffix: str) -> Any:
+    """Return first attribute whose key equals or ends with ``.suffix``."""
+    if suffix in attrs:
+        return attrs.get(suffix)
+    needle = "." + suffix
+    for key, val in attrs.items():
+        if str(key).endswith(needle) or str(key) == suffix:
+            return val
+    return None
+
+
 def compose_situs(attrs: dict[str, Any]) -> str | None:
     if _blank(attrs.get("situs")):
         return _blank(attrs.get("situs"))
@@ -554,6 +800,8 @@ def normalize_property_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
         attrs.get("propID"),
         attrs.get("PROP_ID"),
         attrs.get("pid"),
+        attrs.get("Account"),
+        _attr_suffix(attrs, "Account"),
     )
 
     owner = _first(
@@ -561,6 +809,8 @@ def normalize_property_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
         attrs.get("file_as_name"),
         attrs.get("ownerName"),
         attrs.get("NAME"),
+        attrs.get("Owner_Name"),
+        _attr_suffix(attrs, "Owner_Name"),
     )
 
     prop_val_yr = _first(
@@ -576,6 +826,8 @@ def normalize_property_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
         attrs.get("currValAppraised"),
         attrs.get("currValMarket"),
         attrs.get("currValAssessed"),
+        attrs.get("Market_Value"),
+        _attr_suffix(attrs, "Market_Value"),
     )
 
     hood_cd = _blank(
@@ -584,6 +836,8 @@ def normalize_property_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
             attrs.get("hood_cd"),
             attrs.get("nbhdCode"),
             attrs.get("NBHD"),
+            attrs.get("Location_Code"),
+            _attr_suffix(attrs, "Location_Code"),
         )
     )
     hood_name = _blank(attrs.get("hood_name")) or hood_cd
@@ -659,6 +913,8 @@ def fetch_properties_for_hood(
     exceededTransferLimit=true even when fewer rows than requested were returned.
     Stopping on ``len(features) < page_size`` alone truncates large hoods
     (e.g. El Paso JS83800000 stopped at 2000 of 8794).
+
+    Layers with supportsPagination=false (pandai) use objectId-window paging.
     """
     where = hood_where(hood_cd)
     total_available = count_properties_for_hood(hood_cd, max_retries=max_retries)
@@ -674,30 +930,92 @@ def fetch_properties_for_hood(
             effective_page,
         )
 
-    # ObjectID pagination is the most reliable ArcGIS strategy when available.
     object_id_field = layer_info.get("objectIdField")
+    use_offset = bool(layer_info.get("supportsPagination", True))
+    over_1000 = total_available > OVER_1000_MARK
+
+    def _materialize(features: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for feat in features:
+            row = normalize_property_attrs(feat.get("attributes") or {})
+            # Keep CSV/import keyed to the hood batch we queried (null hood_cd counties).
+            if not row.get("hood_cd"):
+                row["hood_cd"] = hood_cd
+            if not row.get("hood_name"):
+                row["hood_name"] = hood_cd
+            rows.append(row)
+        return rows
+
+    if not use_offset:
+        if not object_id_field:
+            raise RequestFailed(
+                f"Cannot page hood {hood_cd}: no pagination and no objectIdField"
+            )
+        log.info("  using OID-window pagination (%s)", object_id_field)
+        features = fetch_features_oid_window(
+            PROP_TABLE_ID,
+            where=where,
+            out_fields="*",
+            object_id_field=object_id_field,
+            max_retries=max_retries,
+        )
+        guard.record_success()
+        rows = _materialize(features)
+        truncated = total_available > 0 and len(rows) < total_available
+        if truncated:
+            log.warning(
+                "  TRUNCATED pagination for %s: exported %s of %s",
+                hood_cd,
+                len(rows),
+                total_available,
+            )
+        return {
+            "rows": rows,
+            "total_available": total_available,
+            "exported": len(rows),
+            "over_1000": over_1000,
+            "truncated": truncated,
+        }
+
+    # ObjectID pagination is the most reliable ArcGIS strategy when available.
     order_by = (
         f"{object_id_field} ASC"
         if object_id_field
         else f"{PROP_ID_FIELD} ASC"
     )
 
-    over_1000 = total_available > OVER_1000_MARK
-
     rows: list[dict[str, Any]] = []
     offset = 0
     pages = 0
     while True:
-        data = query_layer(
-            PROP_TABLE_ID,
-            where=where,
-            out_fields="*",
-            return_geometry=False,
-            order_by=order_by,
-            result_offset=offset,
-            result_record_count=effective_page,
-            max_retries=max_retries,
-        )
+        try:
+            data = query_layer(
+                PROP_TABLE_ID,
+                where=where,
+                out_fields="*",
+                return_geometry=False,
+                order_by=order_by,
+                result_offset=offset,
+                result_record_count=effective_page,
+                max_retries=max_retries,
+            )
+        except RequestFailed as exc:
+            msg = str(exc).lower()
+            if object_id_field and (
+                "pagination is not supported" in msg or "invalid or missing input" in msg
+            ):
+                log.warning(
+                    "  offset pagination failed — switching to OID windows: %s",
+                    exc,
+                )
+                layer_info["supportsPagination"] = False
+                return fetch_properties_for_hood(
+                    hood_cd,
+                    page_size=page_size,
+                    guard=guard,
+                    max_retries=max_retries,
+                )
+            raise
         guard.record_success()
         features = data.get("features") or []
         exceeded = data.get("exceededTransferLimit") is True
@@ -709,14 +1027,7 @@ def fetch_properties_for_hood(
                     offset,
                 )
             break
-        for feat in features:
-            row = normalize_property_attrs(feat.get("attributes") or {})
-            # Keep CSV/import keyed to the hood batch we queried (null hood_cd counties).
-            if not row.get("hood_cd"):
-                row["hood_cd"] = hood_cd
-            if not row.get("hood_name"):
-                row["hood_name"] = hood_cd
-            rows.append(row)
+        rows.extend(_materialize(features))
 
         got = len(features)
         # Continue while the server says more rows remain, even if this page
@@ -964,6 +1275,10 @@ def main(argv: list[str] | None = None) -> int:
 
     log.info("Source origin: %s (cid=%s)", MAP_SEARCH_ORIGIN, CID)
     log.info("Map server: %s", MAP_SERVER)
+    try:
+        resolve_runtime_fields(PROP_TABLE_ID, max_retries=args.retries)
+    except RequestFailed as exc:
+        log.warning("Could not resolve layer fields (continuing with configured names): %s", exc)
     log.info(
         "Layers: hood=%s prop=%s id_field=%s hood_field=%s",
         HOOD_TABLE_ID,

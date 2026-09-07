@@ -527,7 +527,7 @@ function txPandai(rows) {
       supports_propaccess: false,
       supports_arcgis: true,
       same_stack_as_bexar: false,
-      notes: `Pandai CADPublic MapServer (~${parcelCount}). Fields are often DBO-qualified (…Accounts.Location_Code / …Accounts.Account); confirm exact names at scrape time.`,
+      notes: `Pandai CADPublic MapServer (~${parcelCount}). Short field names Location_Code/Account are resolved to DBO-qualified names at scrape time; OID-window pagination used when supportsPagination=false.`,
       evidence_source: "live_probe",
     };
   });
