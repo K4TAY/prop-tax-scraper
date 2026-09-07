@@ -263,6 +263,17 @@ def query_layer(
 # Cached per MAP_SERVER + layer id: maxRecordCount / objectIdField
 _LAYER_INFO_CACHE: dict[str, dict[str, Any]] = {}
 
+_NUMERIC_FIELD_TYPES = frozenset(
+    {
+        "esriFieldTypeSmallInteger",
+        "esriFieldTypeInteger",
+        "esriFieldTypeSingle",
+        "esriFieldTypeDouble",
+        "esriFieldTypeOID",
+        "esriFieldTypeBigInteger",
+    }
+)
+
 
 def resolve_field_name(requested: str, field_names: list[str]) -> str:
     """Match a configured field to the layer's actual name.
@@ -309,6 +320,75 @@ def is_hoodless_mode() -> bool:
     return HOOD_FILTER_FIELD in ("", ALL_PARCELS_HOOD, "__NONE__", "none")
 
 
+def hood_field_type() -> str | None:
+    """ArcGIS field type for HOOD_FILTER_FIELD, if known from layer metadata."""
+    if is_hoodless_mode():
+        return None
+    info = _LAYER_INFO_CACHE.get(f"{MAP_SERVER}|{PROP_TABLE_ID}") or {}
+    types = info.get("fieldTypes") or {}
+    return types.get(HOOD_FILTER_FIELD) or types.get(str(HOOD_FILTER_FIELD).lower())
+
+
+def hood_field_is_numeric() -> bool:
+    """True when neighborhood codes are stored as numbers (e.g. HCAD nh_cd Double)."""
+    return hood_field_type() in _NUMERIC_FIELD_TYPES
+
+
+def format_hood_cd(raw: Any) -> str:
+    """Normalize a hood attribute to a stable string key for filenames / filters."""
+    if raw is None:
+        return ""
+    if isinstance(raw, bool):
+        return str(raw)
+    if isinstance(raw, int):
+        return str(raw)
+    if isinstance(raw, float):
+        if raw.is_integer():
+            return str(int(raw))
+        return format(raw, ".10g")
+    text = str(raw).strip()
+    if not text:
+        return ""
+    # Distinct queries sometimes stringify doubles as "7120.0"
+    if hood_field_is_numeric():
+        try:
+            num = float(text)
+            if num.is_integer():
+                return str(int(num))
+            return format(num, ".10g")
+        except ValueError:
+            pass
+    return text
+
+
+def hood_present_where() -> str:
+    """WHERE clause selecting parcels that have a neighborhood code."""
+    if hood_field_is_numeric():
+        return f"{HOOD_FILTER_FIELD} IS NOT NULL"
+    return f"{HOOD_FILTER_FIELD} IS NOT NULL AND {HOOD_FILTER_FIELD} <> ''"
+
+
+def hood_blank_where() -> str:
+    """WHERE clause selecting parcels with no neighborhood code."""
+    if hood_field_is_numeric():
+        return f"{HOOD_FILTER_FIELD} IS NULL"
+    return f"({HOOD_FILTER_FIELD} IS NULL OR {HOOD_FILTER_FIELD} = '')"
+
+
+def hood_equals_where(hood_cd: str) -> str:
+    """Exact-match WHERE for one neighborhood code (numeric vs string aware)."""
+    safe = hood_cd.replace("'", "''")
+    if hood_field_is_numeric():
+        try:
+            num = float(hood_cd)
+            if num.is_integer():
+                return f"{HOOD_FILTER_FIELD} = {int(num)}"
+            return f"{HOOD_FILTER_FIELD} = {format(num, '.10g')}"
+        except ValueError:
+            pass
+    return f"{HOOD_FILTER_FIELD} = '{safe}'"
+
+
 def resolve_runtime_fields(layer_id: int, *, max_retries: int) -> None:
     """Rewrite PROP_ID_FIELD / HOOD_FILTER_FIELD to match layer schema."""
     global PROP_ID_FIELD, HOOD_FILTER_FIELD
@@ -353,6 +433,13 @@ def get_layer_info(layer_id: int, *, max_retries: int) -> dict[str, Any]:
     object_id_field = str(data.get("objectIdField") or "").strip() or None
     fields = data.get("fields") or []
     field_names = [str(f.get("name") or "") for f in fields if f.get("name")]
+    field_types: dict[str, str] = {}
+    for f in fields:
+        name = str(f.get("name") or "").strip()
+        ftype = str(f.get("type") or "").strip()
+        if name and ftype:
+            field_types[name] = ftype
+            field_types[name.lower()] = ftype
     if not object_id_field:
         for f in fields:
             if f.get("type") == "esriFieldTypeOID" and f.get("name"):
@@ -374,6 +461,7 @@ def get_layer_info(layer_id: int, *, max_retries: int) -> dict[str, Any]:
         "objectIdField": object_id_field,
         "name": data.get("name"),
         "fieldNames": field_names,
+        "fieldTypes": field_types,
         "supportsPagination": bool(supports_pagination),
         "supportsDistinct": bool(adv.get("supportsDistinct", True)),
         "supportsOrderBy": bool(adv.get("supportsOrderBy", True)),
@@ -482,7 +570,7 @@ def count_blank_hood_parcels(max_retries: int) -> int:
     return int(
         query_layer(
             PROP_TABLE_ID,
-            where=f"({HOOD_FILTER_FIELD} IS NULL OR {HOOD_FILTER_FIELD} = '')",
+            where=hood_blank_where(),
             return_count_only=True,
             max_retries=max_retries,
         ).get("count")
@@ -690,9 +778,10 @@ def fetch_neighborhoods(max_retries: int) -> list[dict[str, str]]:
     # No dedicated hood layer — paginate distinct codes from the property layer.
     # A single distinct query is capped at maxRecordCount (e.g. El Paso 2000),
     # which previously truncated neighborhoods.json to ~2001 including __UNASSIGNED__.
+    # Numeric hood fields (e.g. Harris HCAD nh_cd Double) reject `<> ''` comparisons.
     feats = fetch_all_features(
         PROP_TABLE_ID,
-        where=f"{HOOD_FILTER_FIELD} IS NOT NULL AND {HOOD_FILTER_FIELD} <> ''",
+        where=hood_present_where(),
         out_fields=HOOD_FILTER_FIELD,
         order_by=f"{HOOD_FILTER_FIELD} ASC",
         return_distinct=True,
@@ -702,16 +791,17 @@ def fetch_neighborhoods(max_retries: int) -> list[dict[str, str]]:
     seen: set[str] = set()
     for feat in feats:
         attrs = feat.get("attributes") or {}
-        hood_cd = str(attrs.get(HOOD_FILTER_FIELD) or "").strip()
+        hood_cd = format_hood_cd(attrs.get(HOOD_FILTER_FIELD))
         if not hood_cd or hood_cd in seen:
             continue
         seen.add(hood_cd)
         hoods.append({"hood_cd": hood_cd, "hood_name": hood_cd})
     hoods.sort(key=lambda h: h["hood_cd"])
     log.info(
-        "Distinct %s discovery returned %s neighborhoods (paginated)",
+        "Distinct %s discovery returned %s neighborhoods (paginated)%s",
         HOOD_FILTER_FIELD,
         len(hoods),
+        f" [{hood_field_type()}]" if hood_field_type() else "",
     )
 
     total = int(
@@ -742,10 +832,9 @@ def hood_where(hood_cd: str) -> str:
     if hood_cd == ALL_PARCELS_HOOD:
         return "1=1"
     if hood_cd == UNASSIGNED_HOOD:
-        return f"({HOOD_FILTER_FIELD} IS NULL OR {HOOD_FILTER_FIELD} = '')"
-    safe = hood_cd.replace("'", "''")
+        return hood_blank_where()
     # Exact match only — LIKE 'X%' wrongly matches longer codes (YR2-RA1 → YR2-RA10).
-    return f"{HOOD_FILTER_FIELD} = '{safe}'"
+    return hood_equals_where(hood_cd)
 
 
 def count_properties_for_hood(hood_cd: str, *, max_retries: int) -> int:

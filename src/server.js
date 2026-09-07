@@ -587,6 +587,12 @@ app.post(
       "--map-origin",
       host.startsWith("http") ? host : `https://${host}`
     );
+  } else if (source?.arcgis_mapserver_url) {
+    try {
+      args.push("--map-origin", new URL(source.arcgis_mapserver_url).origin);
+    } catch {
+      /* ignore invalid URL */
+    }
   }
   if (source?.client_id != null) args.push("--cid", String(source.client_id));
   if (source?.neighborhoods_layer_id != null) {
