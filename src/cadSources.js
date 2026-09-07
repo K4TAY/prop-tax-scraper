@@ -109,6 +109,68 @@ export const CAD_SOURCES_SEED = [
     ["Wood", "woodcad", "b444eae779694e10a8792a4a4798594a", 44495, null],
     ["Yoakum", "yoakumcad", "f8d08b1593eb454cb53c2073004d92c4", 7223, null],
     ["Zavala", "zavalacad", "fbae3632f3da40af998a7fdf60079f54", 9647, null],
+    // --- discovered 2026-09-07 (black-map ArcGIS sweep) ---
+    ["Angelina", "angelinacad", "0d57665b0361492397b48cbd4ad88ad6", 60935, null],
+    ["Aransas", "aransascad", "7541f7b3986c43a98bb534055663ecd5", 26322, null],
+    ["Austin", "austincad", "0545ef6adc754660b8eff3de70da4faa", 22634, null],
+    ["Bastrop", "bastropcad", "3c3898a5ef9a46caa69d8fd34de0f488", 65286, null],
+    ["Borden", "bordencad", "2a7187d3bb6d48afb0147590d6584606", 3902, null],
+    ["Bosque", "bosquecad", "d69a51fa458e401382e8f3f772426659", 20083, null],
+    ["Brown", "browncad", "0a539aaa7b684b629b57eb2289e2622b", 31117, null],
+    ["Burleson", "burlesoncad", "a9130afb63844d0fb6fa794d0dd013d8", 26162, null],
+    ["Burnet", "burnetcad", "9831c4c543474c5e96bad050824257e3", 50656, null, "BurnetCADWebService1"],
+    ["Callahan", "callahancad", "a65b8493743640c1b642629c5233f756", 12580, null],
+    ["Cochran", "cochrancad", "0a876c63294540cfbc72b4aec84f8952", 5354, null],
+    ["Coke", "cokecad", "e941caff3b89477da03cece169749ccb", 7800, null],
+    ["Coleman", "colemancad", "086200facb164057869e3f0339bdb8c7", 12489, null],
+    ["Comal", "comalcad", "5d37dc8436c24c70aa3cdcec26923b60", 106800, null],
+    ["Comanche", "comanchecad", "7bf5a1b3daff4ebf9ce9e3bfe98dc676", 17555, null],
+    ["Concho", "conchocad", "25130dc9fcbe426bb35310fce790963a", 8035, null],
+    ["Coryell", "coryellcad", "4ecc64c337814bc3a0886db1810b5f20", 31774, null],
+    ["Dallam", "dallamcad", "ee0281431dae4ce09b602d9177c0effd", 6518, null],
+    ["Delta", "deltacad", "fa4b2d42bb4d4f4c85068b3deb32a17d", 6466, null],
+    ["Duval", "duvalcad", "f5be9cb68ae9431896bfd15ac20703ff", 15391, null],
+    ["Erath", "erathcad", "dd59a06766d24b79912073c7338722ac", 173514, null],
+    ["Franklin", "franklincad", "1dd7969e04b24b0481a3963189876c4e", 16506, null],
+    ["Garza", "garzacad", "e53c6292c01e4fa3bedc30d5eb413949", 6602, null],
+    ["Gray", "graycad", "d69d7d89f29745739343cece8992ec73", 16329, null],
+    ["Grimes", "grimescad", "c35ffea8b2da4f9a84aa5034736b026b", 27335, null],
+    ["Harrison", "harrisoncad", "e6112999761448c38be93304678cf0ef", 51318, null],
+    ["Hartley", "hartleycad", "865a7827a4fa4b369250ab2f61315691", 5667, null],
+    ["Hays", "hayscad", "02e3ae8dad2b4fba9d1927407c322e27", 121700, null, "HaysCADWebService1"],
+    ["Henderson", "hendersoncad", "10ad6530968144dd8694345090df0122", 108152, null],
+    ["Hood", "hoodcad", "03622a33fdee42ca8a6012ddfa9a8df3", 52221, null],
+    ["Howard", "howardcad", "b93b33feb20140559f02a07be62d88fb", 20587, null],
+    ["Hudspeth", "hudspethcad", "e3c28f031b2e43febaccf1c06e2dfdbe", 24106, null],
+    ["Jasper", "jaspercad", "88e4e1551667478f998591c8569c2d89", 33640, null],
+    ["Kenedy", "kenedycad", "9a05f874931f40598c257d473342b48c", 543, null],
+    ["Knox", "knoxcad", "310c47040701428284397132aa219b3c", 6408, null],
+    ["La Salle", "lasallecad", "539499e765884482a16a9659a00b0993", 9361, null],
+    ["Liberty", "libertycad", "450c4ebf2346497ca2d3077feca13ee4", 155905, null],
+    ["Limestone", "limestonecad", "65f45e0c697a40d49378873ade7fc6a0", 22115, null],
+    ["Llano", "llanocad", "7640f7024cff47a6be21f9632e1d94e7", 37713, null],
+    ["Marion", "marioncad", "028ec8d2839f4afcb17b04c37e3fac77", 19345, null],
+    ["Midland", "midlandcad", "8339294169c14381bcdf05ad8b4d63cc", 77446, null],
+    ["Mitchell", "mitchellcad", "4f4c4df808ee4899b314f33e23806410", 7924, null],
+    ["Nueces", "nuecescad", "1f43cdaa05ee4c05bfb48b7da6aa4521", 157044, null],
+    ["Ochiltree", "ochiltreecad", "b31480ce47124e9bb37368390a8c2167", 6794, null],
+    ["Orange", "orangecad", "0e8d23989ce140c69b2962ae1da9b768", 47397, null],
+    ["Parker", "parkercad", "fe7855da9ed843c5a5cc7f090447b478", 102254, null],
+    ["Polk", "polkcad", "60f9b6d8a8c546b6b0aa1fb4999bee8e", 59514, null],
+    ["Real", "realcad", "d838d2e8092a4aa39dc173cdd1624a4d", 8183, null],
+    ["San Patricio", "sanpatriciocad", "0f5863a7a1404cc49f50754869dc6f2d", 49277, null],
+    ["Starr", "starrcad", "ff05af4293474b45abf39075250efe78", 40501, null],
+    ["Stephens", "stephenscad", "85561de1e8bc4180a7e270ddd36352bb", 13031, null],
+    ["Sutton", "suttoncad", "5b6c3c2212d0445991ef56431df50293", 5917, null],
+    ["Terry", "terrycad", "956e26d1eb17432085d01625ae4d523a", 9139, null],
+    ["Titus", "tituscad", "6efd14c238e04c2b88e8338998b68c1c", 20527, null],
+    ["Victoria", "victoriacad", "e65d43a56b124077a7a6eb19ef464e1b", 42679, null],
+    ["Waller", "wallercad", "2abd8b401a9d401a9940b891a2d677a4", 53466, null],
+    ["Washington", "washingtoncad", "06c0f0c3ecbd41feb5ff104cb3c3b627", 23197, null],
+    ["Wharton", "whartoncad", "e1377e3b89dd442a9240b63962f7bfcc", 94444, null],
+    ["Wilbarger", "wilbargercad", "d070c15888884b73a2ae463794426fae", 11374, null],
+    ["Young", "youngcad", "dff3fbf2618c416abc7b4e3c6a32ea96", 15620, null],
+    ["Zapata", "zapatacad", "71a60f8e7e344c05a034b8f66eb5c453", 12570, null],
   ]),
 
   // Out of state — PropertyAccess host
@@ -251,14 +313,75 @@ export const CAD_SOURCES_SEED = [
     evidence_source: "live_probe",
   },
 
+  // BIS-style FeatureServers on public AGOL (utility proxy 403 / missing) — same hood_cd + prop_id
+  ...txBisDirectFeatureServers([
+    ["Brazoria", "brazoriacad", "https://services6.arcgis.com/j94FvPaik4etwHFk/arcgis/rest/services/BrazoriaCADWebService/FeatureServer", 280302],
+    ["Caldwell", "caldwellcad", "https://services.arcgis.com/rVxY74DxxIDrDbc0/arcgis/rest/services/CaldwellCADWebService/FeatureServer", 27450],
+    ["Castro", "castrocad", "https://services5.arcgis.com/iunrO5vjpmI1MJJA/arcgis/rest/services/CastroCADWebService/FeatureServer", 6594],
+    ["Jefferson", "jeffersoncad", "https://services.arcgis.com/ZXAF35aJr7XcgDMv/arcgis/rest/services/Parcel_JeffersonCAD/FeatureServer", 128542],
+    ["Johnson", "johnsoncad", "https://services5.arcgis.com/SNQMi91A9RRB0qcO/arcgis/rest/services/JohnsonCADWebService/FeatureServer", 100415],
+    ["Kleberg", "klebergcad", "https://services6.arcgis.com/j94FvPaik4etwHFk/arcgis/rest/services/KlebergCADWebService/FeatureServer", 14973],
+    ["Lampasas", "lampasascad", "https://services6.arcgis.com/j94FvPaik4etwHFk/arcgis/rest/services/LampasasCADWebService/FeatureServer", 17385],
+    ["Mills", "millscad", "https://services3.arcgis.com/0xwlcKhzh0RpcMH8/arcgis/rest/services/MillsCADWebService/FeatureServer", 9059],
+    ["Reeves", "reevescad", "https://services6.arcgis.com/j94FvPaik4etwHFk/arcgis/rest/services/ReevesCADWebService/FeatureServer", 23502],
+    ["Taylor", "taylorcad", "https://services8.arcgis.com/Le0h3rXhunNWxGRi/arcgis/rest/services/BIS_Search_Map/FeatureServer", 71833, "PROP_ID"],
+    ["Tom Green", "tomgreencad", "https://services5.arcgis.com/3KYdtBnAMnav1mt9/arcgis/rest/services/TomGreenCADWebService/FeatureServer", 59021],
+  ]),
+
+  // Custom-field public ArcGIS (hood + property id present; not classic BIS schema)
+  ...txCustomArcgis([
+    ["Dallas", "https://maps.dcad.org/prdwa/rest/services/Property/ParcelQuery/MapServer", 4, "NGHBRHDCD", "LOWPARCELID", 844373, "DCAD ParcelPublishing"],
+    ["Ector", "https://gis11.cama.io/arcgis/rest/services/Ector/EctorCounty_Basemap/MapServer", 0, "nh_cd", "PIN", 77313, "CAMA.io ParcelFabric"],
+    ["Fort Bend", "https://services2.arcgis.com/D4saGHECICkCeoJm/arcgis/rest/services/FBCAD_Public_Data/FeatureServer", 0, "NBHDCODE", "PROPNUMBER", 385781, "FBCAD public AGOL"],
+    ["Galveston", "https://services2.arcgis.com/7Zo7vX4Yxo9Z7Vw3/arcgis/rest/services/MyMapService/FeatureServer", 0, "NBHD", "PID", 190731, "GCAD web map FS"],
+    ["Grayson", "https://services1.arcgis.com/EVxyUkKpll765a5X/arcgis/rest/services/GraysonWebService/FeatureServer", 0, "NeighborhoodCode", "prop_id_text", 93034, "BIS ExB GraysonWebService"],
+    ["Harris", "https://www.gis.hctx.net/arcgis/rest/services/HCAD/Parcels/MapServer", 0, "nh_cd", "HCAD_NUM", 1549401, "Official HCAD MapServer"],
+    ["Lubbock", "https://gis.lubbockcad.org/arcgis/rest/services/TaxParcelOrion/MapServer", 0, "NbhdCode", "PROP_ID", 131843, "Lubbock CAD Orion parcels"],
+    ["Montgomery", "https://maps.cityofconroe.org/cvharcgis/rest/services/ENG/MANAGE_KML_TAX_PARCELS_1051_WGS84/MapServer", 0, "NeighborhoodCode", "PIN", 276557, "Conroe MCAD tax parcels mirror"],
+    ["Travis", "https://services.arcgis.com/0L95CJ0VTaxqcmED/arcgis/rest/services/EXTERNAL_tcad_parcel/FeatureServer", 0, "NBHD", "PROP_ID", 386682, "EXTERNAL_tcad_parcel (has NBHD)"],
+    ["Williamson", "https://gisweb.wcad.org/server/rest/services/WCADGISDATA/WCADGISDATA/MapServer", 0, "NGHBRHDCD", "PropertyID", 290913, "WCAD GIS MapServer"],
+  ]),
+
+  // Pritchard & Abbott pandai MapServers (Location_Code ≈ hood, Account ≈ prop id)
+  ...txPandai([
+    ["Chambers", "Chambers", 38563],
+    ["Clay", "Clay", 13760],
+    ["Dawson", "Dawson", 9585],
+    ["Eastland", "Eastland", 21492],
+    ["Frio", "Frio", 13337],
+    ["Hall", "Hall", 6374],
+    ["Hansford", "Hansford", 5800],
+    ["Hardeman", "Hardeman", 6946],
+    ["Hemphill", "Hemphill", 4661],
+    ["Hutchinson", "Hutchinson", 19354],
+    ["Jack", "Jack", 12460],
+    ["Jeff Davis", "JeffDavis", 7174],
+    ["Jones", "Jones", 27615],
+    ["Karnes", "Karnes", 14612],
+    ["Kent", "Kent", 3597],
+    ["King", "King", 2325],
+    ["Live Oak", "LiveOak", 17112],
+    ["Martin", "Martin", 7389],
+    ["McCulloch", "McCulloch", 11268],
+    ["Menard", "Menard", 5710],
+    ["Montague", "Montague", 26663],
+    ["Nolan", "Nolan", 13195],
+    ["Panola", "Panola", 18890],
+  ]),
+
+
   // True Prodigy public portal counties (no ArcGIS scrape path yet)
   ...txTrueProdigy([
-    ["Webb", "www.webbcad.org"],
+    ["Anderson", "www.andersoncad.net"],
+    ["Bowie", "bowieappraisal.com"],
     ["Denton", "www.dentoncad.com"],
     ["Ellis", "www.elliscad.com"],
+    ["Hidalgo", "hidalgo.prodigycad.com"],
     ["Hunt", "hunt-cad.org"],
     ["Maverick", "www.maverickcad.org"],
     ["McLennan", "mclennancad.org"],
+    ["Val Verde", "valverdecad.org"],
+    ["Webb", "www.webbcad.org"],
   ]),
 
   // Still unresolved — probed 2026-09-07
@@ -304,6 +427,107 @@ function txBisFeatureServers(rows) {
       supports_arcgis: true,
       same_stack_as_bexar: true,
       notes: `BIS GIS map; public FeatureServer parcels (~${parcelCount}). Hoods derived from distinct hood_cd.`,
+      evidence_source: "live_probe",
+    };
+  });
+}
+
+
+/**
+ * BIS-schema FeatureServers hosted on public AGOL (no working utility.arcgis proxy).
+ * Optional 5th element overrides property_id_field (default prop_id).
+ */
+function txBisDirectFeatureServers(rows) {
+  return rows.map((row) => {
+    const [county_name, bisSlug, url, parcelCount, propertyIdField] = row;
+    return {
+      county_name,
+      state_code: "TX",
+      software_vendor: "BIS Consultants / Harris Govern",
+      software_product: "PACS",
+      client_id: null,
+      property_search_host: "gis.bisclient.com",
+      propaccess_base_url: `https://esearch.${bisSlug}.org/`,
+      map_search_url: `https://gis.bisclient.com/${bisSlug}/`,
+      clientdb_url: `https://esearch.${bisSlug}.org/`,
+      arcgis_mapserver_url: url,
+      neighborhoods_layer_id: -1,
+      properties_layer_id: 0,
+      properties_table_name: "Parcels",
+      hood_filter_field: "hood_cd",
+      property_id_field: propertyIdField || "prop_id",
+      scrape_strategy: "arcgis_rest",
+      supports_map_search: true,
+      supports_propaccess: true,
+      supports_arcgis: true,
+      same_stack_as_bexar: true,
+      notes: `BIS-schema public AGOL FeatureServer (~${parcelCount}). Utility proxy unavailable; using direct URL.`,
+      evidence_source: "live_probe",
+    };
+  });
+}
+
+/** Custom-field public ArcGIS Map/FeatureServers with neighborhood + property id. */
+function txCustomArcgis(rows) {
+  return rows.map((row) => {
+    const [county_name, url, layerId, hoodField, propField, parcelCount, label] = row;
+    return {
+      county_name,
+      state_code: "TX",
+      software_vendor: "County CAD / ArcGIS",
+      software_product: label || "Parcels",
+      client_id: null,
+      property_search_host: null,
+      propaccess_base_url: null,
+      map_search_url: null,
+      clientdb_url: null,
+      arcgis_mapserver_url: url,
+      neighborhoods_layer_id: -1,
+      properties_layer_id: layerId,
+      properties_table_name: "Parcels",
+      hood_filter_field: hoodField,
+      property_id_field: propField,
+      scrape_strategy: "arcgis_rest",
+      supports_map_search: true,
+      supports_propaccess: false,
+      supports_arcgis: true,
+      same_stack_as_bexar: false,
+      notes: `${label || "Public ArcGIS"} (~${parcelCount}). Custom fields ${hoodField}/${propField}.`,
+      evidence_source: "live_probe",
+    };
+  });
+}
+
+/**
+ * Pritchard & Abbott pandai public MapServers.
+ * Field names are DBO-qualified; scraper uses Location_Code + Account when present.
+ */
+function txPandai(rows) {
+  return rows.map((row) => {
+    const [county_name, folder, parcelCount] = row;
+    const slug = String(county_name).toLowerCase().replace(/[^a-z0-9]/g, "") + "cad";
+    return {
+      county_name,
+      state_code: "TX",
+      software_vendor: "Pritchard & Abbott / Pandai",
+      software_product: "CADPublic MapServer",
+      client_id: null,
+      property_search_host: "gisdata.pandai.com",
+      propaccess_base_url: null,
+      map_search_url: `https://maps.pandai.com/${folder}CAD/`,
+      clientdb_url: null,
+      arcgis_mapserver_url: `https://gisdata.pandai.com/pamaps02/rest/services/${folder}/${folder}CADPublic/MapServer`,
+      neighborhoods_layer_id: -1,
+      properties_layer_id: 0,
+      properties_table_name: "Parcels",
+      hood_filter_field: "Location_Code",
+      property_id_field: "Account",
+      scrape_strategy: "arcgis_rest",
+      supports_map_search: true,
+      supports_propaccess: false,
+      supports_arcgis: true,
+      same_stack_as_bexar: false,
+      notes: `Pandai CADPublic MapServer (~${parcelCount}). Fields are often DBO-qualified (…Accounts.Location_Code / …Accounts.Account); confirm exact names at scrape time.`,
       evidence_source: "live_probe",
     };
   });
