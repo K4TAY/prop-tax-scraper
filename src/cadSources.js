@@ -330,7 +330,7 @@ export const CAD_SOURCES_SEED = [
 
   // Custom-field public ArcGIS (hood + property id present; not classic BIS schema)
   ...txCustomArcgis([
-    ["Dallas", "https://maps.dcad.org/prdwa/rest/services/Property/ParcelQuery/MapServer", 4, "NGHBRHDCD", "LOWPARCELID", 844373, "DCAD ParcelPublishing"],
+    ["Dallas", "https://maps.dcad.org/prdwa/rest/services/Property/ParcelQuery/MapServer", 4, "NGHBRHDCD", "LOWPARCELID", 844373, "DCAD ParcelPublishing; maps PARCELID→geo_id, CNTASSDVAL→appraised, OWNERNME1/SITEADDRESS/PRPRTYDSCRP"],
     ["Ector", "https://gis11.cama.io/arcgis/rest/services/Ector/EctorCounty_Basemap/MapServer", 0, "nh_cd", "PIN", 77313, "CAMA.io ParcelFabric"],
     ["Fort Bend", "https://services2.arcgis.com/D4saGHECICkCeoJm/arcgis/rest/services/FBCAD_Public_Data/FeatureServer", 0, "NBHDCODE", "PROPNUMBER", 385781, "FBCAD public AGOL"],
     ["Galveston", "https://services2.arcgis.com/7Zo7vX4Yxo9Z7Vw3/arcgis/rest/services/MyMapService/FeatureServer", 0, "NBHD", "PID", 190731, "GCAD web map FS"],
@@ -561,7 +561,7 @@ function txPandai(rows) {
       supports_propaccess: false,
       supports_arcgis: true,
       same_stack_as_bexar: false,
-      notes: `Pandai CADPublic MapServer (~${parcelCount}). Short field names Location_Code/Account are resolved to DBO-qualified names at scrape time; OID-window pagination used when supportsPagination=false.`,
+      notes: `Pandai CADPublic MapServer (~${parcelCount}). Maps Location_Code/Account (+ TaxParcels.Name→geo_id, Legal*/Prop_Street*/Owner_Name/Market_Value when present). OID-window pagination when supportsPagination=false. Market_Value is often null on the public layer.`,
       evidence_source: "live_probe",
     };
   });

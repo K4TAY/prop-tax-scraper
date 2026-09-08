@@ -3,7 +3,7 @@ import pool from "./db.js";
 /** Whitelist of browsable property columns (matches Postgres `properties` table). */
 export const PROPERTY_FIELDS = [
   { name: "id", label: "Row ID", type: "number", defaultVisible: false },
-  { name: "pacs_prop_id", label: "Property ID", type: "number", defaultVisible: true },
+  { name: "pacs_prop_id", label: "Property ID", type: "text", defaultVisible: true },
   { name: "prop_val_yr", label: "Tax year", type: "number", defaultVisible: false },
   { name: "geo_id", label: "Geo ID", type: "text", defaultVisible: true },
   { name: "prop_type_cd", label: "Type code", type: "text", defaultVisible: false },

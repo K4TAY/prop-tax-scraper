@@ -72,7 +72,7 @@ export async function ensureSchema(client = pool, { migrateAll = true } = {}) {
     -- One row per scraped feature. pacs_prop_id may be null or duplicated.
     CREATE TABLE IF NOT EXISTS properties (
       id BIGSERIAL PRIMARY KEY,
-      pacs_prop_id BIGINT,
+      pacs_prop_id TEXT,
       prop_val_yr INTEGER NOT NULL DEFAULT 0,
       geo_id TEXT,
       prop_type_cd TEXT,
@@ -159,7 +159,8 @@ function parseFloatOrNull(v) {
 function normalizeRow(raw) {
   // Keep every CSV feature row — pacs_prop_id may be null or duplicated.
   return {
-    pacs_prop_id: parseIntOrNull(raw.pacs_prop_id),
+    // Keep as text — Dallas/Pandai/etc. use alphanumeric account / parcel ids.
+    pacs_prop_id: blankToNull(raw.pacs_prop_id),
     prop_val_yr: parseIntOrNull(raw.prop_val_yr) ?? 0,
     geo_id: blankToNull(raw.geo_id),
     prop_type_cd: blankToNull(raw.prop_type_cd),

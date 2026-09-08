@@ -104,7 +104,7 @@ const NEIGHBORHOODS_DDL = (t) => `
 const PROPERTIES_DDL = (t) => `
   CREATE TABLE IF NOT EXISTS ${quoteTable(t)} (
     id BIGSERIAL PRIMARY KEY,
-    pacs_prop_id BIGINT,
+    pacs_prop_id TEXT,
     prop_val_yr INTEGER NOT NULL DEFAULT 0,
     geo_id TEXT,
     prop_type_cd TEXT,
@@ -219,6 +219,26 @@ export async function migratePropertiesToRowId(client, tableName) {
   await client.query(
     `CREATE INDEX IF NOT EXISTS ${quoteTable(`${tableName}_pacs_prop_id_idx`)} ON ${q} (pacs_prop_id)`
   );
+
+  // Alphanumeric CAD account / parcel ids (Dallas LOWPARCELID, Pandai Account, …)
+  const { rows: pacsType } = await client.query(
+    `
+    SELECT data_type
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = $1 AND column_name = 'pacs_prop_id'
+    `,
+    [tableName]
+  );
+  if (pacsType[0]?.data_type === "bigint" || pacsType[0]?.data_type === "integer") {
+    try {
+      await client.query(
+        `ALTER TABLE ${q} ALTER COLUMN pacs_prop_id TYPE TEXT USING pacs_prop_id::text`
+      );
+    } catch (err) {
+      if (!/already|does not exist/i.test(err.message || "")) throw err;
+    }
+  }
+
   return { migrated: true, table: tableName };
 }
 

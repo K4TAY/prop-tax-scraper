@@ -855,43 +855,77 @@ def _blank(v: Any) -> str | None:
 
 
 def _attr_suffix(attrs: dict[str, Any], suffix: str) -> Any:
-    """Return first attribute whose key equals or ends with ``.suffix``."""
+    """Return first attribute whose last path segment equals ``suffix``.
+
+    Pandai layers use DBO-qualified names (``…Accounts.Owner_Name``). Matching the
+    last segment avoids false hits like ``Owner_Name`` when looking up ``Name``.
+    """
     if suffix in attrs:
         return attrs.get(suffix)
-    needle = "." + suffix
     for key, val in attrs.items():
-        if str(key).endswith(needle) or str(key) == suffix:
+        k = str(key)
+        if k == suffix or k.rsplit(".", 1)[-1] == suffix:
             return val
+    return None
+
+
+def _attr_path_endswith(attrs: dict[str, Any], *tails: str) -> Any:
+    """Return first attribute whose key equals or ends with one of ``tails``."""
+    for tail in tails:
+        if tail in attrs:
+            return attrs.get(tail)
+        needle = "." + tail if not tail.startswith(".") else tail
+        for key, val in attrs.items():
+            k = str(key)
+            if k == tail or k.endswith(needle):
+                return val
     return None
 
 
 def compose_situs(attrs: dict[str, Any]) -> str | None:
     if _blank(attrs.get("situs")):
         return _blank(attrs.get("situs"))
+    if _blank(attrs.get("SITEADDRESS")):
+        return _blank(attrs.get("SITEADDRESS"))
     if _blank(attrs.get("situsConcat")):
         return _blank(attrs.get("situsConcat"))
     if _blank(attrs.get("situsConcatShort")):
         return _blank(attrs.get("situsConcatShort"))
     parts = [
-        _blank(attrs.get("situs_num")) or _blank(attrs.get("SITUS_NUM")),
+        _blank(attrs.get("situs_num"))
+        or _blank(attrs.get("SITUS_NUM"))
+        or _blank(_attr_suffix(attrs, "Prop_Street_Number")),
         _blank(attrs.get("situs_street_prefx"))
         or _blank(attrs.get("STREET_PREFIX"))
-        or _blank(attrs.get("situsStreetPrefix")),
+        or _blank(attrs.get("situsStreetPrefix"))
+        or _blank(_attr_suffix(attrs, "Prop_Street_Dir")),
         _blank(attrs.get("situs_street"))
         or _blank(attrs.get("STREET"))
-        or _blank(attrs.get("situsStreetName")),
-        _blank(attrs.get("situs_street_sufix")) or _blank(attrs.get("situsStreetSuffix")),
+        or _blank(attrs.get("situsStreetName"))
+        or _blank(_attr_suffix(attrs, "Prop_Street")),
+        _blank(attrs.get("situs_street_sufix"))
+        or _blank(attrs.get("situsStreetSuffix"))
+        or _blank(_attr_suffix(attrs, "Prop_Street_Suffix")),
     ]
     street = " ".join(p for p in parts if p)
-    unit = _blank(attrs.get("situsUnit"))
+    unit = _blank(attrs.get("situsUnit")) or _blank(attrs.get("UNIT"))
     if street and unit:
         street = f"{street} {unit}"
-    city = _blank(attrs.get("situs_city")) or _blank(attrs.get("situsCity"))
-    state = _blank(attrs.get("situs_state")) or _blank(attrs.get("situsState"))
+    city = (
+        _blank(attrs.get("situs_city"))
+        or _blank(attrs.get("situsCity"))
+        or _blank(_attr_suffix(attrs, "Prop_City"))
+    )
+    state = (
+        _blank(attrs.get("situs_state"))
+        or _blank(attrs.get("situsState"))
+        or _blank(_attr_suffix(attrs, "Prop_State"))
+    )
     zipc = (
         _blank(attrs.get("situs_zip"))
         or _blank(attrs.get("situsZip"))
         or _blank(attrs.get("zip"))
+        or _blank(_attr_suffix(attrs, "Prop_Zip5"))
     )
     tail = ", ".join(p for p in [city, " ".join(p for p in [state, zipc] if p)] if p)
     if street and tail:
@@ -909,6 +943,28 @@ def _first(*vals: Any) -> Any:
     return None
 
 
+def _compose_legal(attrs: dict[str, Any]) -> str | None:
+    legal = _first(
+        attrs.get("legal_desc"),
+        attrs.get("legalDescription"),
+        attrs.get("LEGAL_DESC"),
+        attrs.get("PRPRTYDSCRP"),
+    )
+    if legal is not None:
+        return _blank(legal) if isinstance(legal, str) else legal
+    chunks = [
+        attrs.get("legal_desc"),
+        attrs.get("legal_desc2"),
+        attrs.get("legal_desc3"),
+        _attr_suffix(attrs, "Legal1"),
+        _attr_suffix(attrs, "Legal2"),
+        _attr_suffix(attrs, "Legal3"),
+        _attr_suffix(attrs, "Legal4"),
+    ]
+    joined = " ".join(str(c).strip() for c in chunks if c is not None and str(c).strip())
+    return joined or None
+
+
 def normalize_property_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
     """Map county-specific ArcGIS fields onto the CSV schema importCsv expects."""
     prop_id = _first(
@@ -918,6 +974,8 @@ def normalize_property_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
         attrs.get("propID"),
         attrs.get("PROP_ID"),
         attrs.get("pid"),
+        attrs.get("LOWPARCELID"),
+        attrs.get("PARCELID"),
         attrs.get("Account"),
         _attr_suffix(attrs, "Account"),
     )
@@ -926,16 +984,20 @@ def normalize_property_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
         attrs.get("owner_name"),
         attrs.get("file_as_name"),
         attrs.get("ownerName"),
-        attrs.get("NAME"),
+        attrs.get("OWNERNME1"),
         attrs.get("Owner_Name"),
         _attr_suffix(attrs, "Owner_Name"),
     )
+    owner2 = _blank(attrs.get("OWNERNME2"))
+    if owner and owner2:
+        owner = f"{owner} / {owner2}"
 
     prop_val_yr = _first(
         attrs.get("prop_val_yr"),
         attrs.get("owner_tax_yr"),
         attrs.get("propYear"),
         attrs.get("currValYear"),
+        attrs.get("REVALYR"),
     )
 
     appraised = _first(
@@ -944,6 +1006,8 @@ def normalize_property_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
         attrs.get("currValAppraised"),
         attrs.get("currValMarket"),
         attrs.get("currValAssessed"),
+        attrs.get("CNTASSDVAL"),  # DCAD current market
+        attrs.get("PRVASSDVAL"),
         attrs.get("Market_Value"),
         _attr_suffix(attrs, "Market_Value"),
     )
@@ -954,65 +1018,140 @@ def normalize_property_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
             attrs.get("hood_cd"),
             attrs.get("nbhdCode"),
             attrs.get("NBHD"),
+            attrs.get("NGHBRHDCD"),
             attrs.get("Location_Code"),
             _attr_suffix(attrs, "Location_Code"),
         )
     )
     hood_name = _blank(attrs.get("hood_name")) or hood_cd
 
-    legal = _first(
-        attrs.get("legal_desc"),
-        attrs.get("legalDescription"),
-        attrs.get("LEGAL_DESC"),
+    # geo_id: string parcel / geo identifier (DCAD PARCELID, pandai TaxParcels.Name)
+    geo_id = _first(
+        attrs.get("geo_id"),
+        attrs.get("geoID"),
+        attrs.get("GeoID"),
+        attrs.get("PARCELID"),
+        attrs.get("ParcelId"),
+        _attr_path_endswith(attrs, "TaxParcels.Name"),
+        attrs.get("LOWPARCELID"),
+        prop_id,
     )
-    if legal is None:
-        chunks = [attrs.get("legal_desc"), attrs.get("legal_desc2"), attrs.get("legal_desc3")]
-        legal = " ".join(str(c) for c in chunks if c) or None
 
     return {
         "pacs_prop_id": prop_id,
         "prop_val_yr": prop_val_yr,
-        "geo_id": _first(attrs.get("geo_id"), attrs.get("geoID"), attrs.get("GeoID")),
-        "prop_type_cd": _first(attrs.get("prop_type_cd"), attrs.get("propType"), attrs.get("PROP_TYPE")),
-        "prop_type_desc": _first(
-            attrs.get("prop_type_desc"),
+        "geo_id": geo_id,
+        "prop_type_cd": _first(
+            attrs.get("prop_type_cd"),
             attrs.get("propType"),
             attrs.get("PROP_TYPE"),
+            attrs.get("CLASSCD"),
+            attrs.get("USECD"),
+            _attr_suffix(attrs, "Primary_Category_Code"),
         ),
-        "dba_name": _first(attrs.get("dba_name"), attrs.get("dbaName"), attrs.get("dba")),
+        "prop_type_desc": _blank(
+            _first(
+                attrs.get("prop_type_desc"),
+                attrs.get("propType"),
+                attrs.get("PROP_TYPE"),
+                attrs.get("CLASSDSCRP"),
+                attrs.get("USEDSCRP"),
+                _attr_suffix(attrs, "Primary_Category_Code"),
+            )
+        ),
+        "dba_name": _first(
+            attrs.get("dba_name"),
+            attrs.get("dbaName"),
+            attrs.get("dba"),
+            attrs.get("DBA1"),
+        ),
         "appraised_val": appraised,
         "abs_subdv_cd": _first(
             attrs.get("abs_subdv_cd"),
             attrs.get("legalAbsSubCode"),
+            attrs.get("CNVYNAME"),
+            _attr_suffix(attrs, "Abstract_Subdiv"),
         ),
-        "mapsco": attrs.get("mapsco"),
+        "mapsco": _first(attrs.get("mapsco"), attrs.get("MAPGRID")),
         "map_id": _first(attrs.get("map_id"), attrs.get("mapID")),
         "agent_cd": _first(attrs.get("agent_cd"), attrs.get("taxAgentID")),
         "hood_cd": hood_cd,
         "hood_name": hood_name,
         "owner_name": owner,
-        "owner_id": _first(attrs.get("owner_id"), attrs.get("ownerID")),
-        "addr_line1": _first(attrs.get("addr_line1"), attrs.get("ownerAddrLine1")),
-        "addr_line2": _first(attrs.get("addr_line2"), attrs.get("ownerAddrLine2")),
+        "owner_id": _first(
+            attrs.get("owner_id"),
+            attrs.get("ownerID"),
+            _attr_suffix(attrs, "Owner_Id"),
+        ),
+        "addr_line1": _first(
+            attrs.get("addr_line1"),
+            attrs.get("ownerAddrLine1"),
+            attrs.get("PSTLADDRESS"),
+            _attr_suffix(attrs, "Mailing_Address_Street"),
+        ),
+        "addr_line2": _first(
+            attrs.get("addr_line2"),
+            attrs.get("ownerAddrLine2"),
+            _attr_suffix(attrs, "Mailing_Address_Overflow"),
+        ),
         "addr_line3": attrs.get("addr_line3"),
-        "addr_city": _first(attrs.get("addr_city"), attrs.get("ownerAddrCity")),
-        "addr_state": _first(attrs.get("addr_state"), attrs.get("ownerAddrState")),
-        "addr_zip": _first(attrs.get("addr_zip"), attrs.get("ownerAddrZip"), attrs.get("zip")),
+        "addr_city": _first(
+            attrs.get("addr_city"),
+            attrs.get("ownerAddrCity"),
+            attrs.get("PSTLCITY"),
+            _attr_suffix(attrs, "Mailing_Address_City"),
+        ),
+        "addr_state": _first(
+            attrs.get("addr_state"),
+            attrs.get("ownerAddrState"),
+            attrs.get("PSTLSTATE"),
+            _attr_suffix(attrs, "Mailing_Address_State"),
+        ),
+        "addr_zip": _first(
+            attrs.get("addr_zip"),
+            attrs.get("ownerAddrZip"),
+            attrs.get("PSTLZIP5"),
+            attrs.get("zip"),
+            _attr_suffix(attrs, "Mailing_Address_Zip5"),
+        ),
         "addr_country": _first(attrs.get("addr_country"), attrs.get("ownerAddrCountry")),
-        "pct_ownership": attrs.get("pct_ownership"),
+        "pct_ownership": _first(
+            attrs.get("pct_ownership"),
+            _attr_suffix(attrs, "Interest"),
+        ),
         "exemptions": _first(attrs.get("exemptions"), attrs.get("exemptCodes")),
-        "state_cd": _first(attrs.get("state_cd"), attrs.get("STATE_CD"), attrs.get("propCategoryCode")),
-        "legal_desc": legal,
+        "state_cd": _first(
+            attrs.get("state_cd"),
+            attrs.get("STATE_CD"),
+            attrs.get("propCategoryCode"),
+            _attr_suffix(attrs, "Primary_Category_Code"),
+        ),
+        "legal_desc": _compose_legal(attrs),
         "situs": compose_situs(attrs),
         "jurisdictions": _first(
             attrs.get("jurisdictions"),
             attrs.get("entityCodes"),
             attrs.get("Entities"),
+            attrs.get("SCHLTXCD"),
+            attrs.get("CVTTXCD"),
         ),
-        "land_val": _first(attrs.get("land_val"), attrs.get("currValLand")),
-        "imprv_val": _first(attrs.get("imprv_val"), attrs.get("currValImprv")),
-        "market": _first(attrs.get("market"), attrs.get("currValMarket")),
-        "school": attrs.get("school"),
+        "land_val": _first(
+            attrs.get("land_val"),
+            attrs.get("currValLand"),
+            attrs.get("LNDVALUE"),
+        ),
+        "imprv_val": _first(
+            attrs.get("imprv_val"),
+            attrs.get("currValImprv"),
+            attrs.get("IMPVALUE"),
+        ),
+        "market": _first(
+            attrs.get("market"),
+            attrs.get("currValMarket"),
+            attrs.get("CNTASSDVAL"),
+            _attr_suffix(attrs, "Market_Value"),
+        ),
+        "school": _first(attrs.get("school"), attrs.get("SCHLDSCRP")),
         "city": attrs.get("city"),
         "county": attrs.get("county"),
     }
