@@ -118,12 +118,49 @@
     }
     .meta strong { color: #e6edf3; }
     .err { color: #f85149; font-size: 0.9rem; }
+    .legends-wrap {
+      border-bottom: 1px solid #30363d;
+      background: #0d1117;
+    }
+    .legends-wrap > summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      padding: 0.65rem 1.25rem;
+      user-select: none;
+      color: #8b949e;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+    }
+    .legends-wrap > summary::-webkit-details-marker { display: none; }
+    .legends-wrap > summary::before {
+      content: "▸";
+      display: inline-block;
+      margin-right: 0.45rem;
+      color: #6e7681;
+      transition: transform 0.12s ease;
+    }
+    .legends-wrap[open] > summary::before { transform: rotate(90deg); }
+    .legends-wrap > summary:hover { color: #c9d1d9; background: #161b22; }
+    .legends-summary-meta {
+      text-transform: none;
+      letter-spacing: normal;
+      font-weight: 400;
+      font-size: 0.75rem;
+      color: #6e7681;
+    }
+    .legends-summary-meta strong { color: #e6edf3; font-weight: 600; }
     .legends {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 0;
-      border-bottom: 1px solid #30363d;
-      background: #0d1117;
+      border-top: 1px solid #30363d;
     }
     @media (max-width: 1100px) {
       .legends { grid-template-columns: 1fr; }
@@ -260,28 +297,34 @@
     </div>
   </div>
 
-  <div class="legends">
-    <section class="legend" aria-label="Exemption code legend">
-      <div class="legend-head">
-        <strong>Exemption codes</strong>
-        <div class="legend-actions">
-          <span class="legend-active" id="legendActiveSummary">Click a code to filter</span>
-          <button type="button" class="ghost" id="btnClearExemptions" onclick="clearExemptionFilters()" disabled>Clear</button>
+  <details class="legends-wrap">
+    <summary>
+      <span>Code legends</span>
+      <span class="legends-summary-meta" id="legendsCollapsedSummary">Exemption &amp; state codes — click to expand</span>
+    </summary>
+    <div class="legends">
+      <section class="legend" aria-label="Exemption code legend">
+        <div class="legend-head">
+          <strong>Exemption codes</strong>
+          <div class="legend-actions">
+            <span class="legend-active" id="legendActiveSummary">Click a code to filter</span>
+            <button type="button" class="ghost" id="btnClearExemptions" onclick="clearExemptionFilters()" disabled>Clear</button>
+          </div>
         </div>
-      </div>
-      <div class="legend-grid" id="exemptionLegend"></div>
-    </section>
-    <section class="legend" aria-label="State code legend">
-      <div class="legend-head">
-        <strong>State codes</strong>
-        <div class="legend-actions">
-          <span class="legend-active" id="stateLegendActiveSummary">Click a code to filter</span>
-          <button type="button" class="ghost" id="btnClearStateCodes" onclick="clearStateCodeFilters()" disabled>Clear</button>
+        <div class="legend-grid" id="exemptionLegend"></div>
+      </section>
+      <section class="legend" aria-label="State code legend">
+        <div class="legend-head">
+          <strong>State codes</strong>
+          <div class="legend-actions">
+            <span class="legend-active" id="stateLegendActiveSummary">Click a code to filter</span>
+            <button type="button" class="ghost" id="btnClearStateCodes" onclick="clearStateCodeFilters()" disabled>Clear</button>
+          </div>
         </div>
-      </div>
-      <div class="legend-grid" id="stateCodeLegend"></div>
-    </section>
-  </div>
+        <div class="legend-grid" id="stateCodeLegend"></div>
+      </section>
+    </div>
+  </details>
 
   <div class="layout">
     <aside class="panel">
@@ -533,6 +576,19 @@
       syncStateLegendActive();
     }
 
+    function syncLegendsCollapsedSummary() {
+      const el = document.getElementById('legendsCollapsedSummary');
+      if (!el) return;
+      const ex = [...selectedExemptionCodes];
+      const st = [...selectedStateCodes];
+      const parts = [];
+      if (ex.length) parts.push(`exemptions <strong>${escapeHtml(ex.join(' + '))}</strong>`);
+      if (st.length) parts.push(`state <strong>${escapeHtml(st.join(', '))}</strong>`);
+      el.innerHTML = parts.length
+        ? `Filtering: ${parts.join(' · ')}`
+        : 'Exemption &amp; state codes — click to expand';
+    }
+
     function syncLegendActive() {
       document.querySelectorAll('#exemptionLegend code[data-code]').forEach((el) => {
         const code = el.getAttribute('data-code');
@@ -547,6 +603,7 @@
         summary.innerHTML = `Filtering: <strong>${escapeHtml(codes.join(' + '))}</strong>`;
       }
       clearBtn.disabled = codes.length === 0;
+      syncLegendsCollapsedSummary();
     }
 
     function syncStateLegendActive() {
@@ -563,6 +620,7 @@
         summary.innerHTML = `Filtering: <strong>${escapeHtml(codes.join(', '))}</strong>`;
       }
       clearBtn.disabled = codes.length === 0;
+      syncLegendsCollapsedSummary();
     }
 
     function ensureColumnChecked(fieldName) {

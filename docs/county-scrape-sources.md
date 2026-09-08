@@ -16,8 +16,8 @@ _Last updated: 2026-09-08 (v0.3.35)._
 | Catalog / investigate | 6 | no |
 | TrueAutomation PropAccess only | 4 | no |
 | County-hosted MapServer | 3 | yes |
-| Public ArcGIS Online FeatureServer | 3 | yes |
-| ArcGIS REST (other host) | 1 | yes |
+| ArcGIS REST (other host) | 2 | yes |
+| Public ArcGIS Online FeatureServer | 2 | yes |
 | CAMA.io MapServer | 1 | yes |
 | DCAD ParcelQuery MapServer | 1 | yes |
 | HCAD Parcels MapServer | 1 | yes |
@@ -48,10 +48,11 @@ _Last updated: 2026-09-08 (v0.3.35)._
 
 ## Counties by source type
 
-### ArcGIS REST (other host) (1)
+### ArcGIS REST (other host) (2)
 
 | County | Host / ArcGIS | Prop ID field | Hood field | Layer |
 |--------|---------------|---------------|------------|------:|
+| Travis | `https://gis.traviscountytx.gov/server1/rest/services/Boundaries_and_Jurisdictions/TCAD/Ma…` | `PROP_ID` | `__ALL__` | 0 |
 | Wichita | `https://propaccess.wadtx.com/arcgis/rest/services/WCAD/Parcels/MapServer` | `prop_id` | `NBHD` | 1 |
 
 ### BIS public FeatureServer (AGOL) (145)
@@ -269,13 +270,12 @@ _Last updated: 2026-09-08 (v0.3.35)._
 | Nolan | `https://gisdata.pandai.com/pamaps02/rest/services/Nolan/NolanCADPublic/MapServer` | `Account` | `Location_Code` | 0 |
 | Panola | `https://gisdata.pandai.com/pamaps02/rest/services/Panola/PanolaCADPublic/MapServer` | `Account` | `Location_Code` | 0 |
 
-### Public ArcGIS Online FeatureServer (3)
+### Public ArcGIS Online FeatureServer (2)
 
 | County | Host / ArcGIS | Prop ID field | Hood field | Layer |
 |--------|---------------|---------------|------------|------:|
 | Fort Bend | `https://services2.arcgis.com/D4saGHECICkCeoJm/arcgis/rest/services/FBCAD_Public_Data/Feat…` | `PROPNUMBER` | `NBHDCODE` | 0 |
 | Galveston | `https://services2.arcgis.com/7Zo7vX4Yxo9Z7Vw3/arcgis/rest/services/MyMapService/FeatureSe…` | `PID` | `NBHD` | 0 |
-| Travis | `https://services.arcgis.com/0L95CJ0VTaxqcmED/arcgis/rest/services/EXTERNAL_tcad_parcel/Fe…` | `PROP_ID` | `NBHD` | 0 |
 
 ### RGV911 ESD FeatureServer (mirror) (1)
 
@@ -492,7 +492,7 @@ _Last updated: 2026-09-08 (v0.3.35)._
 | Throckmorton | Catalog / investigate | `investigate` | Unknown / TBD / Unknown | no |
 | Titus | BIS public FeatureServer (AGOL) | `arcgis_rest` | BIS Consultants / Harris Govern / PACS | yes |
 | Tom Green | BIS public FeatureServer (AGOL) | `arcgis_rest` | BIS Consultants / Harris Govern / PACS | yes |
-| Travis | Public ArcGIS Online FeatureServer | `arcgis_rest` | County CAD / ArcGIS / EXTERNAL_tcad_parcel (has NBHD) | yes |
+| Travis | ArcGIS REST (other host) | `arcgis_rest` | Travis CAD / County TNR / TCAD Parcels MapServer | yes |
 | Trinity | BIS public FeatureServer (AGOL) | `arcgis_rest` | BIS Consultants / Harris Govern / PACS | yes |
 | Tyler | BIS public FeatureServer (AGOL) | `arcgis_rest` | BIS Consultants / Harris Govern / PACS | yes |
 | Upshur | BIS public FeatureServer (AGOL) | `arcgis_rest` | BIS Consultants / Harris Govern / PACS | yes |
@@ -518,10 +518,24 @@ _Last updated: 2026-09-08 (v0.3.35)._
 | Zapata | BIS public FeatureServer (AGOL) | `arcgis_rest` | BIS Consultants / Harris Govern / PACS | yes |
 | Zavala | BIS public FeatureServer (AGOL) | `arcgis_rest` | BIS Consultants / Harris Govern / PACS | yes |
 
+## Source-empty / ArcGIS-insufficient counties
+
+These are scrape-wired (`arcgis_rest`) but **cannot be fixed by ArcGIS re-scrape alone** — the public layer itself lacks usable values (or attrs). Notes in `cadSources.js` match. Live-probed 2026-09-08 unless noted.
+
+| Issue | Counties | What the public layer returns |
+|-------|----------|-------------------------------|
+| Literal `N/A` appraised (prelim) | **Bexar**, **Taylor** | Owners/hoods present; `appraised_val` is the string `N/A` for essentially all parcels until certified values publish |
+| Empty BIS value fields | **Robertson**, **Terry**, **Garza** | `file_as_name` / ids often present; `market`, `land_val`, `imprv_val` all null |
+| Empty BIS attrs (schema only) | **Johnson** | `JohnsonCADWebService` has owner/value field names but values are blank/null across ~100k parcels; no richer public FeatureServer found |
+| Pandai `Market_Value` null | Chambers, Clay, Jones, Nolan, Panola, Jack, McCulloch, Hardeman, Hall, King, Dawson, Hutchinson, Karnes, Hansford, Hemphill, Jeff Davis, Martin, Menard, Kent, Frio (and similar peers) | Public `*CADPublic` MapServer exposes `Market_Value` but it is null; ids/owners may still map |
+| Sparse Pandai values | Live Oak | `Market_Value` ~14% `> 0` (~62% non-null); mapper OK — re-scrape will not fill the empty majority |
+
+**Travis** is *not* in this table: switched to Travis County TNR `TCAD` MapServer (owners + `market_value` / `appraised_val`). Former City of Austin `EXTERNAL_tcad_parcel` was geometry/situs-sparse.
+
 ## How to refresh this doc
 
 ```bash
 bun docs/generate-county-scrape-sources.js
 ```
 
-Source of truth remains `src/cadSources.js`; this markdown is a readable dump for humans.
+Source of truth remains `src/cadSources.js`; this markdown is a readable dump for humans. After regenerating, re-apply the **Source-empty / ArcGIS-insufficient counties** section if the generator overwrote it.

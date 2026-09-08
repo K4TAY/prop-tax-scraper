@@ -141,8 +141,6 @@ class TexasCountiesMap {
     }
     if (unassigned > 0) {
       lines.push(`${this._fmt(unassigned)} unassigned`);
-    } else if (props > 0) {
-      lines.push("missing unassigned bucket");
     }
     if (pending > 0) lines.push(`${this._fmt(pending)} CSV${pending === 1 ? "" : "s"} pending import`);
     return lines;

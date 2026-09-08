@@ -20,6 +20,7 @@ If you change behavior for Bexar, implement the same change in the **shared** su
 
 | Concern | Shared file(s) | How counties differ |
 |--------|-----------------|---------------------|
+| Master search (all counties) | `public/search.html` + `src/searchAll.js` | UNION of `*_properties`; access-gated by grants |
 | Browse / dataviewer UI | `public/browse.html` | Path `/c/{state}/{county}/browse` → API `/api/c/...` |
 | Browse query API | `src/browse.js` | `propertiesTable` from county context |
 | County portal (scrape/import UI) | `public/county.html` | Same path/API pattern |

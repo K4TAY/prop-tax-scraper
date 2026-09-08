@@ -31,7 +31,8 @@ export const CAD_SOURCES_SEED = [
     supports_propaccess: true,
     supports_arcgis: true,
     same_stack_as_bexar: true,
-    notes: "Primary reference implementation for this project.",
+    notes:
+      "Primary reference implementation. SOURCE-EMPTY for values: ArcGIS appraised_val is literal N/A while preliminary (live probe 2026-09-08: ~762k N/A, 0 useful). Owners/hoods scrape; values need certified roll / alternate source — not fixed by ArcGIS re-scrape alone.",
     evidence_source: "live_scrape",
   },
 
@@ -89,7 +90,7 @@ export const CAD_SOURCES_SEED = [
     ["Parmer", "parmercad", "4ce1adfa7aee4e469d315499382c812c", 6586, null],
     ["Presidio", "presidiocad", "ec65f0df88c14a4988805b2f4db6d958", 19258, null],
     ["Rains", "rainscad", "1e60c8653df84c358ce80b4dde4553e1", 12420, null],
-    ["Robertson", "robertsoncad", "520506305882445ca59924b8399f635a", 17296, null],
+    ["Robertson", "robertsoncad", "520506305882445ca59924b8399f635a", 17296, null, null, "SOURCE-EMPTY: BIS market/land_val/imprv_val all null on public FeatureServer (owners present). Needs alternate source — not fixed by ArcGIS re-scrape alone."],
     ["San Jacinto", "sanjacintocad", "84ed63a2d4db42f88c67b9a5bd6154e2", 35936, null],
     ["Schleicher", "schleichercad", "0af79b0004674f50b3bdb2b5077cd5e8", 6451, null],
     ["Scurry", "scurrycad", "7e0e4b9c22844f8f98176c2824c33922", 13568, null],
@@ -132,7 +133,7 @@ export const CAD_SOURCES_SEED = [
     ["Duval", "duvalcad", "f5be9cb68ae9431896bfd15ac20703ff", 15391, null],
     ["Erath", "erathcad", "dd59a06766d24b79912073c7338722ac", 173514, null],
     ["Franklin", "franklincad", "1dd7969e04b24b0481a3963189876c4e", 16506, null],
-    ["Garza", "garzacad", "e53c6292c01e4fa3bedc30d5eb413949", 6602, null],
+    ["Garza", "garzacad", "e53c6292c01e4fa3bedc30d5eb413949", 6602, null, null, "SOURCE-EMPTY: BIS market/land_val/imprv_val all null on public FeatureServer (owners present). Needs alternate source — not fixed by ArcGIS re-scrape alone."],
     ["Gray", "graycad", "d69d7d89f29745739343cece8992ec73", 16329, null],
     ["Grimes", "grimescad", "c35ffea8b2da4f9a84aa5034736b026b", 27335, null],
     ["Harrison", "harrisoncad", "e6112999761448c38be93304678cf0ef", 51318, null],
@@ -162,7 +163,7 @@ export const CAD_SOURCES_SEED = [
     ["Starr", "starrcad", "ff05af4293474b45abf39075250efe78", 40501, null],
     ["Stephens", "stephenscad", "85561de1e8bc4180a7e270ddd36352bb", 13031, null],
     ["Sutton", "suttoncad", "5b6c3c2212d0445991ef56431df50293", 5917, null],
-    ["Terry", "terrycad", "956e26d1eb17432085d01625ae4d523a", 9139, null],
+    ["Terry", "terrycad", "956e26d1eb17432085d01625ae4d523a", 9139, null, null, "SOURCE-EMPTY: BIS market/land_val/imprv_val all null on public FeatureServer (owners present). Needs alternate source — not fixed by ArcGIS re-scrape alone."],
     ["Titus", "tituscad", "6efd14c238e04c2b88e8338998b68c1c", 20527, null],
     ["Victoria", "victoriacad", "e65d43a56b124077a7a6eb19ef464e1b", 42679, null],
     ["Waller", "wallercad", "2abd8b401a9d401a9940b891a2d677a4", 53466, null],
@@ -281,7 +282,7 @@ export const CAD_SOURCES_SEED = [
     supports_arcgis: true,
     same_stack_as_bexar: false,
     notes:
-      "Public AGOL FeatureServer (~434k parcels). Hoods from distinct nbhdCode; field names are camelCase (ownerName, geoID, situsConcat). Not TrueAutomation PropAccess.",
+      "Public AGOL FeatureServer (~440k parcels). Hoods from distinct nbhdCode; camelCase fields (ownerName, geoID, situsConcat). currVal* often null until prelim; scraper falls back to prevVal* (certified prior year). Early OBJECTIDs can be empty shells. Not TrueAutomation PropAccess.",
     evidence_source: "live_probe",
   },
 
@@ -319,12 +320,12 @@ export const CAD_SOURCES_SEED = [
     ["Caldwell", "caldwellcad", "https://services.arcgis.com/rVxY74DxxIDrDbc0/arcgis/rest/services/CaldwellCADWebService/FeatureServer", 27450],
     ["Castro", "castrocad", "https://services5.arcgis.com/iunrO5vjpmI1MJJA/arcgis/rest/services/CastroCADWebService/FeatureServer", 6594],
     ["Jefferson", "jeffersoncad", "https://services.arcgis.com/ZXAF35aJr7XcgDMv/arcgis/rest/services/Parcel_JeffersonCAD/FeatureServer", 128542],
-    ["Johnson", "johnsoncad", "https://services5.arcgis.com/SNQMi91A9RRB0qcO/arcgis/rest/services/JohnsonCADWebService/FeatureServer", 100415],
+    ["Johnson", "johnsoncad", "https://services5.arcgis.com/SNQMi91A9RRB0qcO/arcgis/rest/services/JohnsonCADWebService/FeatureServer", 100415, null, "SOURCE-EMPTY: public JohnsonCADWebService Parcels schema has owner/value fields but all attrs empty (~100k rows; prop_id/file_as_name/market/hood_cd null or blank). No richer public FeatureServer found (county GIS is basemap/geocode only; CAD publishes shapefile downloads). Needs alternate source — not fixed by ArcGIS re-scrape alone."],
     ["Kleberg", "klebergcad", "https://services6.arcgis.com/j94FvPaik4etwHFk/arcgis/rest/services/KlebergCADWebService/FeatureServer", 14973],
     ["Lampasas", "lampasascad", "https://services6.arcgis.com/j94FvPaik4etwHFk/arcgis/rest/services/LampasasCADWebService/FeatureServer", 17385],
     ["Mills", "millscad", "https://services3.arcgis.com/0xwlcKhzh0RpcMH8/arcgis/rest/services/MillsCADWebService/FeatureServer", 9059],
     ["Reeves", "reevescad", "https://services6.arcgis.com/j94FvPaik4etwHFk/arcgis/rest/services/ReevesCADWebService/FeatureServer", 23502],
-    ["Taylor", "taylorcad", "https://services8.arcgis.com/Le0h3rXhunNWxGRi/arcgis/rest/services/BIS_Search_Map/FeatureServer", 71833, "PROP_ID"],
+    ["Taylor", "taylorcad", "https://services8.arcgis.com/Le0h3rXhunNWxGRi/arcgis/rest/services/BIS_Search_Map/FeatureServer", 71833, "PROP_ID", "SOURCE-EMPTY for values: ArcGIS appraised_val is literal N/A while preliminary (live probe: ~70k N/A, 0 useful). Owners/hoods present. Needs certified values / alternate source — not fixed by ArcGIS re-scrape alone."],
     ["Tom Green", "tomgreencad", "https://services5.arcgis.com/3KYdtBnAMnav1mt9/arcgis/rest/services/TomGreenCADWebService/FeatureServer", 59021],
   ]),
 
@@ -338,9 +339,36 @@ export const CAD_SOURCES_SEED = [
     ["Harris", "https://www.gis.hctx.net/arcgis/rest/services/HCAD/Parcels/MapServer", 0, "nh_cd", "HCAD_NUM", 1549401, "Official HCAD MapServer"],
     ["Lubbock", "https://gis.lubbockcad.org/arcgis/rest/services/TaxParcelOrion/MapServer", 0, "NbhdCode", "PROP_ID", 131843, "Lubbock CAD Orion parcels"],
     ["Montgomery", "https://maps.cityofconroe.org/cvharcgis/rest/services/ENG/MANAGE_KML_TAX_PARCELS_1051_WGS84/MapServer", 0, "NeighborhoodCode", "PIN", 276557, "Conroe MCAD tax parcels mirror"],
-    ["Travis", "https://services.arcgis.com/0L95CJ0VTaxqcmED/arcgis/rest/services/EXTERNAL_tcad_parcel/FeatureServer", 0, "NBHD", "PROP_ID", 386682, "EXTERNAL_tcad_parcel (has NBHD)"],
     ["Williamson", "https://gisweb.wcad.org/server/rest/services/WCADGISDATA/WCADGISDATA/MapServer", 0, "NGHBRHDCD", "PropertyID", 290913, "WCAD GIS MapServer"],
   ]),
+
+  // Travis — County TNR TCAD MapServer (owner + values). Replaces sparse City of Austin EXTERNAL_tcad_parcel.
+  {
+    county_name: "Travis",
+    state_code: "TX",
+    software_vendor: "Travis CAD / County TNR",
+    software_product: "TCAD Parcels MapServer",
+    client_id: null,
+    property_search_host: "gis.traviscountytx.gov",
+    propaccess_base_url: null,
+    map_search_url: "https://gis.traviscountytx.gov/",
+    clientdb_url: null,
+    arcgis_mapserver_url:
+      "https://gis.traviscountytx.gov/server1/rest/services/Boundaries_and_Jurisdictions/TCAD/MapServer",
+    neighborhoods_layer_id: -1,
+    properties_layer_id: 0,
+    properties_table_name: "TCAD Parcels",
+    hood_filter_field: "__ALL__",
+    property_id_field: "PROP_ID",
+    scrape_strategy: "arcgis_rest",
+    supports_map_search: true,
+    supports_propaccess: false,
+    supports_arcgis: true,
+    same_stack_as_bexar: false,
+    notes:
+      "Travis County TNR TCAD MapServer layer 0 (~386682 parcels). Has py_owner_name, market_value, appraised_val, situs_*, geo_id, legal_desc (~373k with owner/value). No neighborhood field — exports as __ALL__. Replaces City of Austin EXTERNAL_tcad_parcel (geometry/situs/PROP_ID only; no owners/values). AGOL mirror also ok: services1.arcgis.com/HGcSYZ5bvjRswoCb/.../TCAD_Parcels_Dec_2025/FeatureServer.",
+    evidence_source: "live_probe",
+  },
 
   // Hidalgo: official CAD is True Prodigy, but GAMA/_parcels is broken and
   // HidalgoCADWebService is token-locked. Best scrape path is the public RGV911
@@ -373,30 +401,31 @@ export const CAD_SOURCES_SEED = [
   },
 
   // Pritchard & Abbott pandai MapServers (Location_Code ≈ hood, Account ≈ prop id)
+  // Optional 4th tuple element overrides notes (SOURCE-EMPTY peers / Live Oak sparse values).
   ...txPandai([
-    ["Chambers", "Chambers", 38563],
-    ["Clay", "Clay", 13760],
-    ["Dawson", "Dawson", 9585],
+    ["Chambers", "Chambers", 38563, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Mapper OK for ids/owners when present; values need alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["Clay", "Clay", 13760, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["Dawson", "Dawson", 9585, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
     ["Eastland", "Eastland", 21492],
-    ["Frio", "Frio", 13337],
-    ["Hall", "Hall", 6374],
-    ["Hansford", "Hansford", 5800],
-    ["Hardeman", "Hardeman", 6946],
-    ["Hemphill", "Hemphill", 4661],
-    ["Hutchinson", "Hutchinson", 19354],
-    ["Jack", "Jack", 12460],
-    ["Jeff Davis", "JeffDavis", 7174],
-    ["Jones", "Jones", 27615],
-    ["Karnes", "Karnes", 14612],
-    ["Kent", "Kent", 3597],
-    ["King", "King", 2325],
-    ["Live Oak", "LiveOak", 17112],
-    ["Martin", "Martin", 7389],
-    ["McCulloch", "McCulloch", 11268],
-    ["Menard", "Menard", 5710],
+    ["Frio", "Frio", 13337, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["Hall", "Hall", 6374, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["Hansford", "Hansford", 5800, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["Hardeman", "Hardeman", 6946, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["Hemphill", "Hemphill", 4661, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["Hutchinson", "Hutchinson", 19354, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["Jack", "Jack", 12460, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["Jeff Davis", "JeffDavis", 7174, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["Jones", "Jones", 27615, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["Karnes", "Karnes", 14612, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["Kent", "Kent", 3597, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["King", "King", 2325, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["Live Oak", "LiveOak", 17112, "Sparse Market_Value on public layer (~14% > 0; ~62% non-null). Mapper OK; ArcGIS re-scrape alone will not fill the empty majority."],
+    ["Martin", "Martin", 7389, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["McCulloch", "McCulloch", 11268, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["Menard", "Menard", 5710, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
     ["Montague", "Montague", 26663],
-    ["Nolan", "Nolan", 13195],
-    ["Panola", "Panola", 18890],
+    ["Nolan", "Nolan", 13195, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
+    ["Panola", "Panola", 18890, "SOURCE-EMPTY: Pandai Market_Value null on public CADPublic layer. Needs alternate source — not fixed by ArcGIS re-scrape alone."],
   ]),
 
 
@@ -433,10 +462,11 @@ export const CAD_SOURCES_SEED = [
  * BIS Consultants GIS apps hosting a public *CADWebService FeatureServer.
  * Parcels layer 0 has hood_cd + prop_id (same import path as Calhoun).
  * Optional 6th tuple element overrides the default `{County}CADWebService` name.
+ * Optional 7th tuple element overrides notes.
  */
 function txBisFeatureServers(rows) {
   return rows.map((row) => {
-    const [county_name, bisSlug, serverId, parcelCount, clientId, serviceName] = row;
+    const [county_name, bisSlug, serverId, parcelCount, clientId, serviceName, notesOverride] = row;
     const service =
       serviceName || `${String(county_name).replace(/ /g, "")}CADWebService`;
     return {
@@ -460,7 +490,9 @@ function txBisFeatureServers(rows) {
       supports_propaccess: true,
       supports_arcgis: true,
       same_stack_as_bexar: true,
-      notes: `BIS GIS map; public FeatureServer parcels (~${parcelCount}). Hoods derived from distinct hood_cd.`,
+      notes:
+        notesOverride ||
+        `BIS GIS map; public FeatureServer parcels (~${parcelCount}). Hoods derived from distinct hood_cd.`,
       evidence_source: "live_probe",
     };
   });
@@ -470,10 +502,11 @@ function txBisFeatureServers(rows) {
 /**
  * BIS-schema FeatureServers hosted on public AGOL (no working utility.arcgis proxy).
  * Optional 5th element overrides property_id_field (default prop_id).
+ * Optional 6th element overrides notes.
  */
 function txBisDirectFeatureServers(rows) {
   return rows.map((row) => {
-    const [county_name, bisSlug, url, parcelCount, propertyIdField] = row;
+    const [county_name, bisSlug, url, parcelCount, propertyIdField, notesOverride] = row;
     return {
       county_name,
       state_code: "TX",
@@ -495,7 +528,9 @@ function txBisDirectFeatureServers(rows) {
       supports_propaccess: true,
       supports_arcgis: true,
       same_stack_as_bexar: true,
-      notes: `BIS-schema public AGOL FeatureServer (~${parcelCount}). Utility proxy unavailable; using direct URL.`,
+      notes:
+        notesOverride ||
+        `BIS-schema public AGOL FeatureServer (~${parcelCount}). Utility proxy unavailable; using direct URL.`,
       evidence_source: "live_probe",
     };
   });
@@ -535,10 +570,11 @@ function txCustomArcgis(rows) {
 /**
  * Pritchard & Abbott pandai public MapServers.
  * Field names are DBO-qualified; scraper uses Location_Code + Account when present.
+ * Optional 4th tuple element overrides notes.
  */
 function txPandai(rows) {
   return rows.map((row) => {
-    const [county_name, folder, parcelCount] = row;
+    const [county_name, folder, parcelCount, notesOverride] = row;
     const slug = String(county_name).toLowerCase().replace(/[^a-z0-9]/g, "") + "cad";
     return {
       county_name,
@@ -561,7 +597,9 @@ function txPandai(rows) {
       supports_propaccess: false,
       supports_arcgis: true,
       same_stack_as_bexar: false,
-      notes: `Pandai CADPublic MapServer (~${parcelCount}). Maps Location_Code/Account (+ TaxParcels.Name→geo_id, Legal*/Prop_Street*/Owner_Name/Market_Value when present). OID-window pagination when supportsPagination=false. Market_Value is often null on the public layer.`,
+      notes:
+        notesOverride ||
+        `Pandai CADPublic MapServer (~${parcelCount}). Maps Location_Code/Account (+ TaxParcels.Name→geo_id, Legal*/Prop_Street*/Owner_Name/Market_Value when present). OID-window pagination when supportsPagination=false. Market_Value is often null on the public layer.`,
       evidence_source: "live_probe",
     };
   });

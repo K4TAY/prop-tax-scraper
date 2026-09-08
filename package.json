@@ -1,6 +1,6 @@
 {
   "name": "prop-tax-scraper",
-  "version": "0.3.35",
+  "version": "0.3.36",
   "description": "Multi-county CAD property scraper with live console UI",
   "type": "module",
   "main": "src/server.js",

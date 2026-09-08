@@ -215,6 +215,40 @@
     }
     .err { color: #f85149; }
     #authBar { display: flex; align-items: center; }
+    .admin-bulk {
+      margin: 1rem 0 1.25rem;
+      padding: 0.9rem 1rem;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      background: #161b22;
+    }
+    .admin-bulk .bulk-hint {
+      color: #8b949e;
+      font-size: 0.85rem;
+      margin: 0.35rem 0 0.75rem;
+      line-height: 1.4;
+    }
+    .bulk-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .bulk-btn {
+      appearance: none;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 0.45rem 0.75rem;
+      font: inherit;
+      font-size: 0.9rem;
+      cursor: pointer;
+      background: #238636;
+      color: #fff;
+    }
+    .bulk-btn.secondary { background: #2b6cb0; }
+    .bulk-btn.danger { background: #8b1a1a; }
+    .bulk-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .bulk-status {
+      margin-top: 0.65rem;
+      font-size: 0.85rem;
+      color: #c9d1d9;
+      white-space: pre-wrap;
+    }
   </style>
 </head>
 <body>
@@ -222,6 +256,7 @@
     <h1 id="title">State</h1>
     <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
       <span class="version" id="version"></span>
+      <a href="/search">Search all</a>
       <a href="/">← USA map</a>
       <div id="authBar"></div>
     </div>
@@ -229,6 +264,21 @@
   <div class="main">
     <p class="lead" id="lead">Click a county card to open it. Admins go to the scrape/import portal; users with access go to browse. Request access by clicking a county you do not have yet.</p>
     <div class="meta" id="meta"></div>
+    <div id="adminBulk" class="admin-bulk" hidden>
+      <div class="section-label">Admin · bulk jobs</div>
+      <p class="bulk-hint">
+        Scrapes run in parallel across different ArcGIS hosts; counties on the same host queue one-at-a-time.
+        Auto-import queues after each successful scrape (up to 6 counties import at once; set <code>IMPORT_CONCURRENCY</code> to raise).
+        Each import counts CSV rows, clears matching existing DB data, then loads fresh.
+        Bulk import uses the same concurrent queue.
+      </p>
+      <div class="bulk-actions">
+        <button type="button" class="bulk-btn" id="btnBulkScrape">▶ Scrape all ready + auto-import</button>
+        <button type="button" class="bulk-btn secondary" id="btnBulkImport">📥 Import all pending CSVs</button>
+        <button type="button" class="bulk-btn danger" id="btnStopImports">⏹ Stop all imports</button>
+      </div>
+      <div class="bulk-status" id="bulkStatus"></div>
+    </div>
 
     <div id="tx-map-wrap">
       <div id="tx-map-container"></div>
@@ -287,8 +337,6 @@
       }
       if (unassigned > 0) {
         html += ` · <span class="ok">${formatCount(unassigned)} unassigned</span>`;
-      } else if (props > 0) {
-        html += ` · <span class="warn">missing unassigned</span>`;
       }
       if (pending > 0) {
         html += ` · <span class="muted">${formatCount(pending)} CSV pending</span>`;
@@ -449,6 +497,92 @@
       }
       document.getElementById('title').textContent = `${state} counties`;
       document.title = `${state} counties — Prop Tax Scraper`;
+
+      if (isAdmin) {
+        const bulk = document.getElementById('adminBulk');
+        bulk.hidden = false;
+        const statusEl = document.getElementById('bulkStatus');
+        const scrapeBtn = document.getElementById('btnBulkScrape');
+        const importBtn = document.getElementById('btnBulkImport');
+        const stopImportsBtn = document.getElementById('btnStopImports');
+
+        scrapeBtn.addEventListener('click', async () => {
+          if (!confirm(`Start bulk scrape for all arcgis_rest counties in ${state}?\n\nDifferent ArcGIS hosts run in parallel; same host queues. Each successful scrape auto-imports.`)) {
+            return;
+          }
+          scrapeBtn.disabled = true;
+          statusEl.textContent = 'Starting bulk scrape…';
+          try {
+            const res = await PropTaxAuth.authFetch(`/api/state/${state.toLowerCase()}/scrape/bulk`, {
+              method: 'POST',
+              body: JSON.stringify({
+                allReady: true,
+                force: true,
+                mode: 'bulk',
+                autoImport: true,
+                delay: 0.5,
+              }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || data.message || 'Bulk scrape failed');
+            const hosts = (data.started || []).reduce((acc, row) => {
+              acc[row.host] = (acc[row.host] || 0) + 1;
+              return acc;
+            }, {});
+            statusEl.textContent =
+              `${data.message}\n` +
+              `Started hosts: ${Object.keys(hosts).join(', ') || '(none)'}\n` +
+              `Queued: ${(data.queued || []).map((q) => `${q.county}@${q.host}`).slice(0, 12).join(', ')}` +
+              ((data.queued || []).length > 12 ? '…' : '');
+          } catch (err) {
+            statusEl.textContent = err.message || String(err);
+          } finally {
+            scrapeBtn.disabled = false;
+          }
+        });
+
+        importBtn.addEventListener('click', async () => {
+          importBtn.disabled = true;
+          statusEl.textContent = 'Starting bulk import…';
+          try {
+            const res = await PropTaxAuth.authFetch(`/api/state/${state.toLowerCase()}/import/bulk`, {
+              method: 'POST',
+              body: JSON.stringify({ pendingOnly: true }),
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || data.message || 'Bulk import failed');
+            statusEl.textContent =
+              `${data.message}\n` +
+              `Started: ${(data.started || []).slice(0, 20).join(', ')}` +
+              ((data.started || []).length > 20 ? '…' : '');
+          } catch (err) {
+            statusEl.textContent = err.message || String(err);
+          } finally {
+            importBtn.disabled = false;
+          }
+        });
+
+        stopImportsBtn.addEventListener('click', async () => {
+          if (!confirm('Stop all running and queued imports?\n\nScrapes will keep running. Partial imports roll back the current file.')) {
+            return;
+          }
+          stopImportsBtn.disabled = true;
+          statusEl.textContent = 'Stopping imports…';
+          try {
+            const res = await PropTaxAuth.authFetch('/api/imports/stop', { method: 'POST' });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.error || data.message || 'Stop failed');
+            statusEl.textContent =
+              `${data.message}\n` +
+              `Aborting: ${(data.aborting || []).join(', ') || '(none)'}\n` +
+              `Cleared queue: ${(data.clearedQueue || []).join(', ') || '(none)'}`;
+          } catch (err) {
+            statusEl.textContent = err.message || String(err);
+          } finally {
+            stopImportsBtn.disabled = false;
+          }
+        });
+      }
 
       const res = await PropTaxAuth.authFetch(`/api/cad-sources?state=${encodeURIComponent(state)}`);
       const data = await res.json();

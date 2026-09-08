@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Search all counties</title>
+  <meta name="color-scheme" content="dark">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f1419;
+      color: #e6edf3;
+      margin: 0;
+      min-height: 100vh;
+    }
+    .top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid #30363d;
+      background: #161b22;
+      flex-wrap: wrap;
+    }
+    .top h1 { margin: 0; font-size: 1.15rem; }
+    .top .version { color: #8b949e; font-size: 0.85rem; font-weight: 400; }
+    .top a {
+      color: #58a6ff;
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+    .top a:hover { text-decoration: underline; }
+    .layout {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      min-height: calc(100vh - 58px);
+    }
+    @media (max-width: 960px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+    .panel {
+      border-right: 1px solid #30363d;
+      background: #161b22;
+      padding: 1rem;
+      overflow: auto;
+      max-height: calc(100vh - 58px);
+    }
+    .main {
+      padding: 1rem 1.25rem;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .section-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #8b949e;
+      margin: 0.75rem 0 0.45rem;
+    }
+    .section-label:first-child { margin-top: 0; }
+    .quick {
+      display: flex;
+      gap: 0.4rem;
+    }
+    .quick input {
+      flex: 1;
+      padding: 0.55rem 0.65rem;
+      font-size: 0.95rem;
+    }
+    .cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.25rem 0.5rem;
+      max-height: 180px;
+      overflow: auto;
+      padding: 0.4rem;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      background: #0d1117;
+    }
+    .cols label {
+      display: flex;
+      gap: 0.35rem;
+      align-items: center;
+      font-size: 0.78rem;
+      color: #c9d1d9;
+    }
+    .filters { display: flex; flex-direction: column; gap: 0.45rem; }
+    .filter-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.3rem;
+      padding: 0.5rem;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      background: #0d1117;
+    }
+    .filter-row .row2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 0.3rem;
+    }
+    select, input, button {
+      padding: 0.4rem 0.5rem;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+      background: #21262d;
+      color: #e6edf3;
+      font-size: 0.85rem;
+    }
+    button { cursor: pointer; }
+    button.primary { background: #238636; border-color: #2ea043; color: #fff; }
+    button.primary:hover { background: #2ea043; }
+    button.ghost { background: transparent; }
+    button.danger { background: #2a1215; color: #f85149; border-color: #da3633; }
+    .actions { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.75rem; }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      color: #8b949e;
+      font-size: 0.85rem;
+    }
+    .meta strong { color: #e6edf3; }
+    .err { color: #f85149; font-size: 0.9rem; }
+    .hint { color: #8b949e; font-size: 0.82rem; margin: 0; line-height: 1.4; }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      background: #161b22;
+      max-height: calc(100vh - 200px);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    th, td {
+      padding: 0.55rem 0.7rem;
+      border-bottom: 1px solid #30363d;
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: #0d1117;
+      color: #c9d1d9;
+      z-index: 1;
+      cursor: pointer;
+      user-select: none;
+    }
+    th:hover { color: #58a6ff; }
+    td.wrap { white-space: normal; max-width: 360px; }
+    td a { color: #58a6ff; text-decoration: none; }
+    td a:hover { text-decoration: underline; }
+    .pager { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    .pager button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .empty { padding: 2rem; text-align: center; color: #8b949e; }
+    #authBar { display: flex; align-items: center; }
+    #countyList {
+      max-height: 140px;
+      overflow: auto;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      background: #0d1117;
+      padding: 0.4rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    #countyList label {
+      display: flex;
+      gap: 0.35rem;
+      align-items: center;
+      font-size: 0.78rem;
+      color: #c9d1d9;
+    }
+  </style>
+</head>
+<body>
+  <div class="top">
+    <h1>Search all counties <span class="version" id="version"></span></h1>
+    <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+      <a href="/">← USA map</a>
+      <div id="authBar"></div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <aside class="panel">
+      <div class="section-label">Quick search</div>
+      <p class="hint">Matches owner, situs, geo ID, property ID, legal, mail address across every county you can access.</p>
+      <div class="quick">
+        <input id="q" type="search" placeholder="Owner, address, geo ID…" autocomplete="off" />
+      </div>
+
+      <div class="section-label">State</div>
+      <select id="stateFilter" aria-label="State filter">
+        <option value="">All states</option>
+      </select>
+
+      <div class="section-label">Counties <span style="text-transform:none;letter-spacing:0;">(optional)</span></div>
+      <div id="countyList"></div>
+      <div style="display:flex;gap:0.4rem;margin-top:0.35rem;">
+        <button type="button" class="ghost" onclick="selectAllCounties(true)">All</button>
+        <button type="button" class="ghost" onclick="selectAllCounties(false)">None</button>
+      </div>
+
+      <div class="section-label">Columns</div>
+      <div class="cols" id="columnList"></div>
+      <div style="display:flex;gap:0.4rem;margin-top:0.4rem;">
+        <button type="button" class="ghost" onclick="selectDefaultColumns()">Defaults</button>
+        <button type="button" class="ghost" onclick="selectAllColumns(true)">All</button>
+        <button type="button" class="ghost" onclick="selectAllColumns(false)">None</button>
+      </div>
+
+      <div class="section-label">Filters</div>
+      <div class="filters" id="filterList"></div>
+      <button type="button" class="ghost" onclick="addFilterRow()" style="margin-top:0.4rem;width:100%;">+ Add filter</button>
+
+      <div class="section-label">Page size</div>
+      <select id="pageSize" aria-label="Records per page">
+        <option value="25">25</option>
+        <option value="50" selected>50</option>
+        <option value="100">100</option>
+        <option value="250">250</option>
+        <option value="500">500</option>
+        <option value="1000">1000</option>
+      </select>
+
+      <div class="actions">
+        <button type="button" class="primary" id="btnSearch" onclick="runSearch(0)">Search</button>
+        <button type="button" class="ghost" onclick="clearFilters()">Clear filters</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="meta">
+        <span>Showing <strong id="shownCount">0</strong> of <strong id="totalCount">0</strong></span>
+        <span id="countyInfo"></span>
+        <span id="pageInfo"></span>
+        <div class="pager">
+          <button type="button" id="btnPrev" onclick="prevPage()" disabled>← Prev</button>
+          <button type="button" id="btnNext" onclick="nextPage()" disabled>Next →</button>
+        </div>
+      </div>
+      <div class="err" id="error" style="display:none;"></div>
+      <div class="table-wrap">
+        <table>
+          <thead id="thead"></thead>
+          <tbody id="tbody">
+            <tr><td class="empty" colspan="20">Enter a search term or filter, then click Search.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script src="/auth.js"></script>
+  <script>
+    const OPS = [
+      { value: 'ilike', label: 'contains' },
+      { value: 'not_ilike', label: 'does not contain' },
+      { value: 'eq', label: '=' },
+      { value: 'neq', label: '≠' },
+      { value: 'gt', label: '>' },
+      { value: 'gte', label: '≥' },
+      { value: 'lt', label: '<' },
+      { value: 'lte', label: '≤' },
+      { value: 'like', label: 'like' },
+      { value: 'in', label: 'in (csv)' },
+      { value: 'has_token', label: 'has code' },
+      { value: 'is_null', label: 'is empty' },
+      { value: 'not_null', label: 'not empty' },
+    ];
+
+    const META_NAMES = new Set(['state_code', 'county_slug', 'county_name']);
+    const STORAGE_COLS = 'propTaxSearchAllCols';
+    let allFields = [];
+    let propFields = [];
+    let counties = [];
+    let offset = 0;
+    let limit = 50;
+    let total = 0;
+    let sort = 'owner_name';
+    let order = 'asc';
+    let lastRows = [];
+
+    function escapeHtml(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function safeParse(raw) {
+      try { return JSON.parse(raw); } catch { return null; }
+    }
+
+    function loadSavedColumns() {
+      const saved = safeParse(localStorage.getItem(STORAGE_COLS));
+      return Array.isArray(saved) && saved.length ? saved : null;
+    }
+
+    function saveColumns(fields) {
+      const list = Array.isArray(fields) ? fields.filter(Boolean) : [];
+      if (list.length) localStorage.setItem(STORAGE_COLS, JSON.stringify(list));
+    }
+
+    function fieldByName(name) {
+      return allFields.find((f) => f.name === name);
+    }
+
+    function selectedFields() {
+      return [...document.querySelectorAll('#columnList input[data-field]:checked')]
+        .map((el) => el.getAttribute('data-field'))
+        .filter((n) => n && !META_NAMES.has(n));
+    }
+
+    function selectDefaultColumns() {
+      const defaults = new Set(
+        propFields.filter((f) => f.defaultVisible).map((f) => f.name)
+      );
+      document.querySelectorAll('#columnList input[data-field]').forEach((el) => {
+        el.checked = defaults.has(el.getAttribute('data-field'));
+      });
+      saveColumns(selectedFields());
+    }
+
+    function selectAllColumns(on) {
+      document.querySelectorAll('#columnList input[data-field]').forEach((el) => {
+        el.checked = !!on;
+      });
+      saveColumns(selectedFields());
+    }
+
+    function renderColumns() {
+      const saved = loadSavedColumns();
+      const checked = new Set(
+        saved || propFields.filter((f) => f.defaultVisible).map((f) => f.name)
+      );
+      document.getElementById('columnList').innerHTML = propFields.map((f) => `
+        <label>
+          <input type="checkbox" data-field="${escapeHtml(f.name)}" ${checked.has(f.name) ? 'checked' : ''} />
+          ${escapeHtml(f.label)}
+        </label>
+      `).join('');
+      document.querySelectorAll('#columnList input[data-field]').forEach((el) => {
+        el.addEventListener('change', () => saveColumns(selectedFields()));
+      });
+    }
+
+    function fieldOptionsHtml(selected) {
+      return propFields.map((f) =>
+        `<option value="${escapeHtml(f.name)}" ${f.name === selected ? 'selected' : ''}>${escapeHtml(f.label)}</option>`
+      ).join('');
+    }
+
+    function opOptionsHtml(selected) {
+      return OPS.map((o) =>
+        `<option value="${o.value}" ${o.value === selected ? 'selected' : ''}>${o.label}</option>`
+      ).join('');
+    }
+
+    function addFilterRow(preset = {}) {
+      const wrap = document.getElementById('filterList');
+      const row = document.createElement('div');
+      row.className = 'filter-row';
+      const field = preset.field || 'owner_name';
+      const op = preset.op || 'ilike';
+      const value = preset.value ?? '';
+      row.innerHTML = `
+        <select class="f-field">${fieldOptionsHtml(field)}</select>
+        <div class="row2">
+          <select class="f-op">${opOptionsHtml(op)}</select>
+          <input class="f-value" type="text" placeholder="value" value="${escapeHtml(value)}" />
+          <button type="button" class="danger" title="Remove">✕</button>
+        </div>
+      `;
+      row.querySelector('button').onclick = () => row.remove();
+      const opEl = row.querySelector('.f-op');
+      const valEl = row.querySelector('.f-value');
+      const syncValueEnabled = () => {
+        const needsValue = !['is_null', 'not_null'].includes(opEl.value);
+        valEl.disabled = !needsValue;
+        if (!needsValue) valEl.value = '';
+      };
+      opEl.onchange = syncValueEnabled;
+      syncValueEnabled();
+      wrap.appendChild(row);
+    }
+
+    function clearFilters() {
+      document.getElementById('filterList').innerHTML = '';
+      addFilterRow();
+    }
+
+    function collectFilters() {
+      return [...document.querySelectorAll('#filterList .filter-row')].map((row) => {
+        const field = row.querySelector('.f-field').value;
+        const op = row.querySelector('.f-op').value;
+        const value = row.querySelector('.f-value').value;
+        return { field, op, value };
+      }).filter((f) => f.op === 'is_null' || f.op === 'not_null' || String(f.value || '').trim() !== '');
+    }
+
+    function selectedCounties() {
+      const boxes = [...document.querySelectorAll('#countyList input[data-slug]')];
+      const checked = boxes.filter((el) => el.checked).map((el) => el.getAttribute('data-slug'));
+      if (!checked.length || checked.length === boxes.length) return [];
+      return checked;
+    }
+
+    function selectAllCounties(on) {
+      document.querySelectorAll('#countyList input[data-slug]').forEach((el) => {
+        el.checked = !!on;
+      });
+    }
+
+    function renderCounties() {
+      const state = document.getElementById('stateFilter').value;
+      const list = state
+        ? counties.filter((c) => c.state === state)
+        : counties;
+      document.getElementById('countyList').innerHTML = list.length
+        ? list.map((c) => `
+            <label>
+              <input type="checkbox" data-slug="${escapeHtml(c.slug)}" data-state="${escapeHtml(c.state)}" checked />
+              ${escapeHtml(c.name)} <span style="color:#6e7681;">(${escapeHtml(c.state.toUpperCase())})</span>
+            </label>
+          `).join('')
+        : '<span style="color:#8b949e;font-size:0.8rem;">No county tables yet</span>';
+    }
+
+    function fillStateOptions() {
+      const states = [...new Set(counties.map((c) => c.state))].sort();
+      const sel = document.getElementById('stateFilter');
+      const current = sel.value;
+      sel.innerHTML = '<option value="">All states</option>' +
+        states.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s.toUpperCase())}</option>`).join('');
+      if (states.includes(current)) sel.value = current;
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('error');
+      if (!msg) {
+        el.style.display = 'none';
+        el.textContent = '';
+        return;
+      }
+      el.style.display = 'block';
+      el.textContent = msg;
+    }
+
+    function mapsUrl(row) {
+      const query = row.situs || [row.addr_line1, row.addr_city, row.addr_state, row.addr_zip]
+        .filter(Boolean).join(', ');
+      if (!query) return null;
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+    }
+
+    function renderTable(fields, rows) {
+      const labels = Object.fromEntries(allFields.map((f) => [f.name, f.label]));
+      document.getElementById('thead').innerHTML = `<tr>${fields.map((f) => {
+        const arrow = sort === f ? (order === 'asc' ? ' ▲' : ' ▼') : '';
+        return `<th data-sort="${escapeHtml(f)}">${escapeHtml(labels[f] || f)}${arrow}</th>`;
+      }).join('')}</tr>`;
+      document.querySelectorAll('#thead th[data-sort]').forEach((th) => {
+        th.onclick = () => {
+          const f = th.getAttribute('data-sort');
+          if (sort === f) order = order === 'asc' ? 'desc' : 'asc';
+          else { sort = f; order = 'asc'; }
+          runSearch(offset);
+        };
+      });
+
+      const tbody = document.getElementById('tbody');
+      if (!rows.length) {
+        tbody.innerHTML = `<tr><td class="empty" colspan="${fields.length}">No matching properties.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = rows.map((row) => {
+        const cells = fields.map((f) => {
+          let text = row[f];
+          if (text == null || text === '') return '<td></td>';
+          text = String(text);
+          if (f === 'county_name' || f === 'county_slug') {
+            const st = row.state_code || 'tx';
+            const slug = row.county_slug;
+            return `<td><a href="/c/${escapeHtml(st)}/${escapeHtml(slug)}/browse">${escapeHtml(row.county_name || slug)}</a></td>`;
+          }
+          if (f === 'situs') {
+            const url = mapsUrl(row);
+            if (url) {
+              return `<td class="wrap"><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a></td>`;
+            }
+          }
+          const wrap = f === 'legal_desc' || f === 'owner_name' ? ' class="wrap"' : '';
+          return `<td${wrap}>${escapeHtml(text)}</td>`;
+        }).join('');
+        return `<tr>${cells}</tr>`;
+      }).join('');
+    }
+
+    function updatePager() {
+      document.getElementById('shownCount').textContent = String(lastRows.length);
+      document.getElementById('totalCount').textContent = String(total);
+      const page = Math.floor(offset / limit) + 1;
+      const pages = Math.max(1, Math.ceil(total / limit));
+      document.getElementById('pageInfo').textContent = total ? `Page ${page} / ${pages}` : '';
+      document.getElementById('btnPrev').disabled = offset <= 0;
+      document.getElementById('btnNext').disabled = offset + limit >= total;
+    }
+
+    async function runSearch(newOffset = 0) {
+      showError('');
+      offset = Math.max(0, newOffset);
+      const fields = selectedFields();
+      if (!fields.length) {
+        showError('Select at least one column.');
+        return;
+      }
+      const q = document.getElementById('q').value.trim();
+      const filters = collectFilters();
+      if (!q && !filters.length) {
+        showError('Enter a search term or at least one filter.');
+        return;
+      }
+      limit = Math.min(1000, Math.max(1, parseInt(document.getElementById('pageSize').value, 10) || 50));
+      const btn = document.getElementById('btnSearch');
+      btn.disabled = true;
+      btn.textContent = 'Searching…';
+      try {
+        const body = {
+          q,
+          fields,
+          filters,
+          limit,
+          offset,
+          sort,
+          order,
+        };
+        const state = document.getElementById('stateFilter').value;
+        if (state) body.state = state;
+        const countySlugs = selectedCounties();
+        if (countySlugs.length) body.counties = countySlugs;
+
+        const res = await PropTaxAuth.authFetch('/api/search/properties', {
+          method: 'POST',
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Search failed');
+        lastRows = data.rows || [];
+        total = Number(data.total) || 0;
+        document.getElementById('countyInfo').textContent =
+          data.countyCount != null ? `· ${data.countyCount} counties searched` : '';
+        renderTable(data.fields || ['state_code', 'county_slug', 'county_name', ...fields], lastRows);
+        updatePager();
+      } catch (err) {
+        showError(err.message || String(err));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Search';
+      }
+    }
+
+    function prevPage() {
+      if (offset <= 0) return;
+      runSearch(Math.max(0, offset - limit));
+    }
+
+    function nextPage() {
+      if (offset + limit >= total) return;
+      runSearch(offset + limit);
+    }
+
+    async function init() {
+      const me = await PropTaxAuth.requireLogin();
+      if (!me) return;
+      PropTaxAuth.renderAuthBar(document.getElementById('authBar'), me);
+
+      const ver = await fetch('/api/version').then((r) => r.json()).catch(() => ({}));
+      if (ver.version) document.getElementById('version').textContent = `v${ver.version}`;
+
+      const [fieldsRes, countiesRes] = await Promise.all([
+        PropTaxAuth.authFetch('/api/search/fields').then((r) => r.json()),
+        PropTaxAuth.authFetch('/api/search/counties').then((r) => r.json()),
+      ]);
+      allFields = fieldsRes.fields || [];
+      propFields = allFields.filter((f) => !META_NAMES.has(f.name));
+      counties = countiesRes.counties || [];
+      fillStateOptions();
+      renderCounties();
+      renderColumns();
+      addFilterRow();
+
+      document.getElementById('stateFilter').onchange = () => renderCounties();
+      document.getElementById('pageSize').onchange = () => {
+        if (total > 0 || document.getElementById('q').value.trim() || collectFilters().length) {
+          runSearch(0);
+        }
+      };
+      document.getElementById('q').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          runSearch(0);
+        }
+      });
+    }
+
+    init().catch((err) => showError(err.message || String(err)));
+  </script>
+</body>
+</html>

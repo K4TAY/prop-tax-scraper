@@ -239,6 +239,9 @@
         <label class="field">Delay (seconds)
           <input type="number" id="delay" min="0.1" step="0.05" value="0.75" />
         </label>
+        <label class="field">Page size (0 = layer max, often 2000)
+          <input type="number" id="pageSize" min="0" step="100" value="0" />
+        </label>
         <label class="field">Hood IDs (comma-separated; forces by-neighborhood)
           <input type="text" id="hoods" placeholder="11540, 57080" />
         </label>
@@ -251,6 +254,7 @@
         <button type="button" class="btn btn-primary" id="btnStart" onclick="startScrape()">▶ Start scrape</button>
         <button type="button" class="btn btn-danger" id="btnStop" onclick="stopScrape()">⏹ Stop scrape</button>
         <button type="button" class="btn" id="btnImport" onclick="startImport()" style="background:#2b6cb0;color:#fff;border-color:transparent;">📥 Import CSV → Postgres</button>
+        <button type="button" class="btn btn-danger" id="btnStopImports" onclick="stopAllImports()">⏹ Stop all imports</button>
         <a class="btn" href="/" style="display:block;text-decoration:none;margin-bottom:0.4rem;">← USA map</a>
         <a class="btn" id="stateLink" href="/state.html" style="display:block;text-decoration:none;margin-bottom:0.4rem;">← State counties</a>
         <a class="btn" id="browseLink" href="#" style="display:block;text-decoration:none;background:#553c9a;color:#fff;border-color:transparent;">🔎 Browse database</a>
@@ -683,9 +687,29 @@
       }
     }
 
+    async function stopAllImports() {
+      if (!confirm('Stop all running and queued imports across every county?\n\nScrapes keep running. The current CSV file rolls back.')) {
+        return;
+      }
+      try {
+        const res = await PropTaxAuth.authFetch('/api/imports/stop', { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showMessage(data.error || data.message || 'Stop failed', 'error');
+          return;
+        }
+        showMessage(data.message || 'Imports stopped');
+        refreshStats();
+      } catch {
+        showMessage('Error stopping imports', 'error');
+      }
+    }
+
     async function startScrape() {
       const limit = Number(document.getElementById('limit').value) || 0;
       const delay = Number(document.getElementById('delay').value) || 0.75;
+      const pageSizeRaw = Number(document.getElementById('pageSize')?.value);
+      const pageSize = Number.isFinite(pageSizeRaw) && pageSizeRaw >= 0 ? pageSizeRaw : 0;
       const force = document.getElementById('force').checked;
       const skipEmpty = document.getElementById('skipEmpty').checked;
       const mode = document.getElementById('scrapeMode')?.value || 'bulk';
@@ -697,18 +721,22 @@
       try {
         const res = await PropTaxAuth.authFetch(`${API}/scrape`, {
           method: 'POST',
-          body: JSON.stringify({ limit, delay, force, skipEmpty, hoods, mode }),
+          body: JSON.stringify({ limit, delay, force, skipEmpty, hoods, mode, pageSize }),
         });
         const data = await res.json().catch(() => ({}));
         if (res.status === 409) {
           showMessage(data.message || 'Already running', 'error');
           return;
         }
-        if (!res.ok) {
+        if (!res.ok && res.status !== 202) {
           showMessage(data.error || data.message || 'Failed to start', 'error');
           return;
         }
-        showMessage(data.message || 'Scraper started');
+        if (data.queued) {
+          showMessage(data.message || `Queued on ${data.host || 'host'}`);
+        } else {
+          showMessage(data.message || 'Scraper started');
+        }
         refreshStats();
       } catch {
         showMessage('Error starting scraper', 'error');
