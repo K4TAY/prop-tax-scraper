@@ -568,10 +568,18 @@ app.post(
     delay = 0.75,
     hoods = [],
     skipEmpty = false,
+    mode = "bulk",
   } = req.body || {};
 
   await mkdir(ctx.csvDir, { recursive: true });
   await mkdir(ctx.processedDir, { recursive: true });
+
+  const scrapeMode =
+    Array.isArray(hoods) && hoods.some((h) => h)
+      ? "by-hood"
+      : mode === "by-hood"
+        ? "by-hood"
+        : "bulk";
 
   const args = [
     "scrape_neighborhoods.py",
@@ -581,6 +589,8 @@ app.post(
     ctx.processedDir,
     "--index",
     join(ctx.dataDir, "neighborhoods.json"),
+    "--mode",
+    scrapeMode,
   ];
   if (source?.arcgis_mapserver_url) {
     args.push("--map-server", source.arcgis_mapserver_url);

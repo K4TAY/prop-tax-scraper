@@ -227,13 +227,19 @@
 
       <div>
         <div class="section-label">Run options</div>
-        <label class="field">Limit (0 = all)
+        <label class="field">Scrape mode
+          <select id="scrapeMode">
+            <option value="bulk" selected>Entire county (bulk) — recommended</option>
+            <option value="by-hood">By neighborhood (legacy)</option>
+          </select>
+        </label>
+        <label class="field">Limit (0 = all; bulk = max rows, by-hood = max hoods)
           <input type="number" id="limit" min="0" value="0" />
         </label>
         <label class="field">Delay (seconds)
           <input type="number" id="delay" min="0.1" step="0.05" value="0.75" />
         </label>
-        <label class="field">Hood IDs (comma-separated, optional)
+        <label class="field">Hood IDs (comma-separated; forces by-neighborhood)
           <input type="text" id="hoods" placeholder="11540, 57080" />
         </label>
         <label class="check"><input type="checkbox" id="force" /> Force re-download</label>
@@ -263,10 +269,12 @@
       </div>
 
       <p class="hint">
-        Exports <strong>all</strong> parcels per neighborhood (paginated past the map UI’s 1000-row limit).
-        Hoods with more than 1000 parcels still get a <code>.OVER_1000</code> marker.
-        Import loads CSVs into this county’s Postgres tables then moves files into its
-        <code>processed</code> folder. Each county has isolated tables and data paths.
+        <strong>Bulk</strong> (default) paginates the whole property layer into
+        <code>__ALL__.csv</code> — neighborhood codes stay as row attributes when present.
+        Limit in bulk mode caps property rows (useful for a test run).
+        <strong>By neighborhood</strong> is the legacy per-hood scrape for resume/debug.
+        Import loads CSVs into this county’s Postgres tables then moves files into
+        <code>processed</code>. Each county has isolated tables and data paths.
       </p>
     </aside>
 
@@ -680,6 +688,7 @@
       const delay = Number(document.getElementById('delay').value) || 0.75;
       const force = document.getElementById('force').checked;
       const skipEmpty = document.getElementById('skipEmpty').checked;
+      const mode = document.getElementById('scrapeMode')?.value || 'bulk';
       const hoodsRaw = document.getElementById('hoods').value.trim();
       const hoods = hoodsRaw
         ? hoodsRaw.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean)
@@ -688,7 +697,7 @@
       try {
         const res = await PropTaxAuth.authFetch(`${API}/scrape`, {
           method: 'POST',
-          body: JSON.stringify({ limit, delay, force, skipEmpty, hoods }),
+          body: JSON.stringify({ limit, delay, force, skipEmpty, hoods, mode }),
         });
         const data = await res.json().catch(() => ({}));
         if (res.status === 409) {

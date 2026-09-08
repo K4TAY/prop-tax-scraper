@@ -214,8 +214,10 @@ async function insertBatch(client, rows, propertiesTable) {
   return rows.length;
 }
 
-async function readCsvRows(csvPath) {
-  const rows = [];
+/** Stream a CSV into the properties table in batches (safe for large __ALL__.csv). */
+async function importCsvStreaming(client, csvPath, propertiesTable, batchSize) {
+  let rowCount = 0;
+  let batch = [];
   const parser = createReadStream(csvPath).pipe(
     parse({
       columns: true,
@@ -227,9 +229,18 @@ async function readCsvRows(csvPath) {
   );
 
   for await (const record of parser) {
-    rows.push(normalizeRow(record));
+    batch.push(normalizeRow(record));
+    if (batch.length >= batchSize) {
+      await insertBatch(client, batch, propertiesTable);
+      rowCount += batch.length;
+      batch = [];
+    }
   }
-  return rows;
+  if (batch.length) {
+    await insertBatch(client, batch, propertiesTable);
+    rowCount += batch.length;
+  }
+  return rowCount;
 }
 
 async function upsertNeighborhood(
@@ -458,28 +469,42 @@ export async function importCsvDirectory({
         continue;
       }
 
-      const rows = await readCsvRows(csvPath);
       await client.query("BEGIN");
+      // Upsert neighborhood first with meta totals; refresh exported after stream.
       await upsertNeighborhood(client, {
         hoodCd,
         meta,
         sourceCsv: file,
-        rowCount: rows.length,
+        rowCount: meta?.exported ?? 0,
         neighborhoodsTable,
       });
 
-      for (let offset = 0; offset < rows.length; offset += batchSize) {
-        const batch = rows.slice(offset, offset + batchSize);
-        await insertBatch(client, batch, propertiesTable);
-      }
+      const rowCount = await importCsvStreaming(
+        client,
+        csvPath,
+        propertiesTable,
+        batchSize
+      );
+
+      await upsertNeighborhood(client, {
+        hoodCd,
+        meta: {
+          ...(meta || {}),
+          exported: rowCount,
+          total_available: meta?.total_available ?? rowCount,
+        },
+        sourceCsv: file,
+        rowCount,
+        neighborhoodsTable,
+      });
       await client.query("COMMIT");
 
       const moved = await moveHoodFiles(csvDir, processedDir, fileStem);
-      summary.rows += rows.length;
+      summary.rows += rowCount;
       summary.moved += moved.length;
       summary.imported += 1;
       log.success?.(
-        `  imported ${rows.length} rows → moved ${moved.join(", ") || "(none)"}`,
+        `  imported ${rowCount} rows → moved ${moved.join(", ") || "(none)"}`,
         "import"
       );
     } catch (err) {

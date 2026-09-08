@@ -510,7 +510,7 @@ export async function getCountyImportStats(ctx, client = pool) {
   const unassignedCount = propCounts.unassignedCount;
   // Coverage is complete when either:
   // - blank-hood catch-all (__UNASSIGNED__) was imported, or
-  // - the layer had no hood codes and was exported as the synthetic __ALL__ bucket.
+  // - bulk / hoodless export used the synthetic __ALL__ bucket.
   const hasCoverageBucket =
     unassignedCount > 0 || unassignedHoods > 0 || allParcelsHoods > 0;
   const hoodsMatchProcessed = neighborhoodCount === processedCsvCount;

@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """
-Scrape CAD neighborhood property data from public ArcGIS Map/FeatureServer
-endpoints (no browser automation).
+Scrape CAD property data from public ArcGIS Map/FeatureServer endpoints
+(no browser automation).
 
 Default profile is Bexar CAD (TrueAutomation mapSearch → PAMapSearch).
 Other counties pass --map-server / layer ids (e.g. Calhoun BIS FeatureServer).
 
-Exports every parcel in each neighborhood (paginated). Neighborhoods with
-more than 1000 parcels are still marked for visibility.
+Stage-1 default is **bulk** mode: paginate the entire property layer
+(``where=1=1``) into ``__ALL__.csv``, keeping each feature's neighborhood
+code as a row attribute when present. Use ``--mode by-hood`` for the legacy
+per-neighborhood scrape (resume/debug).
 
 On errors: exponential backoff, then quit after consecutive failures so a
 block/rate-limit does not thrash the server.
@@ -77,6 +79,10 @@ DEFAULT_BACKOFF_MULTIPLIER = 2.0
 
 # Map UI Export caps at 1000 — we still mark hoods above this, but export all rows.
 OVER_1000_MARK = 1000
+
+# Scrape unit: bulk = whole layer → __ALL__.csv; by-hood = one CSV per neighborhood.
+MODE_BULK = "bulk"
+MODE_BY_HOOD = "by-hood"
 
 # HTTP statuses that usually mean "slow down or stop"
 BLOCK_STATUSES = {403, 429, 502, 503, 504}
@@ -1157,12 +1163,38 @@ def normalize_property_attrs(attrs: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def materialize_feature_rows(
+    features: list[dict[str, Any]],
+    *,
+    batch_hood_cd: str,
+) -> list[dict[str, Any]]:
+    """Normalize ArcGIS features; keep per-parcel hood when bulk-scraping as __ALL__."""
+    rows: list[dict[str, Any]] = []
+    bulk = batch_hood_cd == ALL_PARCELS_HOOD
+    for feat in features:
+        row = normalize_property_attrs(feat.get("attributes") or {})
+        if bulk:
+            # Preserve real neighborhood codes from the layer; only fill blanks.
+            if not row.get("hood_cd"):
+                row["hood_cd"] = None
+            if not row.get("hood_name") and row.get("hood_cd"):
+                row["hood_name"] = row["hood_cd"]
+        else:
+            if not row.get("hood_cd"):
+                row["hood_cd"] = batch_hood_cd
+            if not row.get("hood_name"):
+                row["hood_name"] = batch_hood_cd
+        rows.append(row)
+    return rows
+
+
 def fetch_properties_for_hood(
     hood_cd: str,
     *,
     page_size: int,
     guard: AdaptiveGuard,
     max_retries: int,
+    max_rows: int = 0,
 ) -> dict[str, Any]:
     """Fetch all properties for a neighborhood via paginated ArcGIS queries.
 
@@ -1192,16 +1224,7 @@ def fetch_properties_for_hood(
     over_1000 = total_available > OVER_1000_MARK
 
     def _materialize(features: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        rows: list[dict[str, Any]] = []
-        for feat in features:
-            row = normalize_property_attrs(feat.get("attributes") or {})
-            # Keep CSV/import keyed to the hood batch we queried (null hood_cd counties).
-            if not row.get("hood_cd"):
-                row["hood_cd"] = hood_cd
-            if not row.get("hood_name"):
-                row["hood_name"] = hood_cd
-            rows.append(row)
-        return rows
+        return materialize_feature_rows(features, batch_hood_cd=hood_cd)
 
     if not use_offset:
         if not object_id_field:
@@ -1218,6 +1241,8 @@ def fetch_properties_for_hood(
         )
         guard.record_success()
         rows = _materialize(features)
+        if max_rows and max_rows > 0:
+            rows = rows[:max_rows]
         truncated = total_available > 0 and len(rows) < total_available
         if truncated:
             log.warning(
@@ -1271,6 +1296,7 @@ def fetch_properties_for_hood(
                     page_size=page_size,
                     guard=guard,
                     max_retries=max_retries,
+                    max_rows=max_rows,
                 )
             raise
         guard.record_success()
@@ -1285,6 +1311,9 @@ def fetch_properties_for_hood(
                 )
             break
         rows.extend(_materialize(features))
+        if max_rows and max_rows > 0 and len(rows) >= max_rows:
+            rows = rows[:max_rows]
+            break
 
         got = len(features)
         # Continue while the server says more rows remain, even if this page
@@ -1322,6 +1351,209 @@ def fetch_properties_for_hood(
         "rows": rows,
         "total_available": total_available,
         "exported": len(rows),
+        "over_1000": over_1000,
+        "truncated": truncated,
+    }
+
+
+def export_properties_to_csv(
+    path: Path,
+    *,
+    hood_cd: str,
+    page_size: int,
+    guard: AdaptiveGuard,
+    max_retries: int,
+    max_rows: int = 0,
+) -> dict[str, Any]:
+    """Paginate a layer query and stream rows to CSV (memory-safe for bulk county pulls)."""
+    where = hood_where(hood_cd)
+    total_available = count_properties_for_hood(hood_cd, max_retries=max_retries)
+    guard.record_success()
+
+    layer_info = get_layer_info(PROP_TABLE_ID, max_retries=max_retries)
+    guard.record_success()
+    effective_page = clamp_page_size(page_size, layer_info["maxRecordCount"])
+    if effective_page != page_size:
+        log.info(
+            "  clamping page size %s → %s (layer maxRecordCount)",
+            page_size,
+            effective_page,
+        )
+
+    object_id_field = layer_info.get("objectIdField")
+    use_offset = bool(layer_info.get("supportsPagination", True))
+    over_1000 = total_available > OVER_1000_MARK
+    target = total_available
+    if max_rows and max_rows > 0:
+        target = min(total_available, max_rows) if total_available > 0 else max_rows
+        log.info("  bulk row cap: %s (layer reports %s)", max_rows, total_available)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    exported = 0
+    pages = 0
+    writer: csv.DictWriter | None = None
+    fieldnames: list[str] | None = None
+
+    def _write_page(features: list[dict[str, Any]]) -> int:
+        nonlocal writer, fieldnames, exported
+        rows = materialize_feature_rows(features, batch_hood_cd=hood_cd)
+        if max_rows and max_rows > 0:
+            remain = max_rows - exported
+            if remain <= 0:
+                return 0
+            rows = rows[:remain]
+        if not rows:
+            return 0
+        if writer is None:
+            fieldnames = list(rows[0].keys())
+            fh = path.open("w", newline="", encoding="utf-8")
+            writer = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
+            writer.writeheader()
+            # stash file handle on writer for close
+            writer._pt_fh = fh  # type: ignore[attr-defined]
+        assert writer is not None
+        for row in rows:
+            writer.writerow({k: ("" if v is None else v) for k, v in row.items()})
+        exported += len(rows)
+        return len(rows)
+
+    try:
+        if not use_offset:
+            if not object_id_field:
+                raise RequestFailed(
+                    f"Cannot page hood {hood_cd}: no pagination and no objectIdField"
+                )
+            log.info("  streaming via OID-window pagination (%s)", object_id_field)
+            # OID window returns all features at once today — still stream write in chunks.
+            features = fetch_features_oid_window(
+                PROP_TABLE_ID,
+                where=where,
+                out_fields="*",
+                object_id_field=object_id_field,
+                max_retries=max_retries,
+            )
+            guard.record_success()
+            # Write in slices to avoid one giant materialize if we add streaming OID later.
+            chunk = effective_page or DEFAULT_PAGE_SIZE
+            for i in range(0, len(features), chunk):
+                _write_page(features[i : i + chunk])
+                if max_rows and max_rows > 0 and exported >= max_rows:
+                    break
+                if i + chunk < len(features):
+                    guard.sleep(extra=0.0)
+        else:
+            order_by = (
+                f"{object_id_field} ASC"
+                if object_id_field
+                else f"{PROP_ID_FIELD} ASC"
+            )
+            offset = 0
+            log.info(
+                "  streaming offset pagination (page=%s, total≈%s)",
+                effective_page,
+                total_available or "?",
+            )
+            while True:
+                try:
+                    data = query_layer(
+                        PROP_TABLE_ID,
+                        where=where,
+                        out_fields="*",
+                        return_geometry=False,
+                        order_by=order_by,
+                        result_offset=offset,
+                        result_record_count=effective_page,
+                        max_retries=max_retries,
+                    )
+                except RequestFailed as exc:
+                    msg = str(exc).lower()
+                    if object_id_field and (
+                        "pagination is not supported" in msg
+                        or "invalid or missing input" in msg
+                    ):
+                        log.warning(
+                            "  offset pagination failed — switching to OID windows: %s",
+                            exc,
+                        )
+                        layer_info["supportsPagination"] = False
+                        if writer is not None:
+                            fh = getattr(writer, "_pt_fh", None)
+                            if fh:
+                                fh.close()
+                            writer = None
+                            if path.exists():
+                                path.unlink()
+                        return export_properties_to_csv(
+                            path,
+                            hood_cd=hood_cd,
+                            page_size=page_size,
+                            guard=guard,
+                            max_retries=max_retries,
+                            max_rows=max_rows,
+                        )
+                    raise
+                guard.record_success()
+                features = data.get("features") or []
+                exceeded = data.get("exceededTransferLimit") is True
+                pages += 1
+                if not features:
+                    break
+                wrote = _write_page(features)
+                if pages == 1 or pages % 25 == 0:
+                    log.info(
+                        "  page %s: exported %s / %s",
+                        pages,
+                        exported,
+                        target or total_available or "?",
+                    )
+                if max_rows and max_rows > 0 and exported >= max_rows:
+                    break
+                got = len(features)
+                if not exceeded and got < effective_page:
+                    break
+                offset += got
+                if total_available > 0 and exported >= total_available:
+                    break
+                if pages > max(2, (total_available // max(1, effective_page)) + 5):
+                    log.error(
+                        "  pagination safety stop after %s pages (got %s/%s)",
+                        pages,
+                        exported,
+                        total_available,
+                    )
+                    break
+                if wrote:
+                    guard.sleep(extra=0.0)
+    finally:
+        if writer is not None:
+            fh = getattr(writer, "_pt_fh", None)
+            if fh:
+                fh.close()
+
+    if exported == 0:
+        path.write_text("", encoding="utf-8")
+
+    truncated = total_available > 0 and exported < total_available and not (
+        max_rows and max_rows > 0 and exported >= max_rows
+    )
+    if truncated:
+        log.warning(
+            "  TRUNCATED stream for %s: exported %s of %s",
+            hood_cd,
+            exported,
+            total_available,
+        )
+    elif max_rows and max_rows > 0 and total_available > max_rows:
+        log.info(
+            "  stopped at --limit %s of %s available (test/partial bulk run)",
+            exported,
+            total_available,
+        )
+
+    return {
+        "rows": None,  # streamed — not held in memory
+        "total_available": total_available,
+        "exported": exported,
         "over_1000": over_1000,
         "truncated": truncated,
     }
@@ -1450,8 +1682,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument("--retries", type=int, default=DEFAULT_MAX_RETRIES, help="Per-request retry count")
     p.add_argument("--page-size", type=int, default=DEFAULT_PAGE_SIZE, help="ArcGIS page size")
-    p.add_argument("--limit", type=int, default=0, help="Only process first N neighborhoods (0 = all)")
-    p.add_argument("--hood", action="append", default=[], help="Only scrape this hood_cd (repeatable)")
+    p.add_argument(
+        "--mode",
+        choices=(MODE_BULK, MODE_BY_HOOD),
+        default=MODE_BULK,
+        help=(
+            "bulk (default): paginate entire property layer into __ALL__.csv; "
+            "by-hood: one CSV per neighborhood (legacy resume/debug)"
+        ),
+    )
+    p.add_argument(
+        "--limit",
+        type=int,
+        default=0,
+        help="bulk: max property rows (0=all); by-hood: max neighborhoods (0=all)",
+    )
+    p.add_argument("--hood", action="append", default=[], help="Only scrape this hood_cd (repeatable; implies by-hood)")
     p.add_argument(
         "--force",
         action="store_true",
@@ -1537,11 +1783,12 @@ def main(argv: list[str] | None = None) -> int:
     except RequestFailed as exc:
         log.warning("Could not resolve layer fields (continuing with configured names): %s", exc)
     log.info(
-        "Layers: hood=%s prop=%s id_field=%s hood_field=%s",
+        "Layers: hood=%s prop=%s id_field=%s hood_field=%s mode=%s",
         HOOD_TABLE_ID,
         PROP_TABLE_ID,
         PROP_ID_FIELD,
         HOOD_FILTER_FIELD,
+        args.mode,
     )
     log.info(
         "Guard: base_delay=%.2fs max_delay=%.2fs backoff=%.1fx quit_after=%s consecutive, quit_on_block=%s",
@@ -1561,14 +1808,40 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:  # noqa: BLE001 — informational only
             log.warning("Could not load setup.json (continuing): %s", exc)
 
-    log.info("Fetching neighborhood list…")
-    try:
-        hoods = fetch_neighborhoods(args.retries)
-    except RequestFailed as exc:
-        log.error("Could not load neighborhoods: %s", exc)
-        return 2
+    # Explicit --hood list forces by-hood mode for those codes.
+    mode = args.mode
+    if args.hood and mode == MODE_BULK:
+        log.info("Hood filter provided — switching to by-hood mode")
+        mode = MODE_BY_HOOD
 
-    log.info("Found %s neighborhoods", len(hoods))
+    if mode == MODE_BULK:
+        log.info("Bulk mode — exporting entire property layer as %s", ALL_PARCELS_HOOD)
+        try:
+            parcel_total = int(
+                query_layer(
+                    PROP_TABLE_ID,
+                    where="1=1",
+                    return_count_only=True,
+                    max_retries=args.retries,
+                ).get("count")
+                or 0
+            )
+        except RequestFailed as exc:
+            log.error("Could not count parcels: %s", exc)
+            return 2
+        if parcel_total <= 0:
+            log.error("Property layer returned 0 parcels")
+            return 2
+        log.info("Layer reports %s parcels", parcel_total)
+        hoods = [{"hood_cd": ALL_PARCELS_HOOD, "hood_name": "All parcels"}]
+    else:
+        log.info("Fetching neighborhood list…")
+        try:
+            hoods = fetch_neighborhoods(args.retries)
+        except RequestFailed as exc:
+            log.error("Could not load neighborhoods: %s", exc)
+            return 2
+        log.info("Found %s neighborhoods", len(hoods))
 
     args.index.parent.mkdir(parents=True, exist_ok=True)
     args.index.write_text(json.dumps(hoods, indent=2), encoding="utf-8")
@@ -1581,7 +1854,7 @@ def main(argv: list[str] | None = None) -> int:
         if missing:
             log.warning("Unknown hood_cd(s): %s", ", ".join(sorted(missing)))
 
-    if args.limit and args.limit > 0:
+    if mode == MODE_BY_HOOD and args.limit and args.limit > 0:
         hoods = hoods[: args.limit]
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -1596,6 +1869,7 @@ def main(argv: list[str] | None = None) -> int:
     total = len(hoods)
     scraped = skipped = failed = over_1000_count = 0
     aborted = False
+    bulk_row_limit = args.limit if mode == MODE_BULK else 0
 
     try:
         for i, hood in enumerate(hoods, start=1):
@@ -1659,20 +1933,35 @@ def main(argv: list[str] | None = None) -> int:
             log.info("[%s/%s] %s — %s (delay=%.2fs)", i, total, hood_cd, hood_name, guard.current_delay)
             try:
                 guard.sleep()
-                result = fetch_properties_for_hood(
-                    hood_cd,
-                    page_size=args.page_size,
-                    guard=guard,
-                    max_retries=args.retries,
-                )
-                rows = result["rows"]
+                if mode == MODE_BULK or hood_cd == ALL_PARCELS_HOOD:
+                    result = export_properties_to_csv(
+                        out_path,
+                        hood_cd=hood_cd,
+                        page_size=args.page_size,
+                        guard=guard,
+                        max_retries=args.retries,
+                        max_rows=bulk_row_limit,
+                    )
+                    if result["exported"] == 0 and args.skip_empty:
+                        log.info("  0 properties — skipped write")
+                        scraped += 1
+                        continue
+                else:
+                    result = fetch_properties_for_hood(
+                        hood_cd,
+                        page_size=args.page_size,
+                        guard=guard,
+                        max_retries=args.retries,
+                    )
+                    rows = result["rows"]
 
-                if not rows and args.skip_empty:
-                    log.info("  0 properties — skipped write")
-                    scraped += 1
-                    continue
+                    if not rows and args.skip_empty:
+                        log.info("  0 properties — skipped write")
+                        scraped += 1
+                        continue
 
-                write_csv(out_path, rows)
+                    write_csv(out_path, rows)
+
                 write_hood_meta(meta_path, hood_cd=hood_cd, hood_name=hood_name, result=result)
 
                 marker_name = ""

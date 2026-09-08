@@ -58,6 +58,10 @@ Scrapes skip neighborhoods that already have a CSV in `data/csv` **or** `data/pr
 
 Postgres table `cad_sources` stores other counties/assessors that appear to use Harris Govern / True Automation PACS (same family as Bexar), plus fields describing how to pull data (`client_id`, PropAccess / Map Search URLs, ArcGIS MapServer, `scrape_strategy`, etc.).
 
+Human-readable reference (which server type each county scrapes from):
+
+- **[docs/county-scrape-sources.md](docs/county-scrape-sources.md)** — regenerate with `bun docs/generate-county-scrape-sources.js`
+
 Seed / refresh:
 
 ```bash
