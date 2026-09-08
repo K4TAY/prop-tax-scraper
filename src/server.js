@@ -21,6 +21,10 @@ import {
   countCsvFilesRecursive,
 } from "./county.js";
 import { moveProcessedToCsv } from "./moveProcessedToCsv.js";
+import {
+  truncateCountyTables,
+  deleteCountyCsvFiles,
+} from "./resetCountyData.js";
 import { ensureAuthSchema } from "./auth/schema.js";
 import { bootstrapAdmin } from "./auth/bootstrapAdmin.js";
 import authRoutes, { adminCountyAccessRouter } from "./auth/routes.js";
@@ -725,6 +729,86 @@ app.post(
   } finally {
     importRunningKeys.delete(key);
   }
+  }
+);
+
+/** Admin: truncate this county's neighborhoods + properties tables. */
+app.post(
+  "/api/c/:state/:county/truncate",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    let ctx;
+    try {
+      ctx = resolveCtx(req);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    const key = countyKey(ctx);
+    if (isCountyBusy(key)) {
+      return res.status(409).json({
+        message:
+          "Scrape or import is running for this county. Stop/wait before truncating.",
+        running: true,
+        busy: busyCounties(),
+      });
+    }
+    const log = countyLogger("admin", ctx);
+    try {
+      const result = await truncateCountyTables(ctx);
+      log.warn(
+        `Truncated tables [${key}]: ${result.truncated.join(", ") || "(none)"} ` +
+          `(props was ${result.propertiesBefore}, hoods was ${result.neighborhoodsBefore})`
+      );
+      res.json({
+        ok: true,
+        message: `Truncated ${result.truncated.length} table(s)`,
+        ...result,
+      });
+    } catch (err) {
+      log.error(`Truncate [${key}] failed: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+/** Admin: delete downloaded CSV + sidecars from csv/ and processed/. */
+app.post(
+  "/api/c/:state/:county/delete-files",
+  requireAuth,
+  requireAdmin,
+  async (req, res) => {
+    let ctx;
+    try {
+      ctx = resolveCtx(req);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+    const key = countyKey(ctx);
+    if (isCountyBusy(key)) {
+      return res.status(409).json({
+        message:
+          "Scrape or import is running for this county. Stop/wait before deleting files.",
+        running: true,
+        busy: busyCounties(),
+      });
+    }
+    const log = countyLogger("admin", ctx);
+    try {
+      const result = await deleteCountyCsvFiles(ctx);
+      log.warn(
+        `Deleted download files [${key}]: ${result.deleted} ` +
+          `(csv=${result.csvDeleted}, processed=${result.processedDeleted})`
+      );
+      res.json({
+        ok: true,
+        message: `Deleted ${result.deleted} file(s)`,
+        ...result,
+      });
+    } catch (err) {
+      log.error(`Delete files [${key}] failed: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
   }
 );
 

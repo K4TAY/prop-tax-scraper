@@ -251,6 +251,17 @@
         <button type="button" class="btn" onclick="refreshStats()">♻️ Refresh stats</button>
       </div>
 
+      <div>
+        <div class="section-label">Danger zone</div>
+        <button type="button" class="btn btn-danger" id="btnTruncate" onclick="truncateTables()">🗑 Truncate DB tables</button>
+        <button type="button" class="btn btn-danger" id="btnDeleteFiles" onclick="deleteCsvFiles()">🗑 Delete CSV files</button>
+        <p class="hint" style="margin-top:0.5rem;">
+          Truncate clears this county’s <code>*_neighborhoods</code> and <code>*_properties</code> tables.
+          Delete removes downloaded <code>.csv</code> / <code>.meta.json</code> / <code>.OVER_1000</code> from
+          <code>csv/</code> and <code>processed/</code> (keeps <code>neighborhoods.json</code>).
+        </p>
+      </div>
+
       <p class="hint">
         Exports <strong>all</strong> parcels per neighborhood (paginated past the map UI’s 1000-row limit).
         Hoods with more than 1000 parcels still get a <code>.OVER_1000</code> marker.
@@ -581,8 +592,67 @@
         }
         document.getElementById('btnStart').disabled = busy;
         document.getElementById('btnImport').disabled = busy;
+        document.getElementById('btnTruncate').disabled = busy;
+        document.getElementById('btnDeleteFiles').disabled = busy;
       } catch (e) {
         console.error(e);
+      }
+    }
+
+    async function truncateTables() {
+      const label = countyDisplayName || COUNTY;
+      if (
+        !confirm(
+          `Truncate Postgres tables for ${label}?\n\nThis deletes all imported neighborhoods and properties for this county. It cannot be undone.`
+        )
+      ) {
+        return;
+      }
+      try {
+        const res = await PropTaxAuth.authFetch(`${API}/truncate`, { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 409) {
+          showMessage(data.message || 'Busy', 'error');
+          return;
+        }
+        if (!res.ok) {
+          showMessage(data.error || data.message || 'Truncate failed', 'error');
+          return;
+        }
+        showMessage(
+          data.message ||
+            `Truncated ${Array.isArray(data.truncated) ? data.truncated.join(', ') : 'tables'}`
+        );
+        refreshStats();
+      } catch {
+        showMessage('Error truncating tables', 'error');
+      }
+    }
+
+    async function deleteCsvFiles() {
+      const label = countyDisplayName || COUNTY;
+      if (
+        !confirm(
+          `Delete downloaded CSV files for ${label}?\n\nRemoves .csv, .meta.json, and .OVER_1000 from csv/ and processed/. neighborhoods.json is kept.`
+        )
+      ) {
+        return;
+      }
+      try {
+        const res = await PropTaxAuth.authFetch(`${API}/delete-files`, { method: 'POST' });
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 409) {
+          showMessage(data.message || 'Busy', 'error');
+          return;
+        }
+        if (!res.ok) {
+          showMessage(data.error || data.message || 'Delete failed', 'error');
+          return;
+        }
+        showMessage(data.message || `Deleted ${data.deleted ?? 0} file(s)`);
+        refreshStats();
+      } catch {
+        showMessage('Error deleting CSV files', 'error');
       }
     }
 

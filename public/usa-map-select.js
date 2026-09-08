@@ -390,7 +390,8 @@ class USAMapSelect {
   createMap() {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.setAttribute('viewBox', '0 0 900 600');
-    svg.setAttribute('class', 'w-full h-auto');
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    svg.setAttribute('class', 'w-full h-full');
 
     // Create state elements using real SVG paths
     this.stateData.forEach((state) => {
