@@ -7,7 +7,7 @@ import { fileURLToPath } from "url";
 import open from "open";
 import logger from "./logger.js";
 import { importCsvDirectory, ensureSchema, ImportAbortedError } from "./importCsv.js";
-import { browseProperties, listBrowseFields } from "./browse.js";
+import { browseProperties, listBrowseFields, listDefaultBrowseFilters } from "./browse.js";
 import {
   searchAllProperties,
   listSearchFields,
@@ -997,7 +997,10 @@ app.get(
   requireAuth,
   requireCountyAccess,
   (_req, res) => {
-    res.json({ fields: listBrowseFields() });
+    res.json({
+      fields: listBrowseFields(),
+      defaultFilters: listDefaultBrowseFilters(),
+    });
   }
 );
 

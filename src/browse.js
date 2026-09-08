@@ -2,37 +2,42 @@ import pool from "./db.js";
 
 /** Whitelist of browsable property columns (matches Postgres `properties` table). */
 export const PROPERTY_FIELDS = [
-  { name: "id", label: "Row ID", type: "number", defaultVisible: false },
   { name: "pacs_prop_id", label: "Property ID", type: "text", defaultVisible: true },
-  { name: "prop_val_yr", label: "Tax year", type: "number", defaultVisible: false },
   { name: "geo_id", label: "Geo ID", type: "text", defaultVisible: true },
-  { name: "prop_type_cd", label: "Type code", type: "text", defaultVisible: false },
-  { name: "prop_type_desc", label: "Type", type: "text", defaultVisible: true },
-  { name: "dba_name", label: "DBA", type: "text", defaultVisible: false },
+  { name: "prop_val_yr", label: "Tax year", type: "number", defaultVisible: true },
+  { name: "dba_name", label: "DBA", type: "text", defaultVisible: true },
   { name: "appraised_val", label: "Appraised (text)", type: "text", defaultVisible: true },
-  { name: "appraised_val_num", label: "Appraised ($)", type: "number", defaultVisible: false },
+  { name: "appraised_val_num", label: "Appraised ($)", type: "number", defaultVisible: true },
+  { name: "agent_cd", label: "Agent", type: "text", defaultVisible: true },
+  { name: "hood_name", label: "Neighborhood", type: "text", defaultVisible: true },
+  { name: "owner_name", label: "Owner", type: "text", defaultVisible: true },
+  { name: "addr_line2", label: "Mail addr 2", type: "text", defaultVisible: true },
+  { name: "pct_ownership", label: "% ownership", type: "number", defaultVisible: true },
+  { name: "exemptions", label: "Exemptions", type: "text", defaultVisible: true },
+  { name: "state_cd", label: "State code", type: "text", defaultVisible: true },
+  { name: "situs", label: "Situs", type: "text", defaultVisible: true },
+  { name: "id", label: "Row ID", type: "number", defaultVisible: false },
+  { name: "prop_type_cd", label: "Type code", type: "text", defaultVisible: false },
+  { name: "prop_type_desc", label: "Type", type: "text", defaultVisible: false },
   { name: "abs_subdv_cd", label: "Subdivision", type: "text", defaultVisible: false },
   { name: "mapsco", label: "MAPSCO", type: "text", defaultVisible: false },
   { name: "map_id", label: "Map ID", type: "text", defaultVisible: false },
-  { name: "agent_cd", label: "Agent", type: "text", defaultVisible: false },
-  { name: "hood_cd", label: "Neighborhood ID", type: "text", defaultVisible: true },
-  { name: "hood_name", label: "Neighborhood", type: "text", defaultVisible: true },
-  { name: "owner_name", label: "Owner", type: "text", defaultVisible: true },
+  { name: "hood_cd", label: "Neighborhood ID", type: "text", defaultVisible: false },
   { name: "owner_id", label: "Owner ID", type: "number", defaultVisible: false },
   { name: "addr_line1", label: "Mail addr 1", type: "text", defaultVisible: false },
-  { name: "addr_line2", label: "Mail addr 2", type: "text", defaultVisible: false },
   { name: "addr_line3", label: "Mail addr 3", type: "text", defaultVisible: false },
   { name: "addr_city", label: "Mail city", type: "text", defaultVisible: false },
   { name: "addr_state", label: "Mail state", type: "text", defaultVisible: false },
   { name: "addr_zip", label: "Mail ZIP", type: "text", defaultVisible: false },
   { name: "addr_country", label: "Mail country", type: "text", defaultVisible: false },
-  { name: "pct_ownership", label: "% ownership", type: "number", defaultVisible: false },
-  { name: "exemptions", label: "Exemptions", type: "text", defaultVisible: false },
-  { name: "state_cd", label: "State code", type: "text", defaultVisible: false },
   { name: "legal_desc", label: "Legal description", type: "text", defaultVisible: false },
-  { name: "situs", label: "Situs", type: "text", defaultVisible: true },
   { name: "jurisdictions", label: "Jurisdictions", type: "text", defaultVisible: false },
   { name: "imported_at", label: "Imported at", type: "timestamp", defaultVisible: false },
+];
+
+/** Default filter(s) applied by the browse "Defaults" button and first page load. */
+export const DEFAULT_BROWSE_FILTERS = [
+  { field: "appraised_val_num", op: "gt", value: "0" },
 ];
 
 const FIELD_SET = new Set(PROPERTY_FIELDS.map((f) => f.name));
@@ -227,4 +232,8 @@ export async function browseProperties(opts = {}) {
 
 export function listBrowseFields() {
   return PROPERTY_FIELDS;
+}
+
+export function listDefaultBrowseFilters() {
+  return DEFAULT_BROWSE_FILTERS;
 }

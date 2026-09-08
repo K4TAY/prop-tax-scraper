@@ -460,6 +460,7 @@
     ];
 
     let fieldMeta = [];
+    let defaultFilters = [{ field: 'appraised_val_num', op: 'gt', value: '0' }];
     let sort = 'pacs_prop_id';
     let order = 'asc';
     let offset = 0;
@@ -735,6 +736,9 @@
       }
       const fieldsData = await fieldsRes.json();
       fieldMeta = fieldsData.fields || [];
+      defaultFilters = Array.isArray(fieldsData.defaultFilters)
+        ? fieldsData.defaultFilters
+        : [{ field: 'appraised_val_num', op: 'gt', value: '0' }];
       const stats = await statsRes.json().catch(() => ({}));
       if (stats.version) document.getElementById('version').textContent = `v${stats.version}`;
       if (stats.countyName) {
@@ -746,7 +750,7 @@
       renderExemptionLegend();
       renderStateCodeLegend();
       renderColumns();
-      addFilterRow();
+      applyDefaultFilters();
       runSearch(0);
     }
 
@@ -779,6 +783,22 @@
         el.checked = Boolean(meta?.defaultVisible);
       });
       saveColumns(selectedFields());
+      applyDefaultFilters();
+      runSearch(0);
+    }
+
+    function applyDefaultFilters() {
+      selectedExemptionCodes.clear();
+      selectedStateCodes.clear();
+      document.getElementById('filterList').innerHTML = '';
+      const presets = defaultFilters.length
+        ? defaultFilters
+        : [{ field: 'appraised_val_num', op: 'gt', value: '0' }];
+      for (const preset of presets) {
+        addFilterRow(preset);
+      }
+      syncLegendActive();
+      syncStateLegendActive();
     }
 
     function selectAllColumns(on) {
