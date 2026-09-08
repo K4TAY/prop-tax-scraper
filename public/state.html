@@ -317,6 +317,13 @@
       return v.toLocaleString('en-US');
     }
 
+    function importModeLabel(c) {
+      const mode = String(c.importMode || '').toLowerCase();
+      if (mode === 'bulk') return 'bulk';
+      if (mode === 'by-hood') return 'by-hood';
+      return '';
+    }
+
     function importStatsHtml(c) {
       const props = Number(c.propertyCount) || 0;
       const unique = Number(c.uniqueParcelCount) || 0;
@@ -325,14 +332,20 @@
       const processed = Number(c.processedCsvCount) || 0;
       const pending = Number(c.pendingCsvCount) || 0;
       const unassigned = Number(c.unassignedCount) || 0;
+      const mode = importModeLabel(c);
       if (props === 0 && hoods === 0 && pending === 0 && processed === 0) {
         return '<div class="stats"><span class="muted">No data imported yet</span></div>';
       }
       let html = `<div class="stats">${formatCount(unique)} unique parcels · ${formatCount(props)} records · ${formatCount(hoods)} imported hoods`;
-      if (discovered > 0 && discovered !== hoods) {
+      if (mode) {
+        html += ` · <span class="ok">${escapeHtml(mode)}</span>`;
+      }
+      if (mode !== 'bulk' && discovered > 0 && discovered !== hoods) {
         html += ` · <span class="warn">${formatCount(hoods)}/${formatCount(discovered)} discovered</span>`;
       }
-      if (processed !== hoods) {
+      if (mode === 'bulk' && processed > 1) {
+        html += ` · <span class="muted">${formatCount(processed)} legacy by-hood CSV on disk</span>`;
+      } else if (mode !== 'bulk' && processed !== hoods) {
         html += ` · <span class="warn">${formatCount(processed)} processed CSV</span>`;
       }
       if (unassigned > 0) {
@@ -429,12 +442,18 @@
         let importBadge;
         let rowClass = 'row';
         if (c.importComplete) {
-          importBadge = '<span class="badge imported">fully imported</span>';
+          const mode = importModeLabel(c);
+          importBadge = mode
+            ? `<span class="badge imported">fully imported · ${escapeHtml(mode)}</span>`
+            : '<span class="badge imported">fully imported</span>';
           rowClass += ' complete';
         } else if (incomplete) {
           if (props > 0 || pendingCsv > 0) {
             rowClass += ' incomplete';
-            importBadge = '<span class="badge incomplete">incomplete</span>';
+            const mode = importModeLabel(c);
+            importBadge = mode
+              ? `<span class="badge incomplete">incomplete · ${escapeHtml(mode)}</span>`
+              : '<span class="badge incomplete">incomplete</span>';
           } else {
             rowClass += ' not-processed';
             importBadge = '<span class="badge not-processed">not processed</span>';
@@ -619,6 +638,9 @@
             processedCsvCount: c.processedCsvCount,
             pendingCsvCount: c.pendingCsvCount,
             importComplete: c.importComplete,
+            importMode: c.importMode,
+            bulkComplete: c.bulkComplete,
+            byHoodComplete: c.byHoodComplete,
           }])
         );
 

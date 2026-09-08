@@ -20,6 +20,9 @@ class TexasCountiesMap {
    *     processedCsvCount?: number,
    *     pendingCsvCount?: number,
    *     importComplete?: boolean,
+   *     importMode?: string,
+   *     bulkComplete?: boolean,
+   *     byHoodComplete?: boolean,
    *   }>,
    * }} [options]
    */
@@ -112,8 +115,19 @@ class TexasCountiesMap {
   }
 
   _statusLabel(slug) {
-    if (this.imported.has(slug)) return "fully imported";
-    if (this.ready.has(slug)) return "scrape ready";
+    const s = this.statsBySlug[slug] || {};
+    const mode = String(s.importMode || "").toLowerCase();
+    const modeSuffix =
+      mode === "bulk" || mode === "by-hood" ? ` · ${mode}` : "";
+    if (this.imported.has(slug) || s.importComplete) {
+      return `fully imported${modeSuffix}`;
+    }
+    if (this.ready.has(slug)) {
+      if ((Number(s.propertyCount) || 0) > 0 || (Number(s.pendingCsvCount) || 0) > 0) {
+        return `incomplete${modeSuffix}`;
+      }
+      return "scrape ready";
+    }
     if (this.available.has(slug)) return "in catalog";
     return "no CAD source yet";
   }
@@ -130,13 +144,19 @@ class TexasCountiesMap {
     const processed = Number(s.processedCsvCount) || 0;
     const pending = Number(s.pendingCsvCount) || 0;
     const unassigned = Number(s.unassignedCount) || 0;
+    const mode = String(s.importMode || "").toLowerCase();
     const lines = [
       `${this._fmt(unique)} unique parcels · ${this._fmt(props)} records · ${this._fmt(hoods)} imported hoods`,
     ];
-    if (discovered > 0 && discovered !== hoods) {
+    if (mode === "bulk" || mode === "by-hood") {
+      lines.push(`Import mode: ${mode}`);
+    }
+    if (mode !== "bulk" && discovered > 0 && discovered !== hoods) {
       lines.push(`${this._fmt(hoods)}/${this._fmt(discovered)} discovered scraped`);
     }
-    if (processed !== hoods) {
+    if (mode === "bulk" && processed > 1) {
+      lines.push(`${this._fmt(processed)} legacy by-hood CSV on disk`);
+    } else if (mode !== "bulk" && processed !== hoods) {
       lines.push(`${this._fmt(processed)} processed CSV (≠ imported hoods)`);
     }
     if (unassigned > 0) {

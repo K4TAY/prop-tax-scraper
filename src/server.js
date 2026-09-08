@@ -948,6 +948,9 @@ app.get("/api/cad-sources", requireAuth, async (req, res) => {
       counties: counties.map((c) => {
         const stats = importStats.get(c.slug) || {
           importComplete: false,
+          importMode: "none",
+          bulkComplete: false,
+          byHoodComplete: false,
           propertyCount: 0,
           uniqueParcelCount: 0,
           nullParcelIdCount: 0,
@@ -960,6 +963,9 @@ app.get("/api/cad-sources", requireAuth, async (req, res) => {
         return {
           ...c,
           importComplete: stats.importComplete === true,
+          importMode: stats.importMode || "none",
+          bulkComplete: stats.bulkComplete === true,
+          byHoodComplete: stats.byHoodComplete === true,
           propertyCount: stats.propertyCount ?? 0,
           uniqueParcelCount: stats.uniqueParcelCount ?? 0,
           nullParcelIdCount: stats.nullParcelIdCount ?? 0,

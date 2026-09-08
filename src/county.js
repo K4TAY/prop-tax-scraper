@@ -428,8 +428,15 @@ export async function findCadSource(state, countySlugOrName, client = pool) {
 
 /**
  * Import status + DB counts for a county (no table creation).
+ * Completeness is mode-aware:
+ * - bulk: `__ALL__` neighborhood present → DB is source of truth; leftover by-hood
+ *   processed CSVs / neighborhoods.json do not block "fully imported"
+ * - by-hood: no `__ALL__`; hood coverage vs discovered/processed (with unassigned slack)
  * @returns {Promise<{
  *   importComplete: boolean,
+ *   importMode: "bulk" | "by-hood" | "none",
+ *   bulkComplete: boolean,
+ *   byHoodComplete: boolean,
  *   propertyCount: number,
  *   uniqueParcelCount: number,
  *   nullParcelIdCount: number,
@@ -467,6 +474,9 @@ export async function getCountyImportStats(ctx, client = pool) {
 
   const empty = {
     importComplete: false,
+    importMode: "none",
+    bulkComplete: false,
+    byHoodComplete: false,
     propertyCount: 0,
     uniqueParcelCount: 0,
     nullParcelIdCount: 0,
@@ -494,6 +504,17 @@ export async function getCountyImportStats(ctx, client = pool) {
                AND exported < total_available
              )
         )::int AS incomplete,
+        COUNT(*) FILTER (
+          WHERE hood_cd = $2
+            AND (
+              truncated IS TRUE
+              OR (
+                total_available IS NOT NULL
+                AND exported IS NOT NULL
+                AND exported < total_available
+              )
+            )
+        )::int AS incomplete_all,
         COUNT(*) FILTER (WHERE hood_cd = $1)::int AS unassigned_hoods,
         COUNT(*) FILTER (WHERE hood_cd = $2)::int AS all_parcels_hoods
       FROM ${quoteTable(ctx.neighborhoodsTable)}
@@ -504,30 +525,54 @@ export async function getCountyImportStats(ctx, client = pool) {
 
   const neighborhoodCount = hoodRows.rows[0]?.hoods ?? 0;
   const incomplete = hoodRows.rows[0]?.incomplete ?? 0;
+  const incompleteAll = hoodRows.rows[0]?.incomplete_all ?? 0;
   const unassignedHoods = hoodRows.rows[0]?.unassigned_hoods ?? 0;
   const allParcelsHoods = hoodRows.rows[0]?.all_parcels_hoods ?? 0;
   const propCount = propCounts.propertyCount;
   const unassignedCount = propCounts.unassignedCount;
-  // Coverage is complete when either:
-  // - blank-hood catch-all (__UNASSIGNED__) was imported, or
-  // - bulk / hoodless export used the synthetic __ALL__ bucket.
-  const hasCoverageBucket =
-    unassignedCount > 0 || unassignedHoods > 0 || allParcelsHoods > 0;
-  const hoodsMatchProcessed = neighborhoodCount === processedCsvCount;
-  const hoodsMatchDiscovered =
+
+  const importMode =
+    allParcelsHoods > 0 ? "bulk" : neighborhoodCount > 0 ? "by-hood" : "none";
+
+  // Bulk: full-county load via __ALL__. Ignore by-hood disk/discovery mismatches.
+  const bulkComplete =
+    allParcelsHoods > 0 &&
+    propCount > 0 &&
+    incompleteAll === 0 &&
+    pendingCsvCount === 0;
+
+  // By-hood: no __ALL__ row; require coverage vs discovered/processed with slack
+  // for an extra __UNASSIGNED__ hood that may not appear in discovery/CSV counts.
+  const hasUnassignedCoverage = unassignedCount > 0 || unassignedHoods > 0;
+  const discoveredCovered =
     discoveredNeighborhoodCount === 0 ||
-    neighborhoodCount === discoveredNeighborhoodCount;
-  const importComplete =
-    pendingCsvCount === 0 &&
+    neighborhoodCount >= discoveredNeighborhoodCount;
+  // Allow DB hood count == processed, or processed+1 when unassigned hood exists.
+  const processedCovered =
+    processedCsvCount === 0 ||
+    neighborhoodCount === processedCsvCount ||
+    (hasUnassignedCoverage && neighborhoodCount === processedCsvCount + 1);
+  const coverageOk =
+    hasUnassignedCoverage ||
+    discoveredNeighborhoodCount === 0 ||
+    neighborhoodCount >= discoveredNeighborhoodCount;
+  const byHoodComplete =
+    allParcelsHoods === 0 &&
     propCount > 0 &&
     neighborhoodCount > 0 &&
+    pendingCsvCount === 0 &&
     incomplete === 0 &&
-    hasCoverageBucket &&
-    hoodsMatchProcessed &&
-    hoodsMatchDiscovered;
+    coverageOk &&
+    discoveredCovered &&
+    processedCovered;
+
+  const importComplete = bulkComplete || byHoodComplete;
 
   return {
     importComplete,
+    importMode,
+    bulkComplete,
+    byHoodComplete,
     propertyCount: propCount,
     uniqueParcelCount: propCounts.uniqueParcelCount,
     nullParcelIdCount: propCounts.nullParcelIdCount,
@@ -552,6 +597,9 @@ export async function isCountyFullyImported(ctx, client = pool) {
  * @param {string} dataRoot
  * @returns {Promise<Map<string, {
  *   importComplete: boolean,
+ *   importMode: "bulk" | "by-hood" | "none",
+ *   bulkComplete: boolean,
+ *   byHoodComplete: boolean,
  *   propertyCount: number,
  *   uniqueParcelCount: number,
  *   nullParcelIdCount: number,
@@ -571,6 +619,9 @@ export async function mapImportStatsBySlug(stateRaw, counties, dataRoot, client 
       } catch {
         out.set(slug, {
           importComplete: false,
+          importMode: "none",
+          bulkComplete: false,
+          byHoodComplete: false,
           propertyCount: 0,
           uniqueParcelCount: 0,
           nullParcelIdCount: 0,
