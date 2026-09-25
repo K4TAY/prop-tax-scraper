@@ -139,7 +139,7 @@
     <main class="va-main">
       <div class="va-head">
         <div>
-          <h1>VA loan opportunities</h1>
+          <h1>VA loan opportunities <span class="version" id="pageVersion" style="font-weight:400;font-size:0.85rem;color:var(--muted);margin-left:0.35rem;"></span></h1>
           <p>
             Ranked from public BCAD disabled-veteran exemptions (DVHS / DV1–4),
             ACT Tax escrow payers, and clerk Deeds of Trust — not from VA disability lists.
@@ -192,7 +192,10 @@
 
       try {
         const v = await (await fetch("/api/version")).json();
-        document.getElementById("version").textContent = "v" + (v.version || "");
+        const label = "v" + (v.version || "");
+        document.getElementById("version").textContent = label;
+        const pageVer = document.getElementById("pageVersion");
+        if (pageVer) pageVer.textContent = label;
       } catch { /* ignore */ }
 
       const esc = PortalAuth.escapeHtml;
