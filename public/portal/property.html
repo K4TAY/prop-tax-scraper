@@ -206,6 +206,51 @@
     .empty-note { color: var(--muted); font-size: 0.88rem; margin: 0.35rem 0; }
     .status-line { font-size: 0.85rem; color: #c5d0db; min-height: 1.3em; margin-bottom: 0.75rem; }
     .status-line.err { color: #f07178; }
+    .disclosure {
+      margin: 0.75rem 0 0;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #0b1016;
+      overflow: hidden;
+    }
+    .disclosure > summary {
+      list-style: none;
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.55rem 0.7rem;
+      font-size: 0.8rem;
+      font-weight: 650;
+      color: var(--text);
+      background: #121820;
+    }
+    .disclosure > summary::-webkit-details-marker { display: none; }
+    .disclosure > summary::before {
+      content: "";
+      width: 0.4rem;
+      height: 0.4rem;
+      border-right: 2px solid var(--muted);
+      border-bottom: 2px solid var(--muted);
+      transform: rotate(-45deg);
+      transition: transform 0.15s ease;
+      flex-shrink: 0;
+    }
+    .disclosure[open] > summary::before {
+      transform: rotate(45deg);
+    }
+    .disclosure > summary .meta {
+      margin: 0;
+      font-weight: 400;
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .disclosure > summary:hover { background: #161e28; }
+    .disclosure-body {
+      padding: 0.55rem 0.7rem 0.7rem;
+      border-top: 1px solid var(--border);
+    }
   </style>
 </head>
 <body>
@@ -267,8 +312,13 @@
             <div class="kv" id="exemptionsKv"></div>
             <p class="meta" style="margin:0.75rem 0 0.35rem">Timeline (first / last tax year on roll)</p>
             <div id="exemptionTimeline" class="empty-note"></div>
-            <p class="meta" style="margin:0.75rem 0 0.35rem">Per-year classifications</p>
-            <div id="exemptionsList" class="empty-note"></div>
+            <details class="disclosure" id="exemptionsByYear">
+              <summary>
+                Per-year classifications
+                <span class="meta" id="exemptionsByYearMeta"></span>
+              </summary>
+              <div class="disclosure-body" id="exemptionsList"></div>
+            </details>
           </div>
         </div>
 
@@ -840,6 +890,20 @@
                 ? "No coded exemptions on HGO; agricultural valuation is applied."
                 : "No HGO exemption rows stored yet."
             }</span>`;
+        const yearMeta = document.getElementById("exemptionsByYearMeta");
+        if (yearMeta) {
+          if (ex.length) {
+            const years = [
+              ...new Set(ex.map((e) => Number(e.tax_year)).filter(Number.isFinite)),
+            ].sort((a, b) => a - b);
+            yearMeta.textContent =
+              years.length > 1
+                ? `· ${ex.length} row(s) · ${years[0]}–${years[years.length - 1]}`
+                : `· ${ex.length} row(s)`;
+          } else {
+            yearMeta.textContent = "· none yet";
+          }
+        }
 
         document.getElementById("hgoValuesKv").innerHTML = kv([
           ["Tax year", text(h?.tax_year)],
