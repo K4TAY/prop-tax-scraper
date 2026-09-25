@@ -16,6 +16,7 @@ import {
   getHgoAppraisalForProperty,
   listHgoExemptionsForProperty,
   listHgoRollHistoryForProperty,
+  buildExemptionTimeline,
   ensureHgoAppraisalSchema,
 } from "./hgoAppraisal.js";
 import { listClerkInstrumentsForProperty } from "./clerkRecords.js";
@@ -63,6 +64,7 @@ export async function getPropertyDetail(propertyId, client = bcadPool) {
     deeds,
     hgo_appraisal: appraisal,
     hgo_exemptions: exemptions,
+    hgo_exemption_timeline: buildExemptionTimeline(exemptions),
     hgo_roll_history: rollHistory,
     clerk_instruments: clerkInstruments,
     va_opportunity: vaOpportunity,
@@ -134,6 +136,10 @@ export async function refreshPropertySources(propertyId, opts = {}) {
           tax_year: appraisal.tax_year,
           exemptions: appraisal.exemptions,
           roll_years: appraisal.roll_years,
+          years_fetched: appraisal.years_fetched,
+          years: appraisal.years,
+          year_errors: appraisal.year_errors,
+          exemption_timeline: appraisal.exemption_timeline,
           source_url: appraisal.source_url,
         }
       : null,

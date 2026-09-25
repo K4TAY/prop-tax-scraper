@@ -1,0 +1,14 @@
+---
+description: Always report the app version after commit/push that deploys to Railway
+alwaysApply: true
+---
+
+# Railway deploy version reporting
+
+Whenever you **commit and push** changes that deploy to Railway (GitHub → Railway):
+
+1. Bump `package.json` `version` (patch unless the user specifies otherwise) — this is what `/api/version` and portal page headers show.
+2. Include the new version in the commit message (e.g. `(v0.3.47)`), matching recent history.
+3. After push, **always tell the user the exact version string** in the final reply (e.g. `Deployed / pushed as **v0.3.47**`) so they can confirm the live UI matches.
+
+Do not skip the version callout even if the change is small.

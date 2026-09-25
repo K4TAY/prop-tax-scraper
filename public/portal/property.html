@@ -136,7 +136,10 @@
           <div class="card">
             <h2>Exemptions <span class="badge" id="exBadge">—</span></h2>
             <div class="kv" id="exemptionsKv"></div>
-            <div id="exemptionsList" class="empty-note" style="margin-top:0.65rem"></div>
+            <p class="meta" style="margin:0.75rem 0 0.35rem">Timeline (first / last tax year on roll)</p>
+            <div id="exemptionTimeline" class="empty-note"></div>
+            <p class="meta" style="margin:0.75rem 0 0.35rem">Per-year classifications</p>
+            <div id="exemptionsList" class="empty-note"></div>
           </div>
         </div>
 
@@ -270,6 +273,7 @@
         const h = detail.hgo_appraisal || null;
         const t = detail.tax_account || null;
         const ex = detail.hgo_exemptions || [];
+        const exTimeline = detail.hgo_exemption_timeline || [];
         const roll = detail.hgo_roll_history || [];
         const payments = detail.payments || [];
         const deeds = detail.deeds || [];
@@ -324,12 +328,22 @@
 
         const exCodes =
           (h?.exemptions_summary && String(h.exemptions_summary)) ||
-          (ex.length
-            ? ex.map((e) => e.exemption_type_code).join(", ")
-            : null);
+          (exTimeline.length
+            ? [...new Set(exTimeline.map((e) => e.exemption_type_code))].join(
+                ", "
+              )
+            : ex.length
+              ? [...new Set(ex.map((e) => e.exemption_type_code))].join(", ")
+              : null);
         const agNote =
           h && Number(h.ag_use_value) > 0
             ? `Ag-use ${money(h.ag_use_value)} (market land ${money(h.ag_market)})`
+            : null;
+        const yearSpan =
+          ex.length > 0
+            ? `${Math.min(...ex.map((e) => Number(e.tax_year)))}–${Math.max(
+                ...ex.map((e) => Number(e.tax_year))
+              )}`
             : null;
         document.getElementById("exBadge").textContent = exCodes
           ? exCodes
@@ -339,7 +353,9 @@
               ? "Active deferral"
               : "None listed";
         document.getElementById("exemptionsKv").innerHTML = kv([
-          ["HGO codes", text(exCodes || "—")],
+          ["HGO codes (primary year)", text(exCodes || "—")],
+          ["History span", text(yearSpan || "—")],
+          ["Distinct classifications", text(exTimeline.length || "—")],
           ["ACT Tax exemptions", text(t?.exemptions)],
           ["Active deferral (tax office)", t?.has_active_deferral ? "Yes" : text(t ? "No" : "—")],
           ["HS cap loss", money(h?.hs_cap_loss), "money"],
@@ -354,14 +370,33 @@
             "money",
           ],
         ]);
+        document.getElementById("exemptionTimeline").innerHTML = exTimeline.length
+          ? table(
+              ["Code", "Owner id", "Qualify", "First year", "Last year", "Years"],
+              exTimeline.map(
+                (e) =>
+                  `<tr>
+                    <td>${text(e.exemption_type_code)}</td>
+                    <td>${text(e.owner_id)}</td>
+                    <td>${text(e.qualify_year)}</td>
+                    <td>${text(e.first_tax_year)}</td>
+                    <td>${text(e.last_tax_year)}</td>
+                    <td>${text(e.year_count)}</td>
+                  </tr>`
+              )
+            )
+          : `<span class="empty-note">No exemption timeline yet — click Refresh from sources to pull year-by-year HGO history.</span>`;
+
         document.getElementById("exemptionsList").innerHTML = ex.length
-          ? `<table class="data"><thead><tr><th>Code</th><th>Qualify year</th><th>Tax year</th></tr></thead><tbody>` +
+          ? `<table class="data"><thead><tr><th>Code</th><th>Owner id</th><th>Qualify year</th><th>Tax year</th></tr></thead><tbody>` +
             ex
               .map(
                 (e) =>
                   `<tr><td>${text(e.exemption_type_code)}</td><td>${text(
-                    e.qualify_year
-                  )}</td><td>${text(e.tax_year)}</td></tr>`
+                    e.owner_id
+                  )}</td><td>${text(e.qualify_year)}</td><td>${text(
+                    e.tax_year
+                  )}</td></tr>`
               )
               .join("") +
             `</tbody></table>`
@@ -508,7 +543,7 @@
         btn.disabled = true;
         status.className = "status-line";
         status.textContent =
-          "Fetching HGO appraisal + deeds and ACT Tax payments…";
+          "Fetching HGO year-by-year exemptions + deeds and ACT Tax payments…";
         try {
           const res = await PortalAuth.authFetch(
             `/api/bcad/properties/${id}/refresh`,
@@ -518,10 +553,14 @@
           if (!res.ok) throw new Error(data.error || "Refresh failed");
           if (data.detail) render(data.detail);
           const bits = [];
-          if (data.appraisal)
+          if (data.appraisal) {
+            const yrs = data.appraisal.years_fetched
+              ? `${data.appraisal.years_fetched} yr`
+              : null;
             bits.push(
-              `HGO values + ${data.appraisal.exemptions} exemption(s) + ${data.appraisal.roll_years} roll year(s)`
+              `HGO ${yrs || "values"} · ${data.appraisal.exemptions} exemption row(s) · ${data.appraisal.roll_years} roll year(s)`
             );
+          }
           if (data.tax)
             bits.push(
               `ACT Tax ${data.tax.inserted} new payment(s) (${data.tax.parsed} parsed)`
