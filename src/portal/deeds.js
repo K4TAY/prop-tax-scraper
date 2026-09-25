@@ -41,11 +41,7 @@ export async function ensureDeedsSchema(client = bcadPool) {
       source_url TEXT,
       api_url TEXT,
       raw JSONB,
-      fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CONSTRAINT bcad_deeds_dedupe UNIQUE (
-        bcad_property_id, seq_num, deed_date, deed_type_code,
-        grantor, grantee, volume, page, instrument_number
-      )
+      fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE INDEX IF NOT EXISTS bcad_deeds_property_idx
@@ -56,6 +52,42 @@ export async function ensureDeedsSchema(client = bcadPool) {
       ON bcad_deeds (hgo_property_id);
     CREATE INDEX IF NOT EXISTS bcad_deeds_instrument_idx
       ON bcad_deeds (instrument_number);
+  `);
+
+  // Old UNIQUE allowed duplicates when volume/page (etc.) were NULL —
+  // Postgres treats NULLs as distinct in UNIQUE constraints.
+  await client.query(`
+    ALTER TABLE bcad_deeds DROP CONSTRAINT IF EXISTS bcad_deeds_dedupe
+  `);
+
+  // Collapse any rows already duplicated by refresh.
+  await client.query(`
+    DELETE FROM bcad_deeds a
+    USING bcad_deeds b
+    WHERE a.id > b.id
+      AND a.bcad_property_id = b.bcad_property_id
+      AND a.seq_num IS NOT DISTINCT FROM b.seq_num
+      AND a.deed_date IS NOT DISTINCT FROM b.deed_date
+      AND a.deed_type_code IS NOT DISTINCT FROM b.deed_type_code
+      AND a.grantor IS NOT DISTINCT FROM b.grantor
+      AND a.grantee IS NOT DISTINCT FROM b.grantee
+      AND a.volume IS NOT DISTINCT FROM b.volume
+      AND a.page IS NOT DISTINCT FROM b.page
+      AND a.instrument_number IS NOT DISTINCT FROM b.instrument_number
+  `);
+
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS bcad_deeds_dedupe_uidx ON bcad_deeds (
+      bcad_property_id,
+      COALESCE(seq_num, -1),
+      COALESCE(deed_date, DATE '0001-01-01'),
+      COALESCE(deed_type_code, ''),
+      COALESCE(grantor, ''),
+      COALESCE(grantee, ''),
+      COALESCE(volume, ''),
+      COALESCE(page, ''),
+      COALESCE(instrument_number, '')
+    )
   `);
 }
 
@@ -158,10 +190,14 @@ export async function importDeedsForProperty(propertyId, opts = {}) {
   const source_url = hgoPropertyUrl(hgoId, year);
   const { api_url, deeds } = await fetchHgoDeedHistory(hgoId);
 
+  // Full replace: prior UNIQUE allowed duplicates when volume/page were NULL.
+  await client.query(`DELETE FROM bcad_deeds WHERE bcad_property_id = $1`, [
+    prop.id,
+  ]);
+
   let inserted = 0;
-  let skipped = 0;
   for (const d of deeds) {
-    const r = await client.query(
+    await client.query(
       `
       INSERT INTO bcad_deeds (
         bcad_property_id, geo_id, hgo_property_id,
@@ -176,8 +212,6 @@ export async function importDeedsForProperty(propertyId, opts = {}) {
         $9,$10,$11,$12,$13,
         $14,$15,$16, NOW()
       )
-      ON CONFLICT ON CONSTRAINT bcad_deeds_dedupe DO NOTHING
-      RETURNING id
       `,
       [
         prop.id,
@@ -198,8 +232,7 @@ export async function importDeedsForProperty(propertyId, opts = {}) {
         JSON.stringify(d.raw),
       ]
     );
-    if (r.rowCount) inserted++;
-    else skipped++;
+    inserted++;
   }
 
   return {
@@ -210,7 +243,7 @@ export async function importDeedsForProperty(propertyId, opts = {}) {
     api_url,
     parsed: deeds.length,
     inserted,
-    skipped,
+    skipped: 0,
     deeds,
   };
 }

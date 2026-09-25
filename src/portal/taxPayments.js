@@ -35,10 +35,7 @@ export async function ensureTaxPaymentsSchema(client = bcadPool) {
       description TEXT,
       payer TEXT,
       source_url TEXT,
-      fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CONSTRAINT bcad_tax_payments_dedupe UNIQUE (
-        bcad_property_id, paid_date, roll_year, amount, description, payer
-      )
+      fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE INDEX IF NOT EXISTS bcad_tax_payments_property_idx
@@ -95,6 +92,33 @@ export async function ensureTaxPaymentsSchema(client = bcadPool) {
       ON bcad_tax_accounts (can);
     CREATE INDEX IF NOT EXISTS bcad_tax_accounts_geo_id_idx
       ON bcad_tax_accounts (geo_id);
+  `);
+
+  // NULL-safe unique index — old CONSTRAINT treated NULLs as distinct.
+  await client.query(`
+    ALTER TABLE bcad_tax_payments DROP CONSTRAINT IF EXISTS bcad_tax_payments_dedupe
+  `);
+  await client.query(`
+    DELETE FROM bcad_tax_payments a
+    USING bcad_tax_payments b
+    WHERE a.id > b.id
+      AND a.bcad_property_id = b.bcad_property_id
+      AND a.paid_date IS NOT DISTINCT FROM b.paid_date
+      AND a.roll_year IS NOT DISTINCT FROM b.roll_year
+      AND a.amount IS NOT DISTINCT FROM b.amount
+      AND a.description IS NOT DISTINCT FROM b.description
+      AND a.payer IS NOT DISTINCT FROM b.payer
+  `);
+  await client.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS bcad_tax_payments_dedupe_uidx
+      ON bcad_tax_payments (
+        bcad_property_id,
+        COALESCE(paid_date, DATE '0001-01-01'),
+        COALESCE(roll_year, ''),
+        COALESCE(amount, -1::numeric),
+        COALESCE(description, ''),
+        COALESCE(payer, '')
+      )
   `);
 }
 
@@ -497,17 +521,18 @@ export async function importTaxPaymentsForProperty(propertyId, opts = {}) {
   );
 
   let inserted = 0;
-  let skipped = 0;
+  // Full replace so refresh is idempotent (NULL keys previously defeated UNIQUE).
+  await client.query(`DELETE FROM bcad_tax_payments WHERE bcad_property_id = $1`, [
+    prop.id,
+  ]);
   for (const p of payments) {
-    const r = await client.query(
+    await client.query(
       `
       INSERT INTO bcad_tax_payments (
         bcad_property_id, geo_id, can,
         paid_date, roll_year, amount, amount_raw,
         description, payer, source_url, fetched_at
       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, NOW())
-      ON CONFLICT ON CONSTRAINT bcad_tax_payments_dedupe DO NOTHING
-      RETURNING id
       `,
       [
         prop.id,
@@ -522,8 +547,7 @@ export async function importTaxPaymentsForProperty(propertyId, opts = {}) {
         paymentPage.url,
       ]
     );
-    if (r.rowCount) inserted++;
-    else skipped++;
+    inserted++;
   }
 
   const accountRow = await getTaxAccountForProperty(prop.id, client);
@@ -537,7 +561,7 @@ export async function importTaxPaymentsForProperty(propertyId, opts = {}) {
     account: accountRow,
     parsed: payments.length,
     inserted,
-    skipped,
+    skipped: 0,
     payments,
   };
 }
