@@ -46,6 +46,7 @@ import {
   listClerkInstrumentsForProperty,
   importClerkResultsForProperty,
   clerkPartySearchUrl,
+  clerkDocumentSearchUrl,
   ownerToClerkParty,
 } from "./clerkRecords.js";
 
@@ -367,6 +368,21 @@ router.get("/clerk/search-url", requireAuth, (req, res) => {
     const party = req.query.party || ownerToClerkParty(req.query.owner || "");
     if (!party) return res.status(400).json({ error: "party or owner required" });
     res.json({ party, url: clerkPartySearchUrl(party) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/clerk/doc-url", requireAuth, (req, res) => {
+  try {
+    const doc =
+      req.query.doc ||
+      req.query.doc_number ||
+      req.query.instrument ||
+      req.query.instrument_number;
+    const url = clerkDocumentSearchUrl(doc);
+    if (!url) return res.status(400).json({ error: "doc / instrument number required" });
+    res.json({ doc_number: String(doc).trim(), url });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

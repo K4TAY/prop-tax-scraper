@@ -100,6 +100,36 @@ export function clerkPartySearchUrl(partyName, opts = {}) {
 }
 
 /**
+ * Deep-link to Bexar clerk Land Records search for one recorded document number.
+ * Uses the same query shape the official advanced-search UI emits
+ * (`documentNumberRange` as a JSON array of single numbers).
+ * Opens the search result for that instrument (then the user can open the image).
+ */
+export function clerkDocumentSearchUrl(docNumber, opts = {}) {
+  const num = String(docNumber || "").trim();
+  if (!num || num === "0") return null;
+  const start = (opts.start || "18000101").replace(/\D/g, "");
+  const end = (opts.end || new Date().toISOString().slice(0, 10).replace(/-/g, "")).replace(
+    /\D/g,
+    ""
+  );
+  const params = new URLSearchParams({
+    department: opts.department || "RP",
+    documentNumberRange: JSON.stringify([num]),
+    recordedDateRange: `${start},${end}`,
+    searchType: "advancedSearch",
+  });
+  return `${CLERK_BASE}/results?${params.toString()}`;
+}
+
+/** Direct preview URL when the clerk's internal document id is known. */
+export function clerkDocumentPreviewUrl(internalDocId) {
+  const id = String(internalDocId || "").replace(/\D/g, "");
+  if (!id) return null;
+  return `${CLERK_BASE}/doc/${id}`;
+}
+
+/**
  * Normalize owner name for clerk party search: "FORTE KEVIN J" → "FORTE KEVIN"
  */
 export function ownerToClerkParty(ownerName) {

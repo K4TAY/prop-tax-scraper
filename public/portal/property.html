@@ -165,8 +165,14 @@
 
         <div class="section">
           <h2>Deed history</h2>
-          <p class="meta">From Harris Govern deed history</p>
+          <p class="meta">From Harris Govern deed history — instrument # opens Bexar County Clerk publicsearch</p>
           <div id="deedsTable"></div>
+        </div>
+
+        <div class="section">
+          <h2>Clerk financing instruments</h2>
+          <p class="meta">Deeds of Trust / releases from Bexar County Clerk (when imported)</p>
+          <div id="clerkTable"></div>
         </div>
       </div>
     </main>
@@ -238,6 +244,27 @@
         );
       }
 
+      /** Bexar clerk Land Records deep-link for a recorded document / instrument # */
+      function clerkDocUrl(docNumber) {
+        const num = String(docNumber || "").trim();
+        if (!num || num === "0") return null;
+        const end = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+        const params = new URLSearchParams({
+          department: "RP",
+          documentNumberRange: JSON.stringify([num]),
+          recordedDateRange: `18000101,${end}`,
+          searchType: "advancedSearch",
+        });
+        return `https://bexar.tx.publicsearch.us/results?${params.toString()}`;
+      }
+
+      function instrumentLink(docNumber) {
+        const num = String(docNumber || "").trim();
+        if (!num || num === "0") return text(docNumber || "—");
+        const url = clerkDocUrl(num);
+        return `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(num)}</a>`;
+      }
+
       function render(detail) {
         const p = detail.parcel || {};
         const h = detail.hgo_appraisal || null;
@@ -246,6 +273,7 @@
         const roll = detail.hgo_roll_history || [];
         const payments = detail.payments || [];
         const deeds = detail.deeds || [];
+        const clerk = detail.clerk_instruments || [];
 
         document.title = `${p.owner_name || p.geo_id || id} — Bexar CAD Portal`;
         document.getElementById("title").textContent =
@@ -437,10 +465,25 @@
                 <td>${text(
                   [d.volume, d.page].filter(Boolean).join(" / ") || "—"
                 )}</td>
-                <td>${text(d.instrument_number)}</td>
+                <td>${instrumentLink(d.instrument_number)}</td>
               </tr>`
           ),
           "No deeds stored yet — click Refresh from sources."
+        );
+
+        document.getElementById("clerkTable").innerHTML = table(
+          ["Recorded", "Type", "Grantor", "Grantee", "Doc #"],
+          clerk.map(
+            (c) =>
+              `<tr>
+                <td>${dateOnly(c.recorded_date)}</td>
+                <td>${text(c.doc_type)}</td>
+                <td>${text(c.grantor)}</td>
+                <td>${text(c.grantee)}</td>
+                <td>${instrumentLink(c.doc_number)}</td>
+              </tr>`
+          ),
+          "No clerk instruments imported yet."
         );
       }
 

@@ -201,6 +201,19 @@
       const esc = PortalAuth.escapeHtml;
       const wrap = document.getElementById("tableWrap");
 
+      function clerkDocUrl(docNumber) {
+        const num = String(docNumber || "").trim();
+        if (!num || num === "0") return null;
+        const end = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+        const params = new URLSearchParams({
+          department: "RP",
+          documentNumberRange: JSON.stringify([num]),
+          recordedDateRange: `18000101,${end}`,
+          searchType: "advancedSearch",
+        });
+        return `https://bexar.tx.publicsearch.us/results?${params.toString()}`;
+      }
+
       async function load() {
         wrap.innerHTML = `<div class="empty">Loading…</div>`;
         try {
@@ -259,14 +272,18 @@
                       </td>
                       <td>${esc(r.exemptions)}<br><span style="color:var(--muted)">${esc(r.veteran_signal)}</span></td>
                       <td>
-                        ${esc(r.mortgage_signal)}<br>
-                        <span style="color:var(--muted)">${esc(r.latest_tax_payer || "—")}</span><br>
-                        <span style="color:var(--muted)">${esc(r.latest_dot_grantee || "")}${
+                    ${esc(r.mortgage_signal)}<br>
+                    <span style="color:var(--muted)">${esc(r.latest_tax_payer || "—")}</span><br>
+                    <span style="color:var(--muted)">${esc(r.latest_dot_grantee || "")}${
                       r.latest_dot_date
                         ? " · " + esc(String(r.latest_dot_date).slice(0, 10))
                         : ""
-                    }</span>
-                      </td>
+                    }</span>${
+                      clerkDocUrl(r.latest_dot_doc_number)
+                        ? `<br><a href="${esc(clerkDocUrl(r.latest_dot_doc_number))}" target="_blank" rel="noopener">Doc ${esc(r.latest_dot_doc_number)}</a>`
+                        : ""
+                    }
+                  </td>
                       <td class="reasons">${reasons}</td>
                     </tr>`;
                   })
