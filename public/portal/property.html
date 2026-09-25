@@ -398,13 +398,6 @@
         };
       }
 
-      function normalizeAlertAddress(situs) {
-        return String(situs || "")
-          .replace(/\s+/g, " ")
-          .replace(/,\s*/g, ", ")
-          .trim() || null;
-      }
-
       const STREET_SUFFIX_RE =
         /^(ST|STREET|RD|ROAD|AVE|AVENUE|DR|DRIVE|LN|LANE|BLVD|CT|COURT|HWY|HIGHWAY|WAY|CIR|CIRCLE|PL|PLACE|PKWY|PARKWAY|TRL|TRAIL|LOOP|FWY|FREEWAY|BLVD\.|AVE\.|ST\.)$/i;
 
