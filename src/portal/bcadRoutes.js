@@ -11,6 +11,12 @@ import {
   requestImportCancel,
   subscribeImportProgress,
 } from "./bcadImportJob.js";
+import {
+  browseBcadProperties,
+  listBcadBrowseFields,
+  listDefaultBcadFilters,
+  listBcadPageSizes,
+} from "./bcadBrowse.js";
 
 const router = Router();
 
@@ -71,6 +77,32 @@ router.post("/import/start", requireAuth, requireAdmin, async (req, res) => {
 router.post("/import/cancel", requireAuth, requireAdmin, (_req, res) => {
   const ok = requestImportCancel();
   res.json({ ok, ...getImportJobStatus() });
+});
+
+router.get("/browse/meta", requireAuth, (_req, res) => {
+  res.json({
+    fields: listBcadBrowseFields(),
+    defaultFilters: listDefaultBcadFilters(),
+    pageSizes: listBcadPageSizes(),
+    defaultPageSize: 1000,
+  });
+});
+
+router.post("/browse", requireAuth, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const result = await browseBcadProperties({
+      fields: body.fields,
+      filters: body.filters,
+      limit: body.limit,
+      offset: body.offset,
+      sort: body.sort,
+      order: body.order,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 router.get("/parcel/:id", requireAuth, async (req, res) => {

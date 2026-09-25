@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Data — Bexar CAD Portal</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="stylesheet" href="/portal.css">
+  <style>
+    .data-main { overflow: hidden; }
+    .data-layout {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      height: 100%;
+      min-height: 0;
+    }
+    @media (max-width: 960px) {
+      .data-layout { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+    }
+    .data-panel {
+      border-right: 1px solid var(--border);
+      background: var(--panel);
+      padding: 1rem;
+      overflow: auto;
+    }
+    .data-content {
+      padding: 0.85rem 1rem 1rem;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      overflow: hidden;
+    }
+    .section-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin: 0.85rem 0 0.4rem;
+      font-weight: 600;
+    }
+    .section-label:first-child { margin-top: 0; }
+    .col-pool, .col-order {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #0a0e12;
+      max-height: 200px;
+      overflow: auto;
+      padding: 0.35rem;
+    }
+    .col-pool {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.15rem;
+    }
+    .col-pool label {
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+      font-size: 0.8rem;
+      color: #c5d0db;
+      padding: 0.2rem 0.3rem;
+      border-radius: 4px;
+    }
+    .col-pool label:hover { background: #1a2330; }
+    .col-order { display: flex; flex-direction: column; gap: 0.25rem; }
+    .col-chip {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.4rem 0.5rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #121820;
+      font-size: 0.8rem;
+      cursor: grab;
+      user-select: none;
+    }
+    .col-chip.dragging { opacity: 0.45; }
+    .col-chip.drag-over { border-color: var(--accent); background: #16352c; }
+    .col-chip .handle { color: var(--muted); letter-spacing: -0.05em; }
+    .col-chip .rm {
+      margin-left: auto;
+      border: none;
+      background: transparent;
+      color: #f07178;
+      cursor: pointer;
+      font-size: 0.85rem;
+      padding: 0 0.2rem;
+    }
+    .filters { display: flex; flex-direction: column; gap: 0.4rem; }
+    .filter-row {
+      display: grid;
+      gap: 0.3rem;
+      padding: 0.5rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #0a0e12;
+    }
+    .filter-row .row2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr auto;
+      gap: 0.3rem;
+    }
+    .data-panel select,
+    .data-panel input,
+    .data-panel button,
+    .data-content select,
+    .data-content button {
+      padding: 0.4rem 0.5rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #1a2330;
+      color: var(--text);
+      font-size: 0.85rem;
+    }
+    .data-panel button,
+    .data-content button { cursor: pointer; }
+    .data-panel button.primary,
+    .data-content button.primary {
+      background: #1f6b4e;
+      border-color: #2d8a66;
+      color: #fff;
+      font-weight: 600;
+    }
+    .data-panel button.ghost { background: transparent; }
+    .data-panel button.danger {
+      background: #3a1a1e;
+      border-color: #6b2a32;
+      color: #f0b4b8;
+    }
+    .panel-actions { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.85rem; }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+    .meta strong { color: var(--text); }
+    .err { color: #f07178; font-size: 0.85rem; min-height: 1.1em; }
+    .table-wrap {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    th, td {
+      padding: 0.55rem 0.7rem;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+      max-width: 280px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: #0a0e12;
+      color: #c5d0db;
+      z-index: 1;
+      cursor: pointer;
+      user-select: none;
+    }
+    th:hover { color: var(--accent); }
+    th.sorted { color: var(--accent); }
+    td.wrap { white-space: normal; max-width: 360px; }
+    .pager { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    .pager button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .empty { padding: 2rem; text-align: center; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-wrap">
+      <div class="brand">Bexar CAD Portal</div>
+      <div class="version" id="version"></div>
+    </div>
+    <div class="user-meta" id="userMeta"></div>
+  </header>
+  <div class="shell">
+    <nav class="sidebar" aria-label="Main">
+      <div class="nav-label">Maps</div>
+      <a class="nav-item" href="/">Bexar Property Map</a>
+      <div class="nav-label">Data</div>
+      <a class="nav-item active" href="/data.html">Browse</a>
+      <a class="nav-item" href="/import.html">Import</a>
+    </nav>
+    <main class="main data-main">
+      <div class="data-layout">
+        <aside class="data-panel">
+          <div class="section-label">Visible columns</div>
+          <p style="margin:0 0 0.4rem;font-size:0.75rem;color:var(--muted);">
+            Check fields, then drag the list below to set column order.
+          </p>
+          <div class="col-pool" id="colPool"></div>
+
+          <div class="section-label">Column order</div>
+          <div class="col-order" id="colOrder" aria-label="Drag to reorder columns"></div>
+
+          <div class="section-label">Filters</div>
+          <div class="filters" id="filters"></div>
+          <button type="button" class="ghost" id="btnAddFilter" style="width:100%;margin-top:0.35rem;">+ Add filter</button>
+
+          <div class="panel-actions">
+            <button type="button" class="primary" id="btnSearch">Search</button>
+            <button type="button" class="ghost" id="btnDefaults">Reset to defaults</button>
+            <button type="button" class="danger" id="btnClearFilters">Clear filters</button>
+          </div>
+        </aside>
+
+        <section class="data-content">
+          <div class="meta">
+            <span>Showing <strong id="shown">0</strong> of <strong id="total">0</strong></span>
+            <label>
+              Per page
+              <select id="pageSize" aria-label="Records per page">
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="250">250</option>
+                <option value="500">500</option>
+                <option value="1000" selected>1000</option>
+              </select>
+            </label>
+            <span id="sortLabel"></span>
+          </div>
+          <div class="err" id="error"></div>
+          <div class="table-wrap">
+            <table>
+              <thead id="thead"></thead>
+              <tbody id="tbody"></tbody>
+            </table>
+            <div class="empty" id="empty" hidden>No rows match.</div>
+          </div>
+          <div class="pager">
+            <button type="button" id="btnPrev">Previous</button>
+            <span id="pageInfo">Page 1</span>
+            <button type="button" id="btnNext">Next</button>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="/auth.js"></script>
+  <script>
+    (async function () {
+      const me = await PortalAuth.requireLogin();
+      if (!me) return;
+
+      try {
+        const v = await (await fetch("/api/version")).json();
+        document.getElementById("version").textContent = "v" + v.version;
+      } catch {}
+
+      document.getElementById("userMeta").innerHTML = `
+        <span>${PortalAuth.escapeHtml(PortalAuth.displayName(me.user))}
+          <span style="opacity:0.7">(${PortalAuth.escapeHtml(me.user.role)})</span>
+        </span>
+        <button type="button" id="logoutBtn">Logout</button>`;
+      document.getElementById("logoutBtn").addEventListener("click", PortalAuth.logout);
+
+      const STORE_KEY = "bcadPortal.browse.v1";
+      let fieldMeta = [];
+      let fieldByName = {};
+      let visibleOrder = [];
+      let filters = [];
+      let sort = "id";
+      let order = "asc";
+      let offset = 0;
+      let limit = 1000;
+      let total = 0;
+      let dragFrom = null;
+
+      const OPS = [
+        { v: "ilike", t: "contains" },
+        { v: "eq", t: "=" },
+        { v: "neq", t: "≠" },
+        { v: "gt", t: ">" },
+        { v: "gte", t: "≥" },
+        { v: "lt", t: "<" },
+        { v: "lte", t: "≤" },
+        { v: "is_null", t: "is empty" },
+        { v: "not_null", t: "not empty" },
+        { v: "in", t: "in list" },
+      ];
+
+      function loadState() {
+        try {
+          const raw = localStorage.getItem(STORE_KEY);
+          if (!raw) return null;
+          return JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      }
+
+      function saveState() {
+        localStorage.setItem(
+          STORE_KEY,
+          JSON.stringify({ visibleOrder, filters, sort, order, limit })
+        );
+      }
+
+      function defaultsFromMeta() {
+        visibleOrder = fieldMeta.filter((f) => f.defaultVisible).map((f) => f.name);
+        filters = (window.__defaultFilters || []).map((f) => ({ ...f }));
+        sort = "id";
+        order = "asc";
+        limit = 1000;
+        offset = 0;
+      }
+
+      function renderColPool() {
+        const pool = document.getElementById("colPool");
+        const selected = new Set(visibleOrder);
+        pool.innerHTML = fieldMeta
+          .map(
+            (f) => `
+          <label>
+            <input type="checkbox" data-field="${PortalAuth.escapeHtml(f.name)}"
+              ${selected.has(f.name) ? "checked" : ""}>
+            ${PortalAuth.escapeHtml(f.label)}
+          </label>`
+          )
+          .join("");
+        pool.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+          cb.addEventListener("change", () => {
+            const name = cb.getAttribute("data-field");
+            if (cb.checked) {
+              if (!visibleOrder.includes(name)) visibleOrder.push(name);
+            } else {
+              visibleOrder = visibleOrder.filter((x) => x !== name);
+            }
+            renderColOrder();
+            saveState();
+          });
+        });
+      }
+
+      function renderColOrder() {
+        const box = document.getElementById("colOrder");
+        if (!visibleOrder.length) {
+          box.innerHTML =
+            '<div style="padding:0.5rem;color:var(--muted);font-size:0.8rem;">No columns selected</div>';
+          return;
+        }
+        box.innerHTML = visibleOrder
+          .map((name, idx) => {
+            const f = fieldByName[name] || { label: name };
+            return `
+            <div class="col-chip" draggable="true" data-idx="${idx}" data-field="${PortalAuth.escapeHtml(name)}">
+              <span class="handle">⠿</span>
+              <span>${PortalAuth.escapeHtml(f.label)}</span>
+              <button type="button" class="rm" title="Remove" data-rm="${PortalAuth.escapeHtml(name)}">×</button>
+            </div>`;
+          })
+          .join("");
+
+        box.querySelectorAll("[data-rm]").forEach((btn) => {
+          btn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const name = btn.getAttribute("data-rm");
+            visibleOrder = visibleOrder.filter((x) => x !== name);
+            renderColPool();
+            renderColOrder();
+            saveState();
+          });
+        });
+
+        box.querySelectorAll(".col-chip").forEach((chip) => {
+          chip.addEventListener("dragstart", (e) => {
+            dragFrom = Number(chip.getAttribute("data-idx"));
+            chip.classList.add("dragging");
+            e.dataTransfer.effectAllowed = "move";
+          });
+          chip.addEventListener("dragend", () => {
+            chip.classList.remove("dragging");
+            box.querySelectorAll(".col-chip").forEach((c) => c.classList.remove("drag-over"));
+            dragFrom = null;
+          });
+          chip.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            chip.classList.add("drag-over");
+          });
+          chip.addEventListener("dragleave", () => chip.classList.remove("drag-over"));
+          chip.addEventListener("drop", (e) => {
+            e.preventDefault();
+            chip.classList.remove("drag-over");
+            const to = Number(chip.getAttribute("data-idx"));
+            if (dragFrom == null || dragFrom === to) return;
+            const next = [...visibleOrder];
+            const [item] = next.splice(dragFrom, 1);
+            next.splice(to, 0, item);
+            visibleOrder = next;
+            renderColOrder();
+            saveState();
+          });
+        });
+      }
+
+      function renderFilters() {
+        const box = document.getElementById("filters");
+        if (!filters.length) {
+          box.innerHTML =
+            '<div style="font-size:0.8rem;color:var(--muted);">No filters</div>';
+          return;
+        }
+        box.innerHTML = filters
+          .map((f, i) => {
+            const fieldOpts = fieldMeta
+              .map(
+                (m) =>
+                  `<option value="${PortalAuth.escapeHtml(m.name)}" ${
+                    m.name === f.field ? "selected" : ""
+                  }>${PortalAuth.escapeHtml(m.label)}</option>`
+              )
+              .join("");
+            const opOpts = OPS.map(
+              (o) =>
+                `<option value="${o.v}" ${o.v === f.op ? "selected" : ""}>${o.t}</option>`
+            ).join("");
+            const noVal = f.op === "is_null" || f.op === "not_null";
+            return `
+            <div class="filter-row" data-i="${i}">
+              <select data-k="field">${fieldOpts}</select>
+              <div class="row2">
+                <select data-k="op">${opOpts}</select>
+                <input data-k="value" type="text" value="${PortalAuth.escapeHtml(
+                  f.value ?? ""
+                )}" ${noVal ? "disabled" : ""} placeholder="value">
+                <button type="button" class="danger" data-del="${i}">×</button>
+              </div>
+            </div>`;
+          })
+          .join("");
+
+        box.querySelectorAll(".filter-row").forEach((row) => {
+          const i = Number(row.getAttribute("data-i"));
+          row.querySelectorAll("[data-k]").forEach((el) => {
+            el.addEventListener("change", () => {
+              const k = el.getAttribute("data-k");
+              filters[i][k] = el.value;
+              if (k === "op") renderFilters();
+              saveState();
+            });
+          });
+        });
+        box.querySelectorAll("[data-del]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            filters.splice(Number(btn.getAttribute("data-del")), 1);
+            renderFilters();
+            saveState();
+          });
+        });
+      }
+
+      function escapeCell(v) {
+        if (v == null) return "";
+        return PortalAuth.escapeHtml(String(v));
+      }
+
+      async function search() {
+        const err = document.getElementById("error");
+        err.textContent = "";
+        if (!visibleOrder.length) {
+          err.textContent = "Select at least one column";
+          return;
+        }
+        limit = Number(document.getElementById("pageSize").value) || 1000;
+        saveState();
+        const res = await PortalAuth.authFetch("/api/bcad/browse", {
+          method: "POST",
+          body: JSON.stringify({
+            fields: visibleOrder,
+            filters,
+            limit,
+            offset,
+            sort,
+            order,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          err.textContent = data.error || "Search failed";
+          return;
+        }
+        total = data.total || 0;
+        document.getElementById("total").textContent = total.toLocaleString();
+        document.getElementById("shown").textContent = String(
+          (data.rows || []).length
+        );
+        const page = Math.floor(offset / limit) + 1;
+        const pages = Math.max(1, Math.ceil(total / limit));
+        document.getElementById("pageInfo").textContent = `Page ${page} / ${pages}`;
+        document.getElementById("btnPrev").disabled = offset <= 0;
+        document.getElementById("btnNext").disabled = offset + limit >= total;
+        const sortField = fieldByName[sort]?.label || sort;
+        document.getElementById("sortLabel").textContent =
+          `Sorted by ${sortField} ${order === "desc" ? "↓" : "↑"}`;
+
+        const thead = document.getElementById("thead");
+        thead.innerHTML =
+          "<tr>" +
+          visibleOrder
+            .map((name) => {
+              const f = fieldByName[name] || { label: name };
+              const cls = name === sort ? "sorted" : "";
+              const arrow =
+                name === sort ? (order === "desc" ? " ↓" : " ↑") : "";
+              return `<th class="${cls}" data-sort="${PortalAuth.escapeHtml(
+                name
+              )}">${PortalAuth.escapeHtml(f.label)}${arrow}</th>`;
+            })
+            .join("") +
+          "</tr>";
+        thead.querySelectorAll("th[data-sort]").forEach((th) => {
+          th.addEventListener("click", () => {
+            const name = th.getAttribute("data-sort");
+            if (sort === name) order = order === "asc" ? "desc" : "asc";
+            else {
+              sort = name;
+              order = "asc";
+            }
+            offset = 0;
+            search();
+          });
+        });
+
+        const tbody = document.getElementById("tbody");
+        const rows = data.rows || [];
+        document.getElementById("empty").hidden = rows.length > 0;
+        tbody.innerHTML = rows
+          .map((row) => {
+            return (
+              "<tr>" +
+              visibleOrder
+                .map((name) => {
+                  const wrap =
+                    name === "legal_desc" || name === "situs" || name === "owner_name"
+                      ? " wrap"
+                      : "";
+                  return `<td class="${wrap}">${escapeCell(row[name])}</td>`;
+                })
+                .join("") +
+              "</tr>"
+            );
+          })
+          .join("");
+      }
+
+      // meta + restore
+      const metaRes = await PortalAuth.authFetch("/api/bcad/browse/meta");
+      const meta = await metaRes.json();
+      if (!metaRes.ok) throw new Error(meta.error || "Failed to load fields");
+      fieldMeta = meta.fields || [];
+      fieldByName = Object.fromEntries(fieldMeta.map((f) => [f.name, f]));
+      window.__defaultFilters = meta.defaultFilters || [];
+      const pageSizes = meta.pageSizes || [25, 50, 100, 250, 500, 1000];
+      const ps = document.getElementById("pageSize");
+      ps.innerHTML = pageSizes
+        .map((n) => `<option value="${n}">${n}</option>`)
+        .join("");
+
+      const saved = loadState();
+      if (saved?.visibleOrder?.length) {
+        visibleOrder = saved.visibleOrder.filter((n) => fieldByName[n]);
+        filters = Array.isArray(saved.filters) ? saved.filters : [];
+        sort = fieldByName[saved.sort] ? saved.sort : "id";
+        order = saved.order === "desc" ? "desc" : "asc";
+        limit = pageSizes.includes(Number(saved.limit))
+          ? Number(saved.limit)
+          : 1000;
+      } else {
+        defaultsFromMeta();
+      }
+      ps.value = String(limit);
+
+      renderColPool();
+      renderColOrder();
+      renderFilters();
+
+      document.getElementById("btnAddFilter").addEventListener("click", () => {
+        filters.push({
+          field: fieldMeta[0]?.name || "owner_name",
+          op: "ilike",
+          value: "",
+        });
+        renderFilters();
+        saveState();
+      });
+      document.getElementById("btnSearch").addEventListener("click", () => {
+        offset = 0;
+        search();
+      });
+      document.getElementById("btnDefaults").addEventListener("click", () => {
+        defaultsFromMeta();
+        document.getElementById("pageSize").value = "1000";
+        renderColPool();
+        renderColOrder();
+        renderFilters();
+        saveState();
+        search();
+      });
+      document.getElementById("btnClearFilters").addEventListener("click", () => {
+        filters = [];
+        renderFilters();
+        saveState();
+      });
+      document.getElementById("pageSize").addEventListener("change", () => {
+        limit = Number(document.getElementById("pageSize").value) || 1000;
+        offset = 0;
+        saveState();
+        search();
+      });
+      document.getElementById("btnPrev").addEventListener("click", () => {
+        offset = Math.max(0, offset - limit);
+        search();
+      });
+      document.getElementById("btnNext").addEventListener("click", () => {
+        offset = offset + limit;
+        search();
+      });
+
+      await search();
+    })().catch((e) => {
+      document.getElementById("error").textContent = e.message || String(e);
+    });
+  </script>
+</body>
+</html>

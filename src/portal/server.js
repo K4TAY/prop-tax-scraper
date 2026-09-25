@@ -52,6 +52,10 @@ app.get("/import.html", (_req, res, next) => {
   sendPortalFile(res, "import.html", next);
 });
 
+app.get("/data.html", (_req, res, next) => {
+  sendPortalFile(res, "data.html", next);
+});
+
 app.use(
   express.static(PUBLIC_PORTAL, {
     index: false,
