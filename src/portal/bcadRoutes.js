@@ -6,6 +6,10 @@ import {
   getBcadParcelById,
 } from "./bcadSchema.js";
 import {
+  getStreetViewMetaForProperty,
+  fetchStreetViewImageForProperty,
+} from "./streetView.js";
+import {
   getImportJobStatus,
   startImportJob,
   requestImportCancel,
@@ -460,6 +464,47 @@ router.get("/properties/:id/detail", requireAuth, async (req, res) => {
     res.json(detail);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/** Street View availability + Maps deep link (optional GOOGLE_MAPS_API_KEY). */
+router.get("/properties/:id/street-view", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const meta = await getStreetViewMetaForProperty(id);
+    res.json(meta);
+  } catch (err) {
+    const status = err.status || 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+/**
+ * Proxied Static Street View JPEG (keeps API key server-side).
+ * Auth: Bearer header or ?token= (for <img src>).
+ */
+router.get("/properties/:id/street-view.jpg", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const { buf, contentType, meta } = await fetchStreetViewImageForProperty(id, {
+      size: req.query.size || "640x400",
+      heading: req.query.heading != null ? Number(req.query.heading) : undefined,
+      fov: req.query.fov != null ? Number(req.query.fov) : undefined,
+      pitch: req.query.pitch != null ? Number(req.query.pitch) : undefined,
+    });
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Cache-Control", "private, max-age=86400");
+    if (meta?.date) res.setHeader("X-Street-View-Date", String(meta.date));
+    res.send(buf);
+  } catch (err) {
+    const status = err.status || 400;
+    res.status(status).json({ error: err.message });
   }
 });
 

@@ -6,6 +6,7 @@
   <title>Property — Bexar CAD Portal</title>
   <meta name="color-scheme" content="dark">
   <link rel="stylesheet" href="/portal.css">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
   <style>
     .prop-main { overflow: auto; }
     .prop-wrap { max-width: 1100px; padding: 1.25rem 1.5rem 2.5rem; }
@@ -139,6 +140,80 @@
       font-size: 0.78rem;
       color: var(--muted);
     }
+    .context-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 0.85rem;
+      margin-bottom: 1rem;
+    }
+    @media (max-width: 900px) {
+      .context-grid { grid-template-columns: 1fr; }
+    }
+    .context-map {
+      height: 280px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #0a0e12;
+    }
+    .context-map .maplibregl-ctrl-attrib {
+      font-size: 0.65rem;
+    }
+    .basemap-toggle {
+      display: flex;
+      gap: 0.35rem;
+      margin-top: 0.55rem;
+    }
+    .basemap-toggle button {
+      background: #1a2330;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 6px;
+      padding: 0.28rem 0.55rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+    .basemap-toggle button.active {
+      border-color: #2d5c4a;
+      color: var(--accent);
+      background: #12241c;
+    }
+    .street-view-wrap {
+      position: relative;
+      min-height: 280px;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #0a0e12;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .street-view-wrap img {
+      display: block;
+      width: 100%;
+      height: 280px;
+      object-fit: cover;
+    }
+    .street-view-wrap .placeholder {
+      padding: 1rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.45;
+      max-width: 22rem;
+    }
+    .street-view-wrap .placeholder a { color: var(--accent); }
+    .street-view-meta {
+      margin-top: 0.55rem;
+      font-size: 0.75rem;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 0.85rem;
+      align-items: center;
+    }
+    .street-view-meta a { color: var(--accent); }
     .badge.ok { border-color: #2d5c4a; color: var(--accent); background: #12241c; }
     .grid-2 {
       display: grid;
@@ -302,6 +377,25 @@
         </div>
         <div class="status-line" id="status"></div>
 
+        <div class="context-grid">
+          <div class="card">
+            <h2>Parcel map</h2>
+            <div class="context-map" id="parcelMap"></div>
+            <div class="basemap-toggle" role="group" aria-label="Basemap">
+              <button type="button" class="active" data-basemap="street">Street</button>
+              <button type="button" data-basemap="satellite">Satellite</button>
+            </div>
+          </div>
+          <div class="card">
+            <h2>Street View</h2>
+            <div class="street-view-wrap" id="streetViewWrap">
+              <div class="placeholder" id="streetViewPlaceholder">Loading…</div>
+              <img id="streetViewImg" alt="Google Street View of this property" hidden />
+            </div>
+            <div class="street-view-meta" id="streetViewMeta"></div>
+          </div>
+        </div>
+
         <div class="grid-2">
           <div class="card">
             <h2>Identity</h2>
@@ -372,6 +466,7 @@
       </div>
     </main>
   </div>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="/auth.js"></script>
   <script>
     (async function () {
@@ -750,8 +845,205 @@
         return `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(num)}</a>`;
       }
 
+      let parcelMap = null;
+      let parcelMapBasemap = "street";
+
+      function setParcelBasemap(mode) {
+        parcelMapBasemap = mode === "satellite" ? "satellite" : "street";
+        if (!parcelMap) return;
+        const showSat = parcelMapBasemap === "satellite";
+        if (parcelMap.getLayer("basemap-osm")) {
+          parcelMap.setLayoutProperty(
+            "basemap-osm",
+            "visibility",
+            showSat ? "none" : "visible"
+          );
+        }
+        if (parcelMap.getLayer("basemap-sat")) {
+          parcelMap.setLayoutProperty(
+            "basemap-sat",
+            "visibility",
+            showSat ? "visible" : "none"
+          );
+        }
+        document.querySelectorAll(".basemap-toggle button").forEach((btn) => {
+          btn.classList.toggle("active", btn.dataset.basemap === parcelMapBasemap);
+        });
+      }
+
+      function renderParcelMap(geo) {
+        const el = document.getElementById("parcelMap");
+        if (!el || typeof maplibregl === "undefined") return;
+        if (!geo?.geometry) {
+          el.innerHTML =
+            '<div style="padding:1rem;color:var(--muted);font-size:0.85rem">No parcel geometry on file.</div>';
+          return;
+        }
+        const feature = {
+          type: "Feature",
+          geometry: geo.geometry,
+          properties: geo.properties || {},
+        };
+        const bbox = geo.bbox;
+        const lng = geo.properties?.lng;
+        const lat = geo.properties?.lat;
+
+        if (parcelMap) {
+          parcelMap.remove();
+          parcelMap = null;
+          el.innerHTML = "";
+        }
+
+        parcelMap = new maplibregl.Map({
+          container: el,
+          style: {
+            version: 8,
+            sources: {
+              osm: {
+                type: "raster",
+                tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+                tileSize: 256,
+                attribution: "© OpenStreetMap",
+                maxzoom: 19,
+              },
+              satellite: {
+                type: "raster",
+                tiles: [
+                  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                ],
+                tileSize: 256,
+                attribution:
+                  "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+                maxzoom: 19,
+              },
+            },
+            layers: [
+              {
+                id: "basemap-osm",
+                type: "raster",
+                source: "osm",
+                layout: {
+                  visibility:
+                    parcelMapBasemap === "satellite" ? "none" : "visible",
+                },
+              },
+              {
+                id: "basemap-sat",
+                type: "raster",
+                source: "satellite",
+                layout: {
+                  visibility:
+                    parcelMapBasemap === "satellite" ? "visible" : "none",
+                },
+              },
+            ],
+          },
+          center:
+            Number.isFinite(lng) && Number.isFinite(lat)
+              ? [lng, lat]
+              : [-98.5, 29.4],
+          zoom: 17,
+          attributionControl: true,
+        });
+        parcelMap.addControl(
+          new maplibregl.NavigationControl({ showCompass: false }),
+          "top-right"
+        );
+
+        parcelMap.on("load", () => {
+          parcelMap.addSource("parcel", {
+            type: "geojson",
+            data: feature,
+          });
+          parcelMap.addLayer({
+            id: "parcel-fill",
+            type: "fill",
+            source: "parcel",
+            paint: {
+              "fill-color": "#3dd6c6",
+              "fill-opacity": 0.28,
+            },
+          });
+          parcelMap.addLayer({
+            id: "parcel-line",
+            type: "line",
+            source: "parcel",
+            paint: {
+              "line-color": "#5eead4",
+              "line-width": 2.5,
+            },
+          });
+          if (Array.isArray(bbox) && bbox.length === 4) {
+            parcelMap.fitBounds(
+              [
+                [bbox[0], bbox[1]],
+                [bbox[2], bbox[3]],
+              ],
+              { padding: 36, maxZoom: 19, duration: 0 }
+            );
+          }
+        });
+        setParcelBasemap(parcelMapBasemap);
+      }
+
+      async function renderStreetView() {
+        const placeholder = document.getElementById("streetViewPlaceholder");
+        const img = document.getElementById("streetViewImg");
+        const metaEl = document.getElementById("streetViewMeta");
+        placeholder.hidden = false;
+        placeholder.innerHTML = "Loading Street View…";
+        img.hidden = true;
+        img.removeAttribute("src");
+        metaEl.innerHTML = "";
+        try {
+          const res = await PortalAuth.authFetch(
+            `/api/bcad/properties/${id}/street-view`
+          );
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Street View failed");
+
+          const mapsLink = data.maps_url
+            ? `<a href="${esc(data.maps_url)}" target="_blank" rel="noopener">Open in Google Street View</a>`
+            : "";
+
+          if (data.available && data.image_path) {
+            const token = PortalAuth.getToken();
+            const src =
+              data.image_path +
+              (token ? `?token=${encodeURIComponent(token)}` : "");
+            img.onload = () => {
+              placeholder.hidden = true;
+              img.hidden = false;
+            };
+            img.onerror = () => {
+              placeholder.hidden = false;
+              placeholder.innerHTML =
+                `Image failed to load. ${mapsLink || "Try again later."}`;
+              img.hidden = true;
+            };
+            img.src = src;
+            metaEl.innerHTML =
+              (data.date ? `<span>Imagery ${esc(data.date)}</span>` : "") +
+              mapsLink;
+          } else {
+            placeholder.innerHTML =
+              esc(data.message || "Street View not available for this parcel.") +
+              (mapsLink ? `<br><br>${mapsLink}` : "");
+            metaEl.innerHTML = mapsLink;
+          }
+        } catch (e) {
+          placeholder.innerHTML = esc(e.message || "Street View failed");
+        }
+      }
+
+      document.querySelectorAll(".basemap-toggle button").forEach((btn) => {
+        btn.addEventListener("click", () => setParcelBasemap(btn.dataset.basemap));
+      });
+
       function render(detail) {
         lastDetail = detail;
+        renderParcelMap(detail.parcel_geo);
+        renderStreetView();
         const p = detail.parcel || {};
         const h = detail.hgo_appraisal || null;
         const t = detail.tax_account || null;

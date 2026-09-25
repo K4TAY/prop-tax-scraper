@@ -25,6 +25,8 @@
 #    - `BCAD_DATABASE_URL` — `${{PostGIS.DATABASE_URL}}` (PostGIS service; spatial table)
 #    - `JWT_SECRET` — same secret as prop-tax-scraper
 #    - `PORT` — Railway injects this automatically
+#    - Optional: `GOOGLE_MAPS_API_KEY` — Street View Static API (property detail imagery;
+#      key stays server-side; without it the page still shows parcel map + Maps deep link)
 #    - Bucket (from Police Calls → **bexar-cad-neighborhoods** Credentials):
 #      - `ENDPOINT` (e.g. `https://t3.storageapi.dev`)
 #      - `BUCKET` (e.g. `bexar-cad-neighborhoods-fntdll`)

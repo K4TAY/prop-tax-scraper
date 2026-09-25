@@ -1,5 +1,5 @@
 import bcadPool from "./bcadDb.js";
-import { getBcadParcelById } from "./bcadSchema.js";
+import { getBcadParcelById, getBcadParcelGeoById } from "./bcadSchema.js";
 import {
   importTaxPaymentsForProperty,
   listTaxPaymentsForProperty,
@@ -43,6 +43,7 @@ export async function getPropertyDetail(propertyId, client = bcadPool) {
     rollHistory,
     clerkInstruments,
     vaOpportunity,
+    parcelGeo,
   ] = await Promise.all([
     getTaxAccountForProperty(propertyId, client),
     listTaxPaymentsForProperty(propertyId, client),
@@ -52,6 +53,7 @@ export async function getPropertyDetail(propertyId, client = bcadPool) {
     listHgoRollHistoryForProperty(propertyId, client),
     listClerkInstrumentsForProperty(propertyId, client),
     getVaOpportunity(propertyId, client),
+    getBcadParcelGeoById(propertyId, client),
   ]);
 
   // Don't ship huge raw_labels / raw blobs to the UI by default
@@ -64,6 +66,7 @@ export async function getPropertyDetail(propertyId, client = bcadPool) {
   return {
     bcad_property_id: Number(propertyId),
     parcel,
+    parcel_geo: parcelGeo,
     tax_account: taxAccountPublic,
     payments,
     deeds,

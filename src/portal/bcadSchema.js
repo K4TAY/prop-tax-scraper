@@ -96,6 +96,46 @@ export async function getBcadParcelById(id, client = bcadPool) {
 }
 
 /**
+ * Parcel polygon + centroid + bbox for detail-page map / Street View.
+ * @returns {Promise<{
+ *   type: 'Feature',
+ *   geometry: object,
+ *   properties: { id: number, lat: number, lng: number },
+ *   bbox: [west, south, east, north]
+ * } | null>}
+ */
+export async function getBcadParcelGeoById(id, client = bcadPool) {
+  const { rows } = await client.query(
+    `
+    SELECT
+      id,
+      ST_AsGeoJSON(geom)::json AS geometry,
+      ST_Y(ST_Centroid(geom))::float8 AS lat,
+      ST_X(ST_Centroid(geom))::float8 AS lng,
+      ST_XMin(geom)::float8 AS west,
+      ST_YMin(geom)::float8 AS south,
+      ST_XMax(geom)::float8 AS east,
+      ST_YMax(geom)::float8 AS north
+    FROM bcad_properties
+    WHERE id = $1
+    `,
+    [id]
+  );
+  if (!rows.length || !rows[0].geometry) return null;
+  const r = rows[0];
+  return {
+    type: "Feature",
+    geometry: r.geometry,
+    properties: {
+      id: Number(r.id),
+      lat: Number(r.lat),
+      lng: Number(r.lng),
+    },
+    bbox: [Number(r.west), Number(r.south), Number(r.east), Number(r.north)],
+  };
+}
+
+/**
  * Serve Mapbox Vector Tile for one XYZ tile (EPSG:3857 envelope).
  */
 export async function getBcadMvtTile(z, x, y, client = bcadPool) {
