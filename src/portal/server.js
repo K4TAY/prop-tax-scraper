@@ -9,6 +9,7 @@ import { bootstrapAdmin } from "../auth/bootstrapAdmin.js";
 import authRoutes from "../auth/routes.js";
 import { requireAuth } from "../auth/middleware.js";
 import { ensureBcadSchema } from "./bcadSchema.js";
+import bcadPool from "./bcadDb.js";
 import bcadRoutes from "./bcadRoutes.js";
 
 dotenv.config();
@@ -74,14 +75,19 @@ async function boot() {
   await ensureAuthSchema(pool);
   await bootstrapAdmin();
   try {
-    await ensureBcadSchema(pool);
+    await ensureBcadSchema(bcadPool);
+    console.log(
+      `[portal] bcad_properties ready (spatial DB: ${
+        process.env.BCAD_DATABASE_URL ? "BCAD_DATABASE_URL" : "DATABASE_URL/local"
+      })`
+    );
   } catch (err) {
     console.error(
       "[portal] PostGIS / bcad_properties setup failed:",
       err.message
     );
     console.error(
-      "  Enable PostGIS on the database (CREATE EXTENSION postgis) then restart."
+      "  Set BCAD_DATABASE_URL to the PostGIS service, then restart."
     );
   }
 
