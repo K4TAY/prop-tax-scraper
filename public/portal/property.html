@@ -244,9 +244,9 @@
         <div class="galerts-panel" id="galertsPanel" hidden>
           <h3>Create Google Alerts</h3>
           <p class="hint">
-            Opens Google Alerts with each query pre-filled. Use the Google account already signed in
-            this browser, then click <strong>Create Alert</strong> on each tab. We cannot create
-            alerts silently — Google requires your confirmation.
+            Opens Google Alerts with each query pre-filled as <strong>name &amp; city</strong> and
+            <strong>name and state</strong> (from situs). Use the Google account already signed in
+            this browser, then click <strong>Create Alert</strong> on each tab.
           </p>
           <ul class="galerts-list" id="galertsList"></ul>
           <div class="galerts-actions">
@@ -405,10 +405,60 @@
           .trim() || null;
       }
 
+      const STREET_SUFFIX_RE =
+        /^(ST|STREET|RD|ROAD|AVE|AVENUE|DR|DRIVE|LN|LANE|BLVD|CT|COURT|HWY|HIGHWAY|WAY|CIR|CIRCLE|PL|PLACE|PKWY|PARKWAY|TRL|TRAIL|LOOP|FWY|FREEWAY|BLVD\.|AVE\.|ST\.)$/i;
+
+      const STATE_NAME_BY_ABBR = {
+        AL: "Alabama", AK: "Alaska", AZ: "Arizona", AR: "Arkansas", CA: "California",
+        CO: "Colorado", CT: "Connecticut", DE: "Delaware", FL: "Florida", GA: "Georgia",
+        HI: "Hawaii", ID: "Idaho", IL: "Illinois", IN: "Indiana", IA: "Iowa",
+        KS: "Kansas", KY: "Kentucky", LA: "Louisiana", ME: "Maine", MD: "Maryland",
+        MA: "Massachusetts", MI: "Michigan", MN: "Minnesota", MS: "Mississippi",
+        MO: "Missouri", MT: "Montana", NE: "Nebraska", NV: "Nevada", NH: "New Hampshire",
+        NJ: "New Jersey", NM: "New Mexico", NY: "New York", NC: "North Carolina",
+        ND: "North Dakota", OH: "Ohio", OK: "Oklahoma", OR: "Oregon", PA: "Pennsylvania",
+        RI: "Rhode Island", SC: "South Carolina", SD: "South Dakota", TN: "Tennessee",
+        TX: "Texas", UT: "Utah", VT: "Vermont", VA: "Virginia", WA: "Washington",
+        WV: "West Virginia", WI: "Wisconsin", WY: "Wyoming", DC: "District of Columbia",
+      };
+
+      function titleCaseWords(s) {
+        return String(s || "")
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+          .join(" ");
+      }
+
+      /** Parse "123 MAIN ST SAN ANTONIO, TX 78237" → { city, state, stateAbbr } */
+      function parseSitusCityState(situs) {
+        const s = String(situs || "").replace(/\s+/g, " ").trim();
+        if (!s) return { city: null, state: null, stateAbbr: null };
+        const m = s.match(/^(.*?),\s*([A-Z]{2})\s+\d{5}(?:-\d{4})?\s*$/i);
+        if (!m) return { city: null, state: null, stateAbbr: null };
+        const left = m[1].trim();
+        const stateAbbr = m[2].toUpperCase();
+        const state = STATE_NAME_BY_ABBR[stateAbbr] || stateAbbr;
+        const tokens = left.split(/\s+/);
+        let start = 0;
+        if (tokens.length && /^\d+[A-Za-z]?$/.test(tokens[0])) start = 1;
+        let lastSuffix = -1;
+        for (let i = start; i < tokens.length; i++) {
+          if (STREET_SUFFIX_RE.test(tokens[i].replace(/\./g, ""))) lastSuffix = i;
+        }
+        const cityTokens =
+          lastSuffix >= 0 && lastSuffix < tokens.length - 1
+            ? tokens.slice(lastSuffix + 1)
+            : tokens.slice(-Math.min(2, Math.max(1, tokens.length - start)));
+        const city = cityTokens.length ? titleCaseWords(cityTokens.join(" ")) : null;
+        return { city, state, stateAbbr };
+      }
+
       function buildGoogleAlertQueries(detail) {
         const p = detail?.parcel || {};
         const taxMail = detail?.tax_account?.mailing_owner_name;
         const parties = parseCadOwnerParties(p.owner_name || taxMail || "");
+        const { city, state } = parseSitusCityState(p.situs);
         const items = [];
         const seen = new Set();
         const add = (label, query) => {
@@ -419,19 +469,26 @@
           seen.add(key);
           items.push({ label, query: q });
         };
+        const addNameGeo = (who, name) => {
+          const n = String(name || "").trim();
+          if (!n) return;
+          if (city) add(`${who} · name & city`, `"${n}" & ${city}`);
+          if (state) add(`${who} · name and state`, `"${n}" and ${state}`);
+          // Fallback if situs has no parseable city/state
+          if (!city && !state) add(who, `"${n}"`);
+        };
         if (parties.entity) {
-          add("Entity / owner", parties.entity);
+          addNameGeo("Entity / owner", parties.entity);
         } else {
-          add("Borrower (owner)", parties.borrower);
-          add("Spouse / co-owner", parties.spouse);
+          addNameGeo("Borrower", parties.borrower);
+          addNameGeo("Spouse", parties.spouse);
         }
-        add("Property address", normalizeAlertAddress(p.situs));
         return items;
       }
 
       function googleAlertsCreateUrl(query) {
-        // ?q= prefills the Create Alert box for the signed-in Google account.
-        return `https://www.google.com/alerts?q=${encodeURIComponent(`"${query}"`)}`;
+        // Prefills Create Alert for the signed-in Google account (do not re-quote).
+        return `https://www.google.com/alerts?q=${encodeURIComponent(query)}`;
       }
 
       function renderGoogleAlertsPanel(detail) {
@@ -452,7 +509,7 @@
           <li>
             <div>
               <span class="label">${esc(it.label)}</span>
-              <span class="q">"${esc(it.query)}"</span>
+              <span class="q">${esc(it.query)}</span>
             </div>
             <a class="btn" data-galert-idx="${i}" href="${esc(
               googleAlertsCreateUrl(it.query)
