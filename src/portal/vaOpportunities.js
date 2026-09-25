@@ -52,11 +52,15 @@ export async function ensureVaOpportunitiesSchema(client = bcadPool) {
       offer_hints TEXT[],
       reasons TEXT[],
       clerk_search_url TEXT,
-      scored_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      scored_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      enriched_at TIMESTAMPTZ
     );
 
     ALTER TABLE bcad_va_opportunities
       ADD COLUMN IF NOT EXISTS latest_tax_paid_date DATE;
+
+    ALTER TABLE bcad_va_opportunities
+      ADD COLUMN IF NOT EXISTS enriched_at TIMESTAMPTZ;
 
     CREATE INDEX IF NOT EXISTS bcad_va_opportunities_score_idx
       ON bcad_va_opportunities (score DESC);
@@ -65,6 +69,8 @@ export async function ensureVaOpportunitiesSchema(client = bcadPool) {
     CREATE INDEX IF NOT EXISTS bcad_va_opportunities_dvhs_idx
       ON bcad_va_opportunities (has_dvhs)
       WHERE has_dvhs;
+    CREATE INDEX IF NOT EXISTS bcad_va_opportunities_enrich_queue_idx
+      ON bcad_va_opportunities (enriched_at NULLS FIRST, score DESC);
   `);
 }
 

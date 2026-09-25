@@ -36,6 +36,19 @@
 # 4. Domain: https://bcad-portal-production.up.railway.app
 #    (custom DNS can be attached later)
 #
+# ## VA enrich cron (every 10 minutes)
+#
+# Separate Railway service `va-enrich-cron` (same GitHub repo):
+# - Config file: [`railway.va-enrich-cron.toml`](../railway.va-enrich-cron.toml)
+# - Start: `bun scripts/cron-enrich-va-opportunity.js --min-score=50`
+# - Schedule: `*/10 * * * *` (UTC) — one opportunity per run
+# - Vars (reference portal / PostGIS):
+#   - `BCAD_DATABASE_URL` = `${{PostGIS.DATABASE_URL}}` (required)
+#   - `DATABASE_URL` = same as portal if auth tables are touched (optional)
+#
+# Picks the highest-scoring row with `score >= 50` that has the oldest
+# (or null) `enriched_at`, runs full refresh (HGO + ACT Tax + deeds + clerk),
+# rescores, stamps `enriched_at`, exits.
 # Stock Railway Postgres does **not** include PostGIS. This project deploys a
 # separate **PostGIS** service for `bcad_properties`; auth stays on the original Postgres.
 #
