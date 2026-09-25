@@ -160,9 +160,9 @@
         <label>
           Min score
           <select id="minScore">
-            <option value="0">0</option>
+            <option value="0" selected>0</option>
             <option value="45">45</option>
-            <option value="70" selected>70</option>
+            <option value="70">70</option>
           </select>
         </label>
         <button type="button" id="btnLoad">Refresh list</button>
@@ -172,123 +172,143 @@
       <p class="note">
         Hot ≈ DVHS + active commercial mortgage signals (escrow payer and/or Deed of Trust).
         Warm ≈ veteran exemption with weaker financing evidence. Enrichment (tax fetch / clerk import)
-        raises scores as those tables fill in.
+        raises scores as those tables fill in. If the list is empty on Railway, click
+        <strong>Rebuild scores</strong> once (admin) to score DV* parcels in this database.
       </p>
     </main>
   </div>
-  <script type="module">
-    import { requireAuth, authHeaders, logout } from "/auth.js";
+  <script src="/auth.js"></script>
+  <script>
+    (async function () {
+      const me = await PortalAuth.requireLogin();
+      if (!me) return;
 
-    const me = await requireAuth();
-    document.getElementById("userMeta").innerHTML =
-      `<span>${me.user?.email || ""}</span><button type="button" id="logout">Log out</button>`;
-    document.getElementById("logout").onclick = () => logout();
+      document.getElementById("userMeta").innerHTML = `
+        <span>${PortalAuth.escapeHtml(PortalAuth.displayName(me.user))}
+          <span style="opacity:0.7">(${PortalAuth.escapeHtml(me.user.role)})</span>
+        </span>
+        <button type="button" id="logoutBtn">Logout</button>`;
+      document.getElementById("logoutBtn").addEventListener("click", PortalAuth.logout);
 
-    try {
-      const v = await (await fetch("/api/version")).json();
-      document.getElementById("version").textContent = "v" + (v.version || "");
-    } catch { /* ignore */ }
+      try {
+        const v = await (await fetch("/api/version")).json();
+        document.getElementById("version").textContent = "v" + (v.version || "");
+      } catch { /* ignore */ }
 
-    function esc(s) {
-      return String(s ?? "")
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-    }
+      const esc = PortalAuth.escapeHtml;
+      const wrap = document.getElementById("tableWrap");
 
-    async function load() {
-      const tier = document.getElementById("tier").value;
-      const minScore = document.getElementById("minScore").value;
-      const qs = new URLSearchParams({ limit: "100", min_score: minScore });
-      if (tier) qs.set("tier", tier);
-      const res = await fetch(`/api/bcad/va-opportunities?${qs}`, {
-        headers: authHeaders(),
-      });
-      if (!res.ok) {
-        document.getElementById("tableWrap").innerHTML =
-          `<div class="empty">Error: ${esc((await res.json()).error || res.status)}</div>`;
-        return;
+      async function load() {
+        wrap.innerHTML = `<div class="empty">Loading…</div>`;
+        try {
+          const tier = document.getElementById("tier").value;
+          const minScore = document.getElementById("minScore").value;
+          const qs = new URLSearchParams({ limit: "100", min_score: minScore });
+          if (tier) qs.set("tier", tier);
+          const res = await PortalAuth.authFetch(`/api/bcad/va-opportunities?${qs}`);
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            wrap.innerHTML = `<div class="empty">Error: ${esc(data.error || res.status)}</div>`;
+            return;
+          }
+          const t = data.total || {};
+          document.getElementById("stats").innerHTML = [
+            ["total", t.n],
+            ["hot", t.hot],
+            ["warm", t.warm],
+            ["watch", t.watch],
+          ]
+            .map(
+              ([l, n]) =>
+                `<div class="stat"><div class="n">${esc(n ?? 0)}</div><div class="l">${l}</div></div>`
+            )
+            .join("");
+
+          const rows = data.rows || [];
+          if (!rows.length) {
+            wrap.innerHTML = `<div class="empty">No scored opportunities yet. Click <strong>Rebuild scores</strong> (admin) to populate this database.</div>`;
+            return;
+          }
+
+          wrap.innerHTML = `
+            <table>
+              <thead>
+                <tr>
+                  <th>Tier</th>
+                  <th>Score</th>
+                  <th>Owner / situs</th>
+                  <th>Exemptions</th>
+                  <th>Mortgage signal</th>
+                  <th>Why</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows
+                  .map((r) => {
+                    const reasons = (r.reasons || []).slice(0, 3).map(esc).join("<br>");
+                    return `<tr>
+                      <td><span class="tier ${esc(r.tier)}">${esc(r.tier)}</span></td>
+                      <td><strong>${esc(r.score)}</strong></td>
+                      <td>
+                        <a href="/property.html?id=${esc(r.bcad_property_id)}">${esc(r.owner_name)}</a><br>
+                        <span style="color:var(--muted)">${esc(r.situs)}</span><br>
+                        <span style="color:var(--muted);font-size:0.72rem">${esc(r.geo_id)}</span>
+                      </td>
+                      <td>${esc(r.exemptions)}<br><span style="color:var(--muted)">${esc(r.veteran_signal)}</span></td>
+                      <td>
+                        ${esc(r.mortgage_signal)}<br>
+                        <span style="color:var(--muted)">${esc(r.latest_tax_payer || "—")}</span><br>
+                        <span style="color:var(--muted)">${esc(r.latest_dot_grantee || "")}${
+                      r.latest_dot_date
+                        ? " · " + esc(String(r.latest_dot_date).slice(0, 10))
+                        : ""
+                    }</span>
+                      </td>
+                      <td class="reasons">${reasons}</td>
+                    </tr>`;
+                  })
+                  .join("")}
+              </tbody>
+            </table>`;
+        } catch (err) {
+          wrap.innerHTML = `<div class="empty">Error: ${esc(err.message || err)}</div>`;
+        }
       }
-      const data = await res.json();
-      const t = data.total || {};
-      document.getElementById("stats").innerHTML = [
-        ["total", t.n],
-        ["hot", t.hot],
-        ["warm", t.warm],
-        ["watch", t.watch],
-      ]
-        .map(
-          ([l, n]) =>
-            `<div class="stat"><div class="n">${esc(n ?? 0)}</div><div class="l">${l}</div></div>`
-        )
-        .join("");
 
-      const rows = data.rows || [];
-      if (!rows.length) {
-        document.getElementById("tableWrap").innerHTML =
-          `<div class="empty">No scored opportunities yet. Run rebuild (or <code>bun scripts/build-va-opportunities.js --rebuild</code>).</div>`;
-        return;
-      }
+      document.getElementById("btnLoad").onclick = load;
+      document.getElementById("tier").onchange = load;
+      document.getElementById("minScore").onchange = load;
+      document.getElementById("btnRebuild").onclick = async () => {
+        if (
+          !confirm(
+            "Rebuild VA opportunity scores for all DV* parcels? This may take a few minutes."
+          )
+        ) {
+          return;
+        }
+        wrap.innerHTML = `<div class="empty">Rebuilding scores…</div>`;
+        try {
+          const res = await PortalAuth.authFetch("/api/bcad/va-opportunities/rebuild", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            alert(body.error || "Rebuild failed (admin required?)");
+            await load();
+            return;
+          }
+          alert(`Upserted ${body.upserted} · ${JSON.stringify(body.tierCounts)}`);
+          await load();
+        } catch (err) {
+          alert(err.message || "Rebuild failed");
+          await load();
+        }
+      };
 
-      document.getElementById("tableWrap").innerHTML = `
-        <table>
-          <thead>
-            <tr>
-              <th>Tier</th>
-              <th>Score</th>
-              <th>Owner / situs</th>
-              <th>Exemptions</th>
-              <th>Mortgage signal</th>
-              <th>Why</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rows
-              .map((r) => {
-                const reasons = (r.reasons || []).slice(0, 3).map(esc).join("<br>");
-                return `<tr>
-                  <td><span class="tier ${esc(r.tier)}">${esc(r.tier)}</span></td>
-                  <td><strong>${esc(r.score)}</strong></td>
-                  <td>
-                    <a href="/property.html?id=${esc(r.bcad_property_id)}">${esc(r.owner_name)}</a><br>
-                    <span style="color:var(--muted)">${esc(r.situs)}</span><br>
-                    <span style="color:var(--muted);font-size:0.72rem">${esc(r.geo_id)}</span>
-                  </td>
-                  <td>${esc(r.exemptions)}<br><span style="color:var(--muted)">${esc(r.veteran_signal)}</span></td>
-                  <td>
-                    ${esc(r.mortgage_signal)}<br>
-                    <span style="color:var(--muted)">${esc(r.latest_tax_payer || "—")}</span><br>
-                    <span style="color:var(--muted)">${esc(r.latest_dot_grantee || "")}${r.latest_dot_date ? " · " + esc(String(r.latest_dot_date).slice(0, 10)) : ""}</span>
-                  </td>
-                  <td class="reasons">${reasons}</td>
-                </tr>`;
-              })
-              .join("")}
-          </tbody>
-        </table>`;
-    }
-
-    document.getElementById("btnLoad").onclick = load;
-    document.getElementById("tier").onchange = load;
-    document.getElementById("minScore").onchange = load;
-    document.getElementById("btnRebuild").onclick = async () => {
-      if (!confirm("Rebuild VA opportunity scores for all DV* parcels? This may take a few minutes.")) return;
-      const res = await fetch("/api/bcad/va-opportunities/rebuild", {
-        method: "POST",
-        headers: { ...authHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(body.error || "Rebuild failed (admin required?)");
-        return;
-      }
-      alert(`Upserted ${body.upserted} · ${JSON.stringify(body.tierCounts)}`);
       await load();
-    };
-
-    await load();
+    })();
   </script>
 </body>
 </html>
