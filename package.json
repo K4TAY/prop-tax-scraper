@@ -1,6 +1,6 @@
 {
   "name": "prop-tax-scraper",
-  "version": "0.3.42",
+  "version": "0.3.43",
   "description": "Multi-county CAD property scraper with live console UI",
   "type": "module",
   "main": "src/server.js",
@@ -9,6 +9,7 @@
     "dev": "bun --watch src/server.js",
     "portal": "bun src/portal/server.js",
     "portal:dev": "bun --watch src/portal/server.js",
+    "va:rebuild": "bun scripts/build-va-opportunities.js --rebuild --list",
     "import:bcad": "bun scripts/import-bcad-from-bucket.js",
     "scrape": "python3 scrape_neighborhoods.py",
     "prepare:cameron": "python3 scripts/prepare_cameron_bulk.py",

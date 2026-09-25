@@ -1305,10 +1305,19 @@ def _is_na_token(v: Any) -> bool:
 
 
 def _first_value(*vals: Any) -> Any:
-    """Like ``_first``, but also skip literal N/A / NA / - tokens."""
+    """Like ``_first``, but skip N/A tokens and numeric/string zero (use later fallbacks)."""
     for v in vals:
         if _is_na_token(v):
             continue
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, (int, float)) and v == 0:
+            continue
+        if isinstance(v, str):
+            s = v.strip()
+            if not s or s in ("0", "0.0"):
+                continue
+            return s
         return v
     return None
 
@@ -1478,15 +1487,43 @@ def _bis_owner_name(attrs: dict[str, Any]) -> Any:
     if name is None or (isinstance(name, str) and not name.strip()):
         return None
     # Prefer when other account fields are present (avoids geometry-label Names).
-    signal = any(
-        attrs.get(k) not in (None, "")
-        for k in ("market", "legal_desc", "prop_id", "geo_id", "hood_cd", "owner_tax_yr")
+    signal_keys = (
+        "market",
+        "legal_desc",
+        "LEGAL",
+        "LEGAL_DESC",
+        "prop_id",
+        "PID",
+        "pid",
+        "geo_id",
+        "GEOID",
+        "hood_cd",
+        "NBHD",
+        "owner_tax_yr",
+        "VAL26TOT",
+        "VAL26LAND",
+        "SITUS",
+        "imprv_val",
+        "land_val",
     )
+    signal = any(attrs.get(k) not in (None, "") for k in signal_keys)
     if signal:
         return name
-    # Jefferson-style: Name + market/legal_desc aliases already checked; also allow
-    # when prop_id_text / file_as_name schema neighbors exist.
-    if any(k in attrs for k in ("prop_id", "prop_id_text", "geo_id", "market", "imprv_val")):
+    # Jefferson-style: Name present alongside account schema neighbors.
+    if any(
+        k in attrs
+        for k in (
+            "prop_id",
+            "prop_id_text",
+            "PID",
+            "geo_id",
+            "GEOID",
+            "market",
+            "imprv_val",
+            "VAL26TOT",
+            "LEGAL",
+        )
+    ):
         return name
     return None
 

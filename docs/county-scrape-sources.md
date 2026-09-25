@@ -527,6 +527,7 @@ These are scrape-wired (`arcgis_rest`) but **cannot be fixed by ArcGIS re-scrape
 | Literal `N/A` appraised (prelim) | **Bexar**, **Taylor** | Owners/hoods present; `appraised_val` is the string `N/A` for essentially all parcels until certified values publish |
 | Empty BIS value fields | **Robertson**, **Terry**, **Garza** | `file_as_name` / ids often present; `market`, `land_val`, `imprv_val` all null |
 | Empty BIS attrs (schema only) | **Johnson** | `JohnsonCADWebService` has owner/value field names but values are blank/null across ~100k parcels; no richer public FeatureServer found |
+| No appraisal fields on public GIS | **Montgomery**, **Wichita** | Owners/legal scrape; layer has no market/appraised columns (Montgomery Conroe mirror; Wichita MapServer/1) |
 | Pandai `Market_Value` null | Chambers, Clay, Jones, Nolan, Panola, Jack, McCulloch, Hardeman, Hall, King, Dawson, Hutchinson, Karnes, Hansford, Hemphill, Jeff Davis, Martin, Menard, Kent, Frio (and similar peers) | Public `*CADPublic` MapServer exposes `Market_Value` but it is null; ids/owners may still map |
 | Sparse Pandai values | Live Oak | `Market_Value` ~14% `> 0` (~62% non-null); mapper OK — re-scrape will not fill the empty majority |
 

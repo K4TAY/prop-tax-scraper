@@ -11,6 +11,11 @@ import { requireAuth } from "../auth/middleware.js";
 import { ensureBcadSchema } from "./bcadSchema.js";
 import bcadPool from "./bcadDb.js";
 import bcadRoutes from "./bcadRoutes.js";
+import { ensureTaxPaymentsSchema } from "./taxPayments.js";
+import { ensureDeedsSchema } from "./deeds.js";
+import { ensureHgoAppraisalSchema } from "./hgoAppraisal.js";
+import { ensureClerkRecordsSchema } from "./clerkRecords.js";
+import { ensureVaOpportunitiesSchema } from "./vaOpportunities.js";
 
 dotenv.config();
 
@@ -56,6 +61,14 @@ app.get("/data.html", (_req, res, next) => {
   sendPortalFile(res, "data.html", next);
 });
 
+app.get("/property.html", (_req, res, next) => {
+  sendPortalFile(res, "property.html", next);
+});
+
+app.get("/va.html", (_req, res, next) => {
+  sendPortalFile(res, "va.html", next);
+});
+
 app.use(
   express.static(PUBLIC_PORTAL, {
     index: false,
@@ -84,8 +97,13 @@ async function boot() {
   await bootstrapAdmin();
   try {
     await ensureBcadSchema(bcadPool);
+    await ensureTaxPaymentsSchema(bcadPool);
+    await ensureDeedsSchema(bcadPool);
+    await ensureHgoAppraisalSchema(bcadPool);
+    await ensureClerkRecordsSchema(bcadPool);
+    await ensureVaOpportunitiesSchema(bcadPool);
     console.log(
-      `[portal] bcad_properties ready (spatial DB: ${
+      `[portal] bcad_properties + tax + deeds + hgo + clerk + va opportunities ready (spatial DB: ${
         process.env.BCAD_DATABASE_URL ? "BCAD_DATABASE_URL" : "DATABASE_URL/local"
       })`
     );

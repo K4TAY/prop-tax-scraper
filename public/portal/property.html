@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Property — Bexar CAD Portal</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="stylesheet" href="/portal.css">
+  <style>
+    .prop-main { overflow: auto; }
+    .prop-wrap { max-width: 1100px; padding: 1.25rem 1.5rem 2.5rem; }
+    .prop-wrap h1 { margin: 0 0 0.25rem; font-size: 1.35rem; }
+    .prop-sub { color: var(--muted); margin: 0 0 1rem; font-size: 0.92rem; }
+    .prop-sub a { color: var(--accent); }
+    .toolbar {
+      display: flex; flex-wrap: wrap; gap: 0.55rem; align-items: center;
+      margin-bottom: 1.1rem;
+    }
+    .toolbar .spacer { flex: 1; }
+    .badge {
+      display: inline-block;
+      font-size: 0.72rem;
+      padding: 0.15rem 0.45rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      margin-left: 0.35rem;
+    }
+    .badge.warn { border-color: #8a6a2a; color: #e6c86a; background: #2a2210; }
+    .badge.ok { border-color: #2d5c4a; color: var(--accent); background: #12241c; }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.85rem;
+      margin-bottom: 1rem;
+    }
+    @media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.9rem 1rem 1rem;
+    }
+    .card h2 {
+      margin: 0 0 0.65rem;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      font-weight: 650;
+    }
+    .kv {
+      display: grid;
+      grid-template-columns: minmax(9rem, 38%) 1fr;
+      gap: 0.25rem 0.75rem;
+      font-size: 0.88rem;
+    }
+    .kv .k { color: var(--muted); }
+    .kv .v { color: var(--text); word-break: break-word; }
+    .kv .v.money { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .kv .v.dim { color: #9aa8b6; font-weight: 400; }
+    .section { margin: 1.15rem 0 0; }
+    .section h2 {
+      margin: 0 0 0.55rem;
+      font-size: 1rem;
+    }
+    .section .meta { color: var(--muted); font-size: 0.8rem; margin: -0.25rem 0 0.55rem; }
+    table.data {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    table.data th, table.data td {
+      border-bottom: 1px solid var(--border);
+      padding: 0.45rem 0.55rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    table.data th {
+      background: #0a0e12;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+    table.data tr:last-child td { border-bottom: none; }
+    table.data td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .empty-note { color: var(--muted); font-size: 0.88rem; margin: 0.35rem 0; }
+    .status-line { font-size: 0.85rem; color: #c5d0db; min-height: 1.3em; margin-bottom: 0.75rem; }
+    .status-line.err { color: #f07178; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-wrap">
+      <div class="brand">Bexar CAD Portal</div>
+      <div class="version" id="version"></div>
+    </div>
+    <div class="user-meta" id="userMeta"></div>
+  </header>
+  <div class="shell">
+    <nav class="sidebar" aria-label="Main">
+      <div class="nav-label">Maps</div>
+      <a class="nav-item" href="/">Bexar Property Map</a>
+      <div class="nav-label">Data</div>
+      <a class="nav-item" href="/data.html">Browse</a>
+      <a class="nav-item" href="/va.html">VA Opportunities</a>
+      <a class="nav-item active" href="/property.html">Property</a>
+      <a class="nav-item" href="/import.html">Import</a>
+    </nav>
+    <main class="main prop-main">
+      <div class="prop-wrap">
+        <h1 id="title">Property</h1>
+        <p class="prop-sub" id="subtitle">Loading…</p>
+        <div class="toolbar">
+          <button type="button" class="btn primary" id="btnRefresh">Refresh from sources</button>
+          <a class="btn" id="linkHgo" href="#" target="_blank" rel="noopener">Open HGO</a>
+          <a class="btn" id="linkActtax" href="#" target="_blank" rel="noopener">Open ACT Tax</a>
+          <a class="btn" id="linkMap" href="/">Map</a>
+          <span class="spacer"></span>
+          <span class="badge" id="freshBadge">—</span>
+        </div>
+        <div class="status-line" id="status"></div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h2>Identity</h2>
+            <div class="kv" id="identityKv"></div>
+          </div>
+          <div class="card">
+            <h2>Exemptions <span class="badge" id="exBadge">—</span></h2>
+            <div class="kv" id="exemptionsKv"></div>
+            <div id="exemptionsList" class="empty-note" style="margin-top:0.65rem"></div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h2>Verified appraisal (HGO / BCAD)</h2>
+            <div class="kv" id="hgoValuesKv"></div>
+          </div>
+          <div class="card">
+            <h2>Tax office values (ACT Tax)</h2>
+            <div class="kv" id="acttaxValuesKv"></div>
+          </div>
+        </div>
+
+        <div class="section">
+          <h2>Roll value history</h2>
+          <p class="meta">From Harris Govern property detail</p>
+          <div id="rollTable"></div>
+        </div>
+
+        <div class="section">
+          <h2>Historical tax payments</h2>
+          <p class="meta" id="paymentsMeta">From Bexar County Tax Assessor (ACT Tax)</p>
+          <div id="paymentsTable"></div>
+        </div>
+
+        <div class="section">
+          <h2>Deed history</h2>
+          <p class="meta">From Harris Govern deed history</p>
+          <div id="deedsTable"></div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <script src="/auth.js"></script>
+  <script>
+    (async function () {
+      const me = await PortalAuth.requireLogin();
+      if (!me) return;
+
+      const params = new URLSearchParams(location.search);
+      const id = Number(params.get("id"));
+      if (!Number.isFinite(id) || id <= 0) {
+        document.getElementById("subtitle").textContent =
+          "Open a property from the map or browse (?id=…), or refresh after selecting one.";
+        document.getElementById("btnRefresh").disabled = true;
+        return;
+      }
+
+      try {
+        const v = await (await fetch("/api/version")).json();
+        document.getElementById("version").textContent = "v" + (v.version || "");
+      } catch {}
+
+      document.getElementById("userMeta").innerHTML = `
+        <span>${PortalAuth.escapeHtml(PortalAuth.displayName(me.user))}
+          <span style="opacity:0.7">(${PortalAuth.escapeHtml(me.user.role)})</span>
+        </span>
+        <button type="button" id="logoutBtn">Logout</button>`;
+      document.getElementById("logoutBtn").addEventListener("click", PortalAuth.logout);
+
+      const esc = PortalAuth.escapeHtml;
+      const money = (n) => {
+        if (n == null || n === "") return "—";
+        const num = Number(n);
+        if (!Number.isFinite(num)) return esc(String(n));
+        return num.toLocaleString(undefined, {
+          style: "currency",
+          currency: "USD",
+          maximumFractionDigits: 2,
+        });
+      };
+      const text = (v) => (v == null || v === "" ? "—" : esc(String(v)));
+      const dateOnly = (v) => {
+        if (!v) return "—";
+        const s = String(v);
+        return esc(s.slice(0, 10));
+      };
+
+      function kv(pairs) {
+        return pairs
+          .map(
+            ([k, v, cls]) =>
+              `<div class="k">${esc(k)}</div><div class="v ${cls || ""}">${v}</div>`
+          )
+          .join("");
+      }
+
+      function table(headers, rows, emptyMsg) {
+        if (!rows.length) {
+          return `<p class="empty-note">${esc(emptyMsg)}</p>`;
+        }
+        return (
+          `<table class="data"><thead><tr>` +
+          headers.map((h) => `<th>${esc(h)}</th>`).join("") +
+          `</tr></thead><tbody>` +
+          rows.join("") +
+          `</tbody></table>`
+        );
+      }
+
+      function render(detail) {
+        const p = detail.parcel || {};
+        const h = detail.hgo_appraisal || null;
+        const t = detail.tax_account || null;
+        const ex = detail.hgo_exemptions || [];
+        const roll = detail.hgo_roll_history || [];
+        const payments = detail.payments || [];
+        const deeds = detail.deeds || [];
+
+        document.title = `${p.owner_name || p.geo_id || id} — Bexar CAD Portal`;
+        document.getElementById("title").textContent =
+          p.owner_name || p.situs || `Property ${id}`;
+        document.getElementById("subtitle").innerHTML =
+          `ID ${esc(String(p.id))} · Geo ${esc(p.geo_id || "—")} · PACS ${esc(
+            p.pacs_prop_id || "—"
+          )}` +
+          (p.situs ? ` · ${esc(p.situs)}` : "");
+
+        const hgoUrl =
+          h?.source_url ||
+          (p.pacs_prop_id
+            ? `https://hgo.harrisgovern.com/bexar/property/${new Date().getFullYear()}-${p.pacs_prop_id}`
+            : "#");
+        const actUrl =
+          t?.detail_source_url ||
+          (p.geo_id
+            ? `https://bexar.acttax.com/act_webdev/bexar/showdetail2.jsp?can=${String(
+                p.geo_id
+              ).replace(/\D/g, "")}`
+            : "#");
+        document.getElementById("linkHgo").href = hgoUrl;
+        document.getElementById("linkActtax").href = actUrl;
+
+        const stamps = [h?.fetched_at, t?.fetched_at, payments[0]?.fetched_at]
+          .filter(Boolean)
+          .map((d) => new Date(d).getTime());
+        const fresh = stamps.length ? new Date(Math.max(...stamps)) : null;
+        const badge = document.getElementById("freshBadge");
+        if (fresh) {
+          badge.textContent = "Fetched " + fresh.toLocaleString();
+          badge.className = "badge ok";
+        } else {
+          badge.textContent = "Not fetched yet — click Refresh";
+          badge.className = "badge warn";
+        }
+
+        document.getElementById("identityKv").innerHTML = kv([
+          ["Owner", text(p.owner_name)],
+          ["Situs", text(p.situs)],
+          ["Legal", text(p.legal_desc)],
+          ["Neighborhood", text(p.hood_name || p.hood_cd)],
+          ["Type", text(p.prop_type_desc || p.prop_type_cd)],
+          ["CAD appraised (import)", text(p.appraised_val), "dim"],
+          ["CAD exemptions (import)", text(p.exemptions), "dim"],
+        ]);
+
+        const exCodes =
+          (h?.exemptions_summary && String(h.exemptions_summary)) ||
+          (ex.length
+            ? ex.map((e) => e.exemption_type_code).join(", ")
+            : null);
+        const agNote =
+          h && Number(h.ag_use_value) > 0
+            ? `Ag-use ${money(h.ag_use_value)} (market land ${money(h.ag_market)})`
+            : null;
+        document.getElementById("exBadge").textContent = exCodes
+          ? exCodes
+          : agNote
+            ? "Ag valuation"
+            : t?.has_active_deferral
+              ? "Active deferral"
+              : "None listed";
+        document.getElementById("exemptionsKv").innerHTML = kv([
+          ["HGO codes", text(exCodes || "—")],
+          ["ACT Tax exemptions", text(t?.exemptions)],
+          ["Active deferral (tax office)", t?.has_active_deferral ? "Yes" : text(t ? "No" : "—")],
+          ["HS cap loss", money(h?.hs_cap_loss), "money"],
+          ["Ag use / ag market", agNote || "—"],
+          [
+            "Est. taxes (w/ / w/o ex.)",
+            h
+              ? `${money(h.estimated_taxes)} / ${money(
+                  h.estimated_taxes_without_exemptions
+                )}`
+              : "—",
+            "money",
+          ],
+        ]);
+        document.getElementById("exemptionsList").innerHTML = ex.length
+          ? `<table class="data"><thead><tr><th>Code</th><th>Qualify year</th><th>Tax year</th></tr></thead><tbody>` +
+            ex
+              .map(
+                (e) =>
+                  `<tr><td>${text(e.exemption_type_code)}</td><td>${text(
+                    e.qualify_year
+                  )}</td><td>${text(e.tax_year)}</td></tr>`
+              )
+              .join("") +
+            `</tbody></table>`
+          : `<span class="empty-note">${
+              agNote
+                ? "No coded exemptions on HGO; agricultural valuation is applied."
+                : "No HGO exemption rows stored yet."
+            }</span>`;
+
+        document.getElementById("hgoValuesKv").innerHTML = kv([
+          ["Tax year", text(h?.tax_year)],
+          ["Market", money(h?.market_value), "money"],
+          ["Appraised", money(h?.appraised_value), "money"],
+          ["Assessed", money(h?.assessed_value), "money"],
+          [
+            "Land (HS / non-HS)",
+            h
+              ? `${money(h.land_hstd_value)} / ${money(h.land_non_hstd_value)}`
+              : "—",
+            "money",
+          ],
+          [
+            "Improvements (HS / non-HS)",
+            h
+              ? `${money(h.imprv_hstd_value)} / ${money(h.imprv_non_hstd_value)}`
+              : "—",
+            "money",
+          ],
+          ["Source", h?.source_url ? `<a href="${esc(h.source_url)}" target="_blank" rel="noopener">HGO detail</a>` : "—"],
+        ]);
+
+        document.getElementById("acttaxValuesKv").innerHTML = kv([
+          ["Tax year", text(t?.tax_year)],
+          ["Market", money(t?.total_market_value), "money"],
+          ["Land", money(t?.land_value), "money"],
+          ["Improvement", money(t?.improvement_value), "money"],
+          ["Agricultural", money(t?.agricultural_value), "money"],
+          ["Year levy", money(t?.year_tax_levy), "money"],
+          ["Total due", money(t?.total_amount_due), "money"],
+          ["Last payment", t ? `${money(t.last_payment_amount)} on ${dateOnly(t.last_payment_date)}` : "—"],
+          ["Source", t?.detail_source_url ? `<a href="${esc(t.detail_source_url)}" target="_blank" rel="noopener">ACT Tax</a>` : "—"],
+        ]);
+
+        document.getElementById("rollTable").innerHTML = table(
+          [
+            "Year",
+            "Market",
+            "Appraised",
+            "Assessed",
+            "Land",
+            "Impr",
+            "Ag use",
+            "Taxable",
+            "HS cap",
+          ],
+          roll.map(
+            (r) =>
+              `<tr>
+                <td>${text(r.tax_year)}</td>
+                <td class="num">${money(r.market_value)}</td>
+                <td class="num">${money(r.appraised_value)}</td>
+                <td class="num">${money(r.assessed_value)}</td>
+                <td class="num">${money(r.land_value)}</td>
+                <td class="num">${money(r.improvement_value)}</td>
+                <td class="num">${money(r.ag_use_value)}</td>
+                <td class="num">${money(r.taxable_value)}</td>
+                <td class="num">${money(r.homestead_cap)}</td>
+              </tr>`
+          ),
+          "No roll history yet — click Refresh from sources."
+        );
+
+        document.getElementById("paymentsMeta").textContent =
+          `${payments.length} payment row(s)` +
+          (t?.payment_source_url ? " · ACT Tax payment history" : "");
+        document.getElementById("paymentsTable").innerHTML = table(
+          ["Paid", "Roll year", "Amount", "Description", "Payer"],
+          payments.map(
+            (r) =>
+              `<tr>
+                <td>${dateOnly(r.paid_date)}</td>
+                <td>${text(r.roll_year)}</td>
+                <td class="num">${money(r.amount)}</td>
+                <td>${text(r.description)}</td>
+                <td>${text(r.payer)}</td>
+              </tr>`
+          ),
+          "No tax payments stored yet — click Refresh from sources."
+        );
+
+        document.getElementById("deedsTable").innerHTML = table(
+          ["Seq", "Date", "Type", "Grantor", "Grantee", "Vol/Page", "Instrument"],
+          deeds.map(
+            (d) =>
+              `<tr>
+                <td>${text(d.seq_num)}</td>
+                <td>${dateOnly(d.deed_date)}</td>
+                <td>${text(d.deed_type_desc || d.deed_type_code)}</td>
+                <td>${text(d.grantor)}</td>
+                <td>${text(d.grantee)}</td>
+                <td>${text(
+                  [d.volume, d.page].filter(Boolean).join(" / ") || "—"
+                )}</td>
+                <td>${text(d.instrument_number)}</td>
+              </tr>`
+          ),
+          "No deeds stored yet — click Refresh from sources."
+        );
+      }
+
+      async function load() {
+        const status = document.getElementById("status");
+        status.className = "status-line";
+        status.textContent = "Loading…";
+        const res = await PortalAuth.authFetch(`/api/bcad/properties/${id}/detail`);
+        const data = await res.json();
+        if (!res.ok) {
+          status.className = "status-line err";
+          status.textContent = data.error || "Failed to load";
+          return;
+        }
+        status.textContent = "";
+        render(data);
+      }
+
+      document.getElementById("btnRefresh").addEventListener("click", async () => {
+        const btn = document.getElementById("btnRefresh");
+        const status = document.getElementById("status");
+        btn.disabled = true;
+        status.className = "status-line";
+        status.textContent =
+          "Fetching HGO appraisal + deeds and ACT Tax payments…";
+        try {
+          const res = await PortalAuth.authFetch(
+            `/api/bcad/properties/${id}/refresh`,
+            { method: "POST", body: JSON.stringify({}) }
+          );
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Refresh failed");
+          if (data.detail) render(data.detail);
+          const bits = [];
+          if (data.appraisal)
+            bits.push(
+              `HGO values + ${data.appraisal.exemptions} exemption(s) + ${data.appraisal.roll_years} roll year(s)`
+            );
+          if (data.tax)
+            bits.push(
+              `ACT Tax ${data.tax.inserted} new payment(s) (${data.tax.parsed} parsed)`
+            );
+          if (data.deeds)
+            bits.push(
+              `Deeds ${data.deeds.inserted} new (${data.deeds.parsed} parsed)`
+            );
+          if (data.errors?.length) {
+            status.className = "status-line err";
+            status.textContent =
+              bits.join(" · ") +
+              " — errors: " +
+              data.errors.map((e) => `${e.source}: ${e.error}`).join("; ");
+          } else {
+            status.textContent = "Refreshed — " + bits.join(" · ");
+          }
+        } catch (e) {
+          status.className = "status-line err";
+          status.textContent = e.message || "Refresh failed";
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      await load();
+    })();
+  </script>
+</body>
+</html>

@@ -310,7 +310,7 @@ export const CAD_SOURCES_SEED = [
     supports_arcgis: true,
     same_stack_as_bexar: true,
     notes:
-      "Custom TrueAutomation host. Attribute-rich parcels layer is MapServer/1 (not /0). Neighborhood field is NBHD (~58k parcels).",
+      "Custom TrueAutomation host. Attribute-rich parcels layer is MapServer/1 (not /0). Neighborhood field is NBHD (~58k parcels). SOURCE-EMPTY for values: public layer has NAME/LEGAL/situs but no market/appraised fields — owners scrape; values need PropAccess/ClientDB.",
     evidence_source: "live_probe",
   },
 
@@ -334,12 +334,12 @@ export const CAD_SOURCES_SEED = [
     ["Dallas", "https://maps.dcad.org/prdwa/rest/services/Property/ParcelQuery/MapServer", 4, "NGHBRHDCD", "LOWPARCELID", 844373, "DCAD ParcelPublishing; maps PARCELID→geo_id, CNTASSDVAL→appraised, OWNERNME1/SITEADDRESS/PRPRTYDSCRP"],
     ["Ector", "https://gis11.cama.io/arcgis/rest/services/Ector/EctorCounty_Basemap/MapServer", 0, "nh_cd", "PIN", 77313, "CAMA.io ParcelFabric"],
     ["Fort Bend", "https://services2.arcgis.com/D4saGHECICkCeoJm/arcgis/rest/services/FBCAD_Public_Data/FeatureServer", 0, "NBHDCODE", "PROPNUMBER", 385781, "FBCAD public AGOL"],
-    ["Galveston", "https://services2.arcgis.com/7Zo7vX4Yxo9Z7Vw3/arcgis/rest/services/MyMapService/FeatureServer", 0, "NBHD", "PID", 190731, "GCAD web map FS"],
+    ["Galveston", "https://services2.arcgis.com/7Zo7vX4Yxo9Z7Vw3/arcgis/rest/services/MyMapService/FeatureServer", 0, "NBHD", "PID", 190731, "GCAD web map FS (owner in NAME; values VAL26TOT)"],
     ["Grayson", "https://services1.arcgis.com/EVxyUkKpll765a5X/arcgis/rest/services/GraysonWebService/FeatureServer", 0, "NeighborhoodCode", "prop_id_text", 93034, "BIS ExB GraysonWebService"],
     ["Harris", "https://www.gis.hctx.net/arcgis/rest/services/HCAD/Parcels/MapServer", 0, "nh_cd", "HCAD_NUM", 1549401, "Official HCAD MapServer"],
     ["Lubbock", "https://gis.lubbockcad.org/arcgis/rest/services/TaxParcelOrion/MapServer", 0, "NbhdCode", "PROP_ID", 131843, "Lubbock CAD Orion parcels"],
-    ["Montgomery", "https://maps.cityofconroe.org/cvharcgis/rest/services/ENG/MANAGE_KML_TAX_PARCELS_1051_WGS84/MapServer", 0, "NeighborhoodCode", "PIN", 276557, "Conroe MCAD tax parcels mirror"],
-    ["Williamson", "https://gisweb.wcad.org/server/rest/services/WCADGISDATA/WCADGISDATA/MapServer", 0, "NGHBRHDCD", "PropertyID", 290913, "WCAD GIS MapServer"],
+    ["Montgomery", "https://maps.cityofconroe.org/cvharcgis/rest/services/ENG/MANAGE_KML_TAX_PARCELS_1051_WGS84/MapServer", 0, "NeighborhoodCode", "PIN", 276557, "Conroe MCAD tax parcels — SOURCE-EMPTY for values (PartyName/legal only; no market fields)"],
+    ["Williamson", "https://gisweb.wcad.org/server/rest/services/WCADGISDATA/WCADGISDATA/MapServer", 0, "NGHBRHDCD", "PropertyID", 290913, "WCAD GIS MapServer (prefer PRVASSDVAL; CNTASSDVAL often 0)"],
   ]),
 
   // Travis — County TNR TCAD MapServer (owner + values). Replaces sparse City of Austin EXTERNAL_tcad_parcel.

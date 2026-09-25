@@ -17,6 +17,37 @@ import {
   listDefaultBcadFilters,
   listBcadPageSizes,
 } from "./bcadBrowse.js";
+import {
+  importTaxPaymentsForProperty,
+  importTaxPaymentsByGeoId,
+  listTaxPaymentsForProperty,
+  getTaxAccountForProperty,
+  actTaxPaymentUrl,
+  actTaxDetailUrl,
+  geoIdToCan,
+} from "./taxPayments.js";
+import {
+  importDeedsForProperty,
+  importDeedsByGeoId,
+  listDeedsForProperty,
+  hgoPropertyUrl,
+} from "./deeds.js";
+import {
+  getPropertyDetail,
+  refreshPropertySources,
+} from "./propertyDetail.js";
+import {
+  rebuildVaOpportunities,
+  upsertVaOpportunityForProperty,
+  listVaOpportunities,
+  getVaOpportunity,
+} from "./vaOpportunities.js";
+import {
+  listClerkInstrumentsForProperty,
+  importClerkResultsForProperty,
+  clerkPartySearchUrl,
+  ownerToClerkParty,
+} from "./clerkRecords.js";
 
 const router = Router();
 
@@ -105,6 +136,242 @@ router.post("/browse", requireAuth, async (req, res) => {
   }
 });
 
+/** List stored ACT Tax account snapshot + payments for a property */
+router.get("/properties/:id/tax-payments", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const [account, payments] = await Promise.all([
+      getTaxAccountForProperty(id),
+      listTaxPaymentsForProperty(id),
+    ]);
+    res.json({
+      bcad_property_id: id,
+      account,
+      count: payments.length,
+      payments,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Fetch from bexar.acttax.com using geo_id → can (digits only) and upsert rows.
+ * Body optional: { geo_id } to resolve by geo instead of :id
+ */
+router.post("/properties/:id/tax-payments/fetch", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const result = await importTaxPaymentsForProperty(id, {
+      ownerNo: req.body?.ownerNo ?? 0,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/tax-payments/fetch", requireAuth, async (req, res) => {
+  try {
+    const geoId = req.body?.geo_id || req.body?.geoId || req.body?.can;
+    if (!geoId) return res.status(400).json({ error: "geo_id is required" });
+    const result = await importTaxPaymentsByGeoId(geoId, {
+      ownerNo: req.body?.ownerNo ?? 0,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/tax-payments/url", requireAuth, (req, res) => {
+  try {
+    const geoId = req.query.geo_id || req.query.can;
+    const can = geoIdToCan(geoId);
+    if (!can) return res.status(400).json({ error: "geo_id is required" });
+    res.json({
+      can,
+      payment_url: actTaxPaymentUrl(can),
+      detail_url: actTaxDetailUrl(can),
+      url: actTaxPaymentUrl(can),
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** List stored HGO deed history for a property */
+router.get("/properties/:id/deeds", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const deeds = await listDeedsForProperty(id);
+    res.json({ bcad_property_id: id, count: deeds.length, deeds });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Fetch HGO deed history (pacs_prop_id → propertyId) and upsert */
+router.post("/properties/:id/deeds/fetch", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const result = await importDeedsForProperty(id, {
+      year: req.body?.year,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/deeds/fetch", requireAuth, async (req, res) => {
+  try {
+    const geoId = req.body?.geo_id || req.body?.geoId;
+    if (!geoId) return res.status(400).json({ error: "geo_id is required" });
+    const result = await importDeedsByGeoId(geoId, { year: req.body?.year });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/deeds/url", requireAuth, (req, res) => {
+  try {
+    const propertyId = req.query.property_id || req.query.pacs_prop_id;
+    const year = req.query.year || new Date().getFullYear();
+    if (!propertyId) {
+      return res.status(400).json({ error: "property_id / pacs_prop_id required" });
+    }
+    res.json({
+      hgo_property_id: String(propertyId).replace(/\D/g, ""),
+      url: hgoPropertyUrl(propertyId, year),
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** VA opportunity list (scored DV* + mortgage signals) */
+router.get("/va-opportunities", requireAuth, async (req, res) => {
+  try {
+    const result = await listVaOpportunities({
+      limit: req.query.limit,
+      offset: req.query.offset,
+      tier: req.query.tier || null,
+      minScore: req.query.min_score ?? req.query.minScore ?? 0,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/va-opportunities/rebuild", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const result = await rebuildVaOpportunities({
+      limit: body.limit != null ? Number(body.limit) : null,
+      onlyDv: body.onlyDv !== false,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/properties/:id/va-opportunity", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    let row = await getVaOpportunity(id);
+    if (!row && req.query.refresh === "1") {
+      row = await upsertVaOpportunityForProperty(id);
+    }
+    if (!row) return res.status(404).json({ error: "not scored yet" });
+    res.json(row);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/properties/:id/va-opportunity/score", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const row = await upsertVaOpportunityForProperty(id);
+    res.json(row);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/properties/:id/clerk-instruments", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const instruments = await listClerkInstrumentsForProperty(id);
+    res.json({ bcad_property_id: id, count: instruments.length, instruments });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Import captured clerk results for a property.
+ * Body: { rows: [...], search_party?, forceMatch? }
+ */
+router.post("/properties/:id/clerk-instruments/import", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const rows = req.body?.rows;
+    if (!Array.isArray(rows) || !rows.length) {
+      return res.status(400).json({ error: "rows[] required" });
+    }
+    const result = await importClerkResultsForProperty(id, rows, {
+      search_party: req.body?.search_party,
+      forceMatch: req.body?.forceMatch === true,
+      source_url: req.body?.source_url,
+    });
+    if (req.body?.rescore !== false) {
+      result.opportunity = await upsertVaOpportunityForProperty(id);
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/clerk/search-url", requireAuth, (req, res) => {
+  try {
+    const party = req.query.party || ownerToClerkParty(req.query.owner || "");
+    if (!party) return res.status(400).json({ error: "party or owner required" });
+    res.json({ party, url: clerkPartySearchUrl(party) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.get("/parcel/:id", requireAuth, async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -116,6 +383,43 @@ router.get("/parcel/:id", requireAuth, async (req, res) => {
     res.json({ parcel });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/** Full property packet: CAD + HGO appraisal/exemptions/roll + ACT Tax + deeds */
+router.get("/properties/:id/detail", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const detail = await getPropertyDetail(id);
+    if (!detail) return res.status(404).json({ error: "not found" });
+    res.json(detail);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Refresh from live sources: HGO appraisal/exemptions/roll + deeds,
+ * ACT Tax account + payment history.
+ */
+router.post("/properties/:id/refresh", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const parcel = await getBcadParcelById(id);
+    if (!parcel) return res.status(404).json({ error: "not found" });
+    const result = await refreshPropertySources(id, {
+      year: req.body?.year,
+      ownerNo: req.body?.ownerNo ?? 0,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

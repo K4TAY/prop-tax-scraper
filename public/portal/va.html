@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VA Opportunities — Bexar CAD Portal</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="stylesheet" href="/portal.css">
+  <style>
+    .va-main {
+      padding: 1rem 1.25rem 2rem;
+      overflow: auto;
+      flex: 1;
+      min-height: 0;
+    }
+    .va-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+    .va-head h1 {
+      margin: 0;
+      font-size: 1.15rem;
+      font-weight: 650;
+    }
+    .va-head p {
+      margin: 0.35rem 0 0;
+      color: var(--muted);
+      font-size: 0.85rem;
+      max-width: 42rem;
+    }
+    .stats {
+      display: flex;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+    .stat {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 0.45rem 0.75rem;
+      min-width: 4.5rem;
+    }
+    .stat .n { font-size: 1.1rem; font-weight: 700; color: var(--accent); }
+    .stat .l { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.85rem;
+    }
+    .controls select, .controls button {
+      background: #1a2330;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 0.4rem 0.65rem;
+      font-size: 0.85rem;
+    }
+    .controls button { cursor: pointer; }
+    .controls button:hover { border-color: var(--accent); }
+    .controls button.primary {
+      background: #16352c;
+      border-color: #2d5c4a;
+      color: var(--accent);
+      font-weight: 600;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.5rem 0.55rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      position: sticky;
+      top: 0;
+      background: var(--bg);
+    }
+    tr:hover td { background: #121820; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .tier {
+      display: inline-block;
+      padding: 0.12rem 0.45rem;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+    }
+    .tier.hot { background: #3a1a1a; color: #f07178; }
+    .tier.warm { background: #3a2e14; color: #e6b450; }
+    .tier.watch { background: #1a2330; color: #8b9aab; }
+    .reasons {
+      color: var(--muted);
+      font-size: 0.75rem;
+      max-width: 22rem;
+    }
+    .empty { color: var(--muted); padding: 2rem 0; }
+    .note {
+      margin-top: 1rem;
+      font-size: 0.78rem;
+      color: var(--muted);
+      max-width: 48rem;
+      line-height: 1.45;
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-wrap">
+      <div class="brand">Bexar CAD Portal</div>
+      <div class="version" id="version"></div>
+    </div>
+    <div class="user-meta" id="userMeta"></div>
+  </header>
+  <div class="shell">
+    <nav class="sidebar" aria-label="Main">
+      <div class="nav-label">Maps</div>
+      <a class="nav-item" href="/">Bexar Property Map</a>
+      <div class="nav-label">Data</div>
+      <a class="nav-item" href="/data.html">Browse</a>
+      <a class="nav-item active" href="/va.html">VA Opportunities</a>
+      <a class="nav-item" href="/import.html">Import</a>
+    </nav>
+    <main class="va-main">
+      <div class="va-head">
+        <div>
+          <h1>VA loan opportunities</h1>
+          <p>
+            Ranked from public BCAD disabled-veteran exemptions (DVHS / DV1–4),
+            ACT Tax escrow payers, and clerk Deeds of Trust — not from VA disability lists.
+          </p>
+        </div>
+        <div class="stats" id="stats"></div>
+      </div>
+      <div class="controls">
+        <label>
+          Tier
+          <select id="tier">
+            <option value="">All</option>
+            <option value="hot">Hot</option>
+            <option value="warm">Warm</option>
+            <option value="watch">Watch</option>
+          </select>
+        </label>
+        <label>
+          Min score
+          <select id="minScore">
+            <option value="0">0</option>
+            <option value="45">45</option>
+            <option value="70" selected>70</option>
+          </select>
+        </label>
+        <button type="button" id="btnLoad">Refresh list</button>
+        <button type="button" class="primary" id="btnRebuild" title="Admin only">Rebuild scores</button>
+      </div>
+      <div id="tableWrap"><div class="empty">Loading…</div></div>
+      <p class="note">
+        Hot ≈ DVHS + active commercial mortgage signals (escrow payer and/or Deed of Trust).
+        Warm ≈ veteran exemption with weaker financing evidence. Enrichment (tax fetch / clerk import)
+        raises scores as those tables fill in.
+      </p>
+    </main>
+  </div>
+  <script type="module">
+    import { requireAuth, authHeaders, logout } from "/auth.js";
+
+    const me = await requireAuth();
+    document.getElementById("userMeta").innerHTML =
+      `<span>${me.user?.email || ""}</span><button type="button" id="logout">Log out</button>`;
+    document.getElementById("logout").onclick = () => logout();
+
+    try {
+      const v = await (await fetch("/api/version")).json();
+      document.getElementById("version").textContent = "v" + (v.version || "");
+    } catch { /* ignore */ }
+
+    function esc(s) {
+      return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    async function load() {
+      const tier = document.getElementById("tier").value;
+      const minScore = document.getElementById("minScore").value;
+      const qs = new URLSearchParams({ limit: "100", min_score: minScore });
+      if (tier) qs.set("tier", tier);
+      const res = await fetch(`/api/bcad/va-opportunities?${qs}`, {
+        headers: authHeaders(),
+      });
+      if (!res.ok) {
+        document.getElementById("tableWrap").innerHTML =
+          `<div class="empty">Error: ${esc((await res.json()).error || res.status)}</div>`;
+        return;
+      }
+      const data = await res.json();
+      const t = data.total || {};
+      document.getElementById("stats").innerHTML = [
+        ["total", t.n],
+        ["hot", t.hot],
+        ["warm", t.warm],
+        ["watch", t.watch],
+      ]
+        .map(
+          ([l, n]) =>
+            `<div class="stat"><div class="n">${esc(n ?? 0)}</div><div class="l">${l}</div></div>`
+        )
+        .join("");
+
+      const rows = data.rows || [];
+      if (!rows.length) {
+        document.getElementById("tableWrap").innerHTML =
+          `<div class="empty">No scored opportunities yet. Run rebuild (or <code>bun scripts/build-va-opportunities.js --rebuild</code>).</div>`;
+        return;
+      }
+
+      document.getElementById("tableWrap").innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Tier</th>
+              <th>Score</th>
+              <th>Owner / situs</th>
+              <th>Exemptions</th>
+              <th>Mortgage signal</th>
+              <th>Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows
+              .map((r) => {
+                const reasons = (r.reasons || []).slice(0, 3).map(esc).join("<br>");
+                return `<tr>
+                  <td><span class="tier ${esc(r.tier)}">${esc(r.tier)}</span></td>
+                  <td><strong>${esc(r.score)}</strong></td>
+                  <td>
+                    <a href="/property.html?id=${esc(r.bcad_property_id)}">${esc(r.owner_name)}</a><br>
+                    <span style="color:var(--muted)">${esc(r.situs)}</span><br>
+                    <span style="color:var(--muted);font-size:0.72rem">${esc(r.geo_id)}</span>
+                  </td>
+                  <td>${esc(r.exemptions)}<br><span style="color:var(--muted)">${esc(r.veteran_signal)}</span></td>
+                  <td>
+                    ${esc(r.mortgage_signal)}<br>
+                    <span style="color:var(--muted)">${esc(r.latest_tax_payer || "—")}</span><br>
+                    <span style="color:var(--muted)">${esc(r.latest_dot_grantee || "")}${r.latest_dot_date ? " · " + esc(String(r.latest_dot_date).slice(0, 10)) : ""}</span>
+                  </td>
+                  <td class="reasons">${reasons}</td>
+                </tr>`;
+              })
+              .join("")}
+          </tbody>
+        </table>`;
+    }
+
+    document.getElementById("btnLoad").onclick = load;
+    document.getElementById("tier").onchange = load;
+    document.getElementById("minScore").onchange = load;
+    document.getElementById("btnRebuild").onclick = async () => {
+      if (!confirm("Rebuild VA opportunity scores for all DV* parcels? This may take a few minutes.")) return;
+      const res = await fetch("/api/bcad/va-opportunities/rebuild", {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(body.error || "Rebuild failed (admin required?)");
+        return;
+      }
+      alert(`Upserted ${body.upserted} · ${JSON.stringify(body.tierCounts)}`);
+      await load();
+    };
+
+    await load();
+  </script>
+</body>
+</html>

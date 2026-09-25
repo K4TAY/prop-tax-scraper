@@ -83,8 +83,12 @@ export async function getBcadBounds(client = bcadPool) {
 
 export async function getBcadParcelById(id, client = bcadPool) {
   const { rows } = await client.query(
-    `SELECT id, pacs_prop_id, geo_id, owner_name, situs, appraised_val,
-            hood_cd, hood_name, legal_desc, prop_type_desc, addr_city, addr_zip
+    `SELECT id, pacs_prop_id, geo_id, prop_id, owner_id, owner_name, situs,
+            legal_desc, dba_name, appraised_val, appraised_val_num,
+            addr_line1, addr_line2, addr_line3, addr_city, addr_state, addr_zip,
+            prop_type_cd, prop_type_desc, state_cd, exemptions, pct_ownership,
+            jurisdictions, abs_subdv_cd, hood_cd, hood_name, mapsco, map_id,
+            agent_cd, prop_val_yr, account_id, objectid, imported_at
      FROM bcad_properties WHERE id = $1`,
     [id]
   );
