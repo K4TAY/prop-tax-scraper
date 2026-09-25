@@ -73,25 +73,56 @@ function parseArgs(argv) {
   return out;
 }
 
+function ts() {
+  return new Date().toISOString().slice(11, 19);
+}
+
+function log(...parts) {
+  console.log(`[${ts()}]`, ...parts);
+}
+
+function fmtDetail(detail) {
+  if (detail == null || detail === "") return "";
+  if (typeof detail === "string") return detail;
+  try {
+    return JSON.stringify(detail);
+  } catch {
+    return String(detail);
+  }
+}
+
 async function enrichCandidates(opts) {
   const limit = opts.limit != null ? opts.limit : 50;
+  const jobStarted = Date.now();
+  log("=== VA enrich start ===");
+  log("Listing candidates…", {
+    limit,
+    tier: opts.tier || "any",
+    minScore: opts.minScore || 0,
+  });
+
   const listed = await listVaOpportunities({
     limit,
     tier: opts.tier,
     minScore: opts.minScore,
   });
   const rows = listed.rows || [];
-  console.log("enrich_start", {
-    requested: limit,
+  log("Candidates loaded", {
     found: rows.length,
-    tier: opts.tier || "any",
     totals: listed.total,
   });
   if (!rows.length) {
     console.warn(
-      "No VA candidates to enrich. Run --rebuild first so bcad_va_opportunities is populated."
+      `[${ts()}] No VA candidates to enrich. Run --rebuild first so bcad_va_opportunities is populated.`
     );
     return { ok: 0, failed: 0, skipped: 0 };
+  }
+
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    log(
+      `  ${i + 1}. #${r.bcad_property_id}  tier=${r.tier}  score=${r.score}  ${String(r.owner_name || "").slice(0, 36)}  |  ${String(r.situs || "").slice(0, 40)}`
+    );
   }
 
   let ok = 0;
@@ -99,33 +130,79 @@ async function enrichCandidates(opts) {
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     const id = Number(r.bcad_property_id);
-    const label = `[${i + 1}/${rows.length}] #${id} ${r.tier || "?"} ${String(r.owner_name || "").slice(0, 28)}`;
-    process.stdout.write(`${label} … `);
+    const propStarted = Date.now();
+    log("────────────────────────────────────────");
+    log(
+      `Property ${i + 1}/${rows.length}: #${id}  [${r.tier || "?"} / score ${r.score}]`
+    );
+    log(`  owner: ${r.owner_name || "—"}`);
+    log(`  situs: ${r.situs || "—"}`);
+    log(`  geo:   ${r.geo_id || "—"}`);
+    log(
+      `  before: mortgage=${r.mortgage_signal || "—"}  tax_payer=${r.latest_tax_payer || "—"}  dot=${r.latest_dot_grantee || "—"}`
+    );
+
     try {
-      const out = await refreshPropertySources(id);
-      // Always re-score after enrichment (refresh only rescores on clerk success).
+      const out = await refreshPropertySources(id, {
+        onProgress(step, detail) {
+          const extra = fmtDetail(detail);
+          log(`  → ${step}${extra ? `: ${extra}` : ""}`);
+        },
+      });
+
+      log("  → final_rescore: upserting VA opportunity from enriched data…");
       const scored = await upsertVaOpportunityForProperty(id);
-      const errs = (out.errors || [])
-        .map((e) => `${e.source}:${e.error}`)
-        .join("; ");
-      console.log(
-        [
-          out.ok ? "ok" : "partial",
-          `score=${scored?.score}`,
-          `tier=${scored?.tier}`,
-          errs ? `errs=${errs}` : "",
-        ]
-          .filter(Boolean)
-          .join(" ")
+      const elapsed = ((Date.now() - propStarted) / 1000).toFixed(1);
+      const errs = out.errors || [];
+
+      if (out.tax) {
+        log(
+          `  summary tax: inserted=${out.tax.inserted} skipped=${out.tax.skipped}`
+        );
+      }
+      if (out.deeds) {
+        log(
+          `  summary deeds: parsed=${out.deeds.parsed} inserted=${out.deeds.inserted}`
+        );
+      }
+      if (out.appraisal) {
+        log(
+          `  summary hgo: tax_year=${out.appraisal.tax_year} years_fetched=${out.appraisal.years_fetched} exemptions=${out.appraisal.exemptions ?? "—"}`
+        );
+      }
+      if (out.clerk) {
+        log(
+          `  summary clerk: automated=${out.clerk.automated} fetched=${out.clerk.fetched ?? "—"} inserted=${out.clerk.inserted ?? "—"} financing=${out.clerk.financing_count ?? "—"}`
+        );
+        if (out.clerk.message) log(`  clerk msg: ${out.clerk.message}`);
+      }
+      for (const e of errs) {
+        log(`  ! error ${e.source}: ${e.error}`);
+      }
+      log(
+        `  after:  score=${scored?.score}  tier=${scored?.tier}  mortgage=${scored?.mortgage_signal || "—"}  (${elapsed}s)`
       );
+      log(
+        `Property ${i + 1}/${rows.length} done: ${out.ok ? "OK" : "PARTIAL"}`
+      );
+
       if (out.ok) ok += 1;
       else failed += 1;
     } catch (e) {
       failed += 1;
-      console.log(`fail ${e.message}`);
+      const elapsed = ((Date.now() - propStarted) / 1000).toFixed(1);
+      log(`  ! FAIL after ${elapsed}s: ${e.message}`);
+      if (e.stack) console.error(e.stack);
     }
   }
-  console.log("enrich_done", { ok, failed, total: rows.length });
+
+  const totalSec = ((Date.now() - jobStarted) / 1000).toFixed(1);
+  log("=== VA enrich done ===", {
+    ok,
+    failed,
+    total: rows.length,
+    seconds: totalSec,
+  });
   return { ok, failed, total: rows.length };
 }
 
