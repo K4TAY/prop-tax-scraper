@@ -9,7 +9,7 @@
  *   bun scripts/cron-enrich-va-opportunity.js
  *   bun scripts/cron-enrich-va-opportunity.js --min-score=50
  *
- * Railway: service cronSchedule = "*/10 * * * *" (every 10 minutes UTC)
+ * Railway: service cronSchedule = every 10 minutes UTC (five-field cron).
  */
 import dotenv from "dotenv";
 import bcadPool from "../src/portal/bcadDb.js";
