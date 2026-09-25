@@ -163,8 +163,201 @@ export function isFinancingDocType(docType) {
 
 /**
  * Parse results table text dumped from the publicsearch UI (tab/newline oriented).
- * Accepts array of row objects already shaped.
+ * Also accepts JSON arrays / `{ rows|results|documents: [...] }`.
  */
+export function parseClerkResultsPayload(input) {
+  if (Array.isArray(input)) return input.map(normalizeLooseClerkRow).filter(Boolean);
+  if (input && typeof input === "object") {
+    const rows = input.rows || input.results || input.documents || input.data;
+    if (Array.isArray(rows)) {
+      return rows.map(normalizeLooseClerkRow).filter(Boolean);
+    }
+    const one = normalizeLooseClerkRow(input);
+    return one ? [one] : [];
+  }
+
+  const text = String(input || "").trim();
+  if (!text) return [];
+
+  // JSON blob pasted from DevTools / export
+  if (text.startsWith("[") || text.startsWith("{")) {
+    try {
+      return parseClerkResultsPayload(JSON.parse(text));
+    } catch {
+      /* fall through to TSV/CSV */
+    }
+  }
+
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trimEnd())
+    .filter((l) => l.trim());
+  if (!lines.length) return [];
+
+  const delim = lines[0].includes("\t")
+    ? "\t"
+    : lines[0].includes("|")
+      ? "|"
+      : ",";
+  const split = (line) =>
+    line.split(delim).map((c) => c.trim().replace(/^"|"$/g, ""));
+
+  const headerCells = split(lines[0]).map((h) =>
+    h.toLowerCase().replace(/[^a-z0-9]+/g, "_")
+  );
+  const looksLikeHeader =
+    headerCells.some((h) =>
+      /doc|grantor|grantee|recorded|type|instrument|number|ncb|address/.test(h)
+    ) && !/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(headerCells[0]);
+
+  const headers = looksLikeHeader
+    ? headerCells
+    : [
+        "recorded_date",
+        "doc_type",
+        "grantor",
+        "grantee",
+        "doc_number",
+        "ncb",
+        "block",
+        "lot",
+        "property_address",
+      ];
+  const dataLines = looksLikeHeader ? lines.slice(1) : lines;
+
+  const alias = {
+    recorded: "recorded_date",
+    recorded_date: "recorded_date",
+    date: "recorded_date",
+    type: "doc_type",
+    doc_type: "doc_type",
+    document_type: "doc_type",
+    instrument: "doc_number",
+    instrument_number: "doc_number",
+    doc: "doc_number",
+    doc_number: "doc_number",
+    document_number: "doc_number",
+    grantor: "grantor",
+    grantee: "grantee",
+    ncb: "ncb",
+    block: "block",
+    lot: "lot",
+    address: "property_address",
+    property_address: "property_address",
+    situs: "property_address",
+    legal: "legal_description",
+    legal_description: "legal_description",
+  };
+
+  const mappedHeaders = headers.map((h) => alias[h] || h);
+  const rows = [];
+  for (const line of dataLines) {
+    const cells = split(line);
+    if (!cells.some(Boolean)) continue;
+    const row = {};
+    mappedHeaders.forEach((key, i) => {
+      if (key && cells[i] != null && cells[i] !== "") row[key] = cells[i];
+    });
+    // Heuristic when no header: date first, then type, grantor, grantee, doc #
+    if (!looksLikeHeader && cells.length >= 5) {
+      row.recorded_date = row.recorded_date || cells[0];
+      row.doc_type = row.doc_type || cells[1];
+      row.grantor = row.grantor || cells[2];
+      row.grantee = row.grantee || cells[3];
+      row.doc_number = row.doc_number || cells[4];
+    }
+    const n = normalizeLooseClerkRow(row);
+    if (n) rows.push(n);
+  }
+  return rows;
+}
+
+function normalizeLooseClerkRow(row) {
+  if (!row || typeof row !== "object") return null;
+  const doc_number = blankToNull(
+    row.doc_number || row.docNumber || row.instrument_number || row.InstrumentNumber
+  );
+  const doc_type = blankToNull(row.doc_type || row.docType || row.DocumentType);
+  const grantor = blankToNull(row.grantor || row.Grantor);
+  const grantee = blankToNull(row.grantee || row.Grantee);
+  if (!doc_number && !doc_type && !grantor && !grantee) return null;
+  return {
+    recorded_date: row.recorded_date || row.recordedDate || row.RecordedDate,
+    doc_type,
+    grantor,
+    grantee,
+    doc_number,
+    book_volume_page: row.book_volume_page || row.bookVolumePage,
+    legal_description: row.legal_description || row.legalDescription,
+    lot: row.lot || row.Lot,
+    block: row.block || row.Block,
+    ncb: row.ncb || row.NCB,
+    county_block: row.county_block || row.countyBlock,
+    property_address: row.property_address || row.propertyAddress || row.Address,
+  };
+}
+
+/** Doc-type filter string for publicsearch advanced search URL (when supported). */
+export const FINANCING_DOC_TYPES_QUERY = [
+  "DEED OF TRUST",
+  "DEED OF TRUST SECURED",
+  "RELEASE",
+  "RELEASE OF LIEN",
+  "ASSIGNMENT",
+  "ASSIGNMENT OF DEED OF TRUST",
+  "MODIFICATION",
+  "EXTENSION",
+  "ASSUMPTION",
+].join(",");
+
+export function clerkFinancingSearchUrl(partyName, opts = {}) {
+  return clerkPartySearchUrl(partyName, {
+    ...opts,
+    docTypes: opts.docTypes || FINANCING_DOC_TYPES_QUERY,
+  });
+}
+
+/**
+ * Build the manual clerk financing import packet for a property (no live scrape).
+ * publicsearch.us is websocket/UI-only — caller opens the URL and pastes results.
+ */
+export async function prepareClerkFinancingForProperty(propertyId, opts = {}) {
+  const client = opts.client || bcadPool;
+  await ensureClerkRecordsSchema(client);
+  const { rows } = await client.query(
+    `SELECT id, geo_id, owner_name, situs, legal_desc FROM bcad_properties WHERE id = $1`,
+    [propertyId]
+  );
+  if (!rows.length) throw new Error(`property ${propertyId} not found`);
+  const prop = rows[0];
+  const party = opts.search_party || ownerToClerkParty(prop.owner_name);
+  if (!party) {
+    return {
+      needs_manual: true,
+      party: null,
+      search_url: null,
+      existing_count: 0,
+      message: "No owner name to search on the clerk site",
+    };
+  }
+  const search_url = clerkFinancingSearchUrl(party);
+  const existing = await listClerkInstrumentsForProperty(propertyId, client);
+  const financing = existing.filter((r) => r.is_financing_related);
+  return {
+    needs_manual: true,
+    party,
+    search_url,
+    owner_name: prop.owner_name,
+    geo_id: prop.geo_id,
+    situs: prop.situs,
+    legal_hints: parseLegalHints(prop.legal_desc),
+    existing_count: existing.length,
+    financing_count: financing.length,
+    message:
+      "Open the Bexar clerk search, copy financing results (TSV/JSON), then paste & import below.",
+  };
+}
+
 export function normalizeClerkInstrument(row, meta = {}) {
   const doc_type = blankToNull(row.doc_type || row.docType);
   return {
@@ -284,10 +477,12 @@ export async function listClerkInstrumentsForProperty(propertyId, client = bcadP
 }
 
 /**
- * Import a captured results payload (array of row objects) for one property.
+ * Import a captured results payload (array, JSON text, or TSV) for one property.
+ * Default: keep financing-related rows only (DOT / release / assignment / etc.).
  */
-export async function importClerkResultsForProperty(propertyId, rows, opts = {}) {
+export async function importClerkResultsForProperty(propertyId, rowsOrText, opts = {}) {
   const client = opts.client || bcadPool;
+  await ensureClerkRecordsSchema(client);
   const { rows: props } = await client.query(
     `SELECT id, geo_id, owner_name, situs, legal_desc FROM bcad_properties WHERE id = $1`,
     [propertyId]
@@ -295,8 +490,23 @@ export async function importClerkResultsForProperty(propertyId, rows, opts = {})
   if (!props.length) throw new Error(`property ${propertyId} not found`);
   const prop = props[0];
   const party = opts.search_party || ownerToClerkParty(prop.owner_name);
-  const source_url = opts.source_url || clerkPartySearchUrl(party);
+  const source_url =
+    opts.source_url || (party ? clerkFinancingSearchUrl(party) : null);
   const hints = parseLegalHints(prop.legal_desc);
+
+  let rows = parseClerkResultsPayload(rowsOrText);
+  const financingOnly = opts.financingOnly !== false;
+  if (financingOnly) {
+    rows = rows.filter((r) => isFinancingDocType(r.doc_type));
+  }
+  if (!rows.length) {
+    throw new Error(
+      financingOnly
+        ? "No financing instruments found in pasted results (DOT / release / assignment / etc.)"
+        : "No clerk rows parsed from pasted results"
+    );
+  }
+
   const instruments = rows.map((row) => {
     const n = normalizeClerkInstrument(row, { search_party: party, source_url });
     const matched = instrumentMatchesProperty(n, prop, hints);
@@ -308,5 +518,13 @@ export async function importClerkResultsForProperty(propertyId, rows, opts = {})
     };
   });
   const result = await upsertClerkInstruments(instruments, { client });
-  return { party, source_url, hints, ...result, instruments };
+  return {
+    party,
+    source_url,
+    hints,
+    financing_only: financingOnly,
+    matched: instruments.filter((i) => i.matched_property).length,
+    ...result,
+    instruments,
+  };
 }

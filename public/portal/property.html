@@ -28,6 +28,55 @@
     }
     .badge.warn { border-color: #8a6a2a; color: #e6c86a; background: #2a2210; }
     .badge.ok { border-color: #2d5c4a; color: var(--accent); background: #12241c; }
+    .clerk-import {
+      margin-top: 0.85rem;
+      padding-top: 0.85rem;
+      border-top: 1px solid var(--border);
+    }
+    .clerk-import textarea {
+      width: 100%;
+      min-height: 110px;
+      margin: 0.45rem 0 0.55rem;
+      padding: 0.55rem 0.65rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #0a0e12;
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.78rem;
+      resize: vertical;
+    }
+    .clerk-import .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.55rem;
+      align-items: center;
+      margin-bottom: 0.45rem;
+    }
+    .clerk-import label.check {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-size: 0.82rem;
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .clerk-import .hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin: 0 0 0.4rem;
+      line-height: 1.4;
+    }
+    .clerk-import.needs-action {
+      border-top-color: #8a6a2a;
+      background: linear-gradient(180deg, #2a2210 0%, transparent 48px);
+      margin-left: -0.25rem;
+      margin-right: -0.25rem;
+      padding-left: 0.25rem;
+      padding-right: 0.25rem;
+      border-radius: 8px;
+    }
+    .badge.ok { border-color: #2d5c4a; color: var(--accent); background: #12241c; }
     .grid-2 {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -173,9 +222,22 @@
         </div>
 
         <div class="section">
-          <h2>Clerk financing instruments</h2>
-          <p class="meta">Deeds of Trust / releases from Bexar County Clerk (when imported)</p>
+          <h2>Clerk financing instruments <span class="badge" id="clerkBadge">—</span></h2>
+          <p class="meta">Deeds of Trust / releases from Bexar County Clerk — paste search results after opening the county site</p>
           <div id="clerkTable"></div>
+          <div class="clerk-import" id="clerkImportPanel">
+            <p class="hint" id="clerkHint">
+              Refresh prepares a party search. Open it, copy financing rows from publicsearch, paste here, then import.
+            </p>
+            <div class="row">
+              <a class="btn" id="btnClerkSearch" href="#" target="_blank" rel="noopener">Open clerk search</a>
+              <button type="button" class="btn primary" id="btnClerkImport">Import pasted results</button>
+              <label class="check"><input type="checkbox" id="clerkForceMatch" /> Force-match to this property</label>
+              <label class="check"><input type="checkbox" id="clerkAllTypes" /> Include non-financing types</label>
+            </div>
+            <textarea id="clerkPaste" placeholder="Paste TSV / CSV / JSON from Bexar publicsearch results (Date, Type, Grantor, Grantee, Doc #, …)"></textarea>
+            <p class="meta" id="clerkImportStatus"></p>
+          </div>
         </div>
       </div>
     </main>
@@ -206,6 +268,92 @@
         </span>
         <button type="button" id="logoutBtn">Logout</button>`;
       document.getElementById("logoutBtn").addEventListener("click", PortalAuth.logout);
+
+      let clerkPacket = null;
+
+      function applyClerkPacket(packet, opts = {}) {
+        clerkPacket = packet || null;
+        const panel = document.getElementById("clerkImportPanel");
+        const hint = document.getElementById("clerkHint");
+        const link = document.getElementById("btnClerkSearch");
+        const badge = document.getElementById("clerkBadge");
+        if (!packet) {
+          hint.textContent =
+            "Refresh prepares a party search. Open it, copy financing rows from publicsearch, paste here, then import.";
+          link.href = "#";
+          panel.classList.remove("needs-action");
+          badge.textContent = "—";
+          badge.className = "badge";
+          return;
+        }
+        const party = packet.party || "—";
+        hint.textContent = packet.message
+          ? `${packet.message} Party: ${party}.`
+          : `Search party: ${party}.`;
+        if (packet.search_url) {
+          link.href = packet.search_url;
+        } else {
+          link.href = "#";
+        }
+        const fin = packet.financing_count ?? 0;
+        badge.textContent = fin ? `${fin} financing` : "none yet";
+        badge.className = fin ? "badge ok" : "badge warn";
+        if (opts.highlight || packet.needs_manual) {
+          panel.classList.add("needs-action");
+        }
+        if (opts.openSearch && packet.search_url) {
+          window.open(packet.search_url, "_blank", "noopener");
+        }
+      }
+
+      async function loadClerkPacket() {
+        try {
+          const res = await PortalAuth.authFetch(
+            `/api/bcad/properties/${id}/clerk-financing`
+          );
+          const data = await res.json();
+          if (res.ok) applyClerkPacket(data);
+        } catch {}
+      }
+
+      async function importClerkPaste() {
+        const status = document.getElementById("clerkImportStatus");
+        const text = document.getElementById("clerkPaste").value;
+        if (!String(text || "").trim()) {
+          status.textContent = "Paste clerk results first.";
+          return;
+        }
+        status.textContent = "Importing…";
+        try {
+          const res = await PortalAuth.authFetch(
+            `/api/bcad/properties/${id}/clerk-instruments/import`,
+            {
+              method: "POST",
+              body: JSON.stringify({
+                text,
+                forceMatch: document.getElementById("clerkForceMatch").checked,
+                financingOnly: !document.getElementById("clerkAllTypes").checked,
+                search_party: clerkPacket?.party,
+                source_url: clerkPacket?.search_url,
+              }),
+            }
+          );
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Import failed");
+          status.textContent =
+            `Imported ${data.inserted} new · ${data.skipped} updated/skipped · ${data.matched || 0} matched to this property` +
+            (data.financing_only ? " (financing filter on)" : "");
+          document.getElementById("clerkPaste").value = "";
+          await load();
+          await loadClerkPacket();
+        } catch (e) {
+          status.textContent = e.message || "Import failed";
+        }
+      }
+
+      document
+        .getElementById("btnClerkImport")
+        .addEventListener("click", importClerkPaste);
 
       const esc = PortalAuth.escapeHtml;
       const money = (n) => {
@@ -507,18 +655,23 @@
         );
 
         document.getElementById("clerkTable").innerHTML = table(
-          ["Recorded", "Type", "Grantor", "Grantee", "Doc #"],
+          ["Recorded", "Type", "Grantor", "Grantee", "Doc #", "Match"],
           clerk.map(
             (c) =>
               `<tr>
                 <td>${dateOnly(c.recorded_date)}</td>
-                <td>${text(c.doc_type)}</td>
+                <td>${text(c.doc_type)}${
+                  c.is_financing_related
+                    ? ' <span class="badge ok">fin</span>'
+                    : ""
+                }</td>
                 <td>${text(c.grantor)}</td>
                 <td>${text(c.grantee)}</td>
                 <td>${instrumentLink(c.doc_number)}</td>
+                <td>${c.matched_property ? "yes" : "—"}</td>
               </tr>`
           ),
-          "No clerk instruments imported yet."
+          "No clerk instruments imported yet — use Open clerk search + paste below."
         );
       }
 
@@ -543,7 +696,7 @@
         btn.disabled = true;
         status.className = "status-line";
         status.textContent =
-          "Fetching HGO year-by-year exemptions + deeds and ACT Tax payments…";
+          "Fetching HGO / ACT Tax / deeds, then preparing clerk financing search…";
         try {
           const res = await PortalAuth.authFetch(
             `/api/bcad/properties/${id}/refresh`,
@@ -552,6 +705,12 @@
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || "Refresh failed");
           if (data.detail) render(data.detail);
+          if (data.clerk) {
+            applyClerkPacket(data.clerk, {
+              highlight: true,
+              openSearch: !!data.clerk.search_url,
+            });
+          }
           const bits = [];
           if (data.appraisal) {
             const yrs = data.appraisal.years_fetched
@@ -563,11 +722,15 @@
           }
           if (data.tax)
             bits.push(
-              `ACT Tax ${data.tax.inserted} new payment(s) (${data.tax.parsed} parsed)`
+              `ACT Tax ${data.tax.inserted} payment(s) (${data.tax.parsed} parsed)`
             );
           if (data.deeds)
             bits.push(
-              `Deeds ${data.deeds.inserted} new (${data.deeds.parsed} parsed)`
+              `Deeds ${data.deeds.inserted} (${data.deeds.parsed} parsed)`
+            );
+          if (data.clerk?.needs_manual)
+            bits.push(
+              `Clerk search ready${data.clerk.party ? ` for ${data.clerk.party}` : ""} — paste results to import`
             );
           if (data.errors?.length) {
             status.className = "status-line err";
@@ -587,6 +750,7 @@
       });
 
       await load();
+      await loadClerkPacket();
     })();
   </script>
 </body>

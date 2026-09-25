@@ -45,6 +45,7 @@ import {
 import {
   listClerkInstrumentsForProperty,
   importClerkResultsForProperty,
+  prepareClerkFinancingForProperty,
   clerkPartySearchUrl,
   clerkDocumentSearchUrl,
   ownerToClerkParty,
@@ -337,7 +338,7 @@ router.get("/properties/:id/clerk-instruments", requireAuth, async (req, res) =>
 
 /**
  * Import captured clerk results for a property.
- * Body: { rows: [...], search_party?, forceMatch? }
+ * Body: { rows?: [...], text?: string, search_party?, forceMatch?, financingOnly?, source_url? }
  */
 router.post("/properties/:id/clerk-instruments/import", requireAuth, async (req, res) => {
   try {
@@ -346,18 +347,38 @@ router.post("/properties/:id/clerk-instruments/import", requireAuth, async (req,
       return res.status(400).json({ error: "invalid id" });
     }
     const rows = req.body?.rows;
-    if (!Array.isArray(rows) || !rows.length) {
-      return res.status(400).json({ error: "rows[] required" });
+    const text = req.body?.text;
+    const payload = rows != null ? rows : text;
+    if (
+      payload == null ||
+      (typeof payload === "string" && !payload.trim()) ||
+      (Array.isArray(payload) && !payload.length)
+    ) {
+      return res.status(400).json({ error: "rows[] or text required" });
     }
-    const result = await importClerkResultsForProperty(id, rows, {
+    const result = await importClerkResultsForProperty(id, payload, {
       search_party: req.body?.search_party,
       forceMatch: req.body?.forceMatch === true,
+      financingOnly: req.body?.financingOnly !== false,
       source_url: req.body?.source_url,
     });
     if (req.body?.rescore !== false) {
       result.opportunity = await upsertVaOpportunityForProperty(id);
     }
     res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get("/properties/:id/clerk-financing", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const packet = await prepareClerkFinancingForProperty(id);
+    res.json(packet);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

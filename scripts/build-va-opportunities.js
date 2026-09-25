@@ -115,6 +115,7 @@ async function seedForteClerk() {
     {
       search_party: "FORTE KEVIN",
       forceMatch: true,
+      financingOnly: false,
       source_url:
         "https://bexar.tx.publicsearch.us/results?department=RP&parties=%7B%22parties%22%3A%5B%7B%22term%22%3A%22FORTE%20KEVIN%22%2C%22types%22%3A%5B%22grantor%22%2C%22grantee%22%5D%7D%5D%7D&recordedDateRange=18000101%2C20261231&searchType=advancedSearch",
     }

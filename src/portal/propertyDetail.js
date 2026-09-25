@@ -19,7 +19,7 @@ import {
   buildExemptionTimeline,
   ensureHgoAppraisalSchema,
 } from "./hgoAppraisal.js";
-import { listClerkInstrumentsForProperty } from "./clerkRecords.js";
+import { listClerkInstrumentsForProperty, prepareClerkFinancingForProperty, ensureClerkRecordsSchema } from "./clerkRecords.js";
 import { getVaOpportunity } from "./vaOpportunities.js";
 
 /**
@@ -73,18 +73,22 @@ export async function getPropertyDetail(propertyId, client = bcadPool) {
 
 /**
  * Refresh verified appraisal (HGO), tax office account + payments, and deeds.
+ * Clerk financing cannot be scraped server-side (publicsearch websocket UI) —
+ * refresh prepares the search URL and asks the UI for a paste/import step.
  */
 export async function refreshPropertySources(propertyId, opts = {}) {
   const client = opts.client || bcadPool;
   await ensureTaxPaymentsSchema(client);
   await ensureDeedsSchema(client);
   await ensureHgoAppraisalSchema(client);
+  await ensureClerkRecordsSchema(client);
 
   const year = opts.year || new Date().getFullYear();
   const errors = [];
   let tax = null;
   let deeds = null;
   let appraisal = null;
+  let clerk = null;
 
   try {
     tax = await importTaxPaymentsForProperty(propertyId, {
@@ -108,6 +112,12 @@ export async function refreshPropertySources(propertyId, opts = {}) {
     });
   } catch (e) {
     errors.push({ source: "hgo_appraisal", error: e.message });
+  }
+
+  try {
+    clerk = await prepareClerkFinancingForProperty(propertyId, { client });
+  } catch (e) {
+    errors.push({ source: "clerk_prep", error: e.message });
   }
 
   const detail = await getPropertyDetail(propertyId, client);
@@ -143,6 +153,7 @@ export async function refreshPropertySources(propertyId, opts = {}) {
           source_url: appraisal.source_url,
         }
       : null,
+    clerk,
     detail,
   };
 }
