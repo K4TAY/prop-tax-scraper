@@ -48,6 +48,10 @@ app.get("/map.html", (_req, res, next) => {
   sendPortalFile(res, "map.html", next);
 });
 
+app.get("/import.html", (_req, res, next) => {
+  sendPortalFile(res, "import.html", next);
+});
+
 app.use(
   express.static(PUBLIC_PORTAL, {
     index: false,

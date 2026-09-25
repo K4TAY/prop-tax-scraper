@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Import — Bexar CAD Portal</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="stylesheet" href="/portal.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-wrap">
+      <div class="brand">Bexar CAD Portal</div>
+      <div class="version" id="version"></div>
+    </div>
+    <div class="user-meta" id="userMeta"></div>
+  </header>
+  <div class="shell">
+    <nav class="sidebar" aria-label="Main">
+      <div class="nav-label">Maps</div>
+      <a class="nav-item" href="/">Bexar Property Map</a>
+      <div class="nav-label">Data</div>
+      <a class="nav-item active" href="/import.html">Import</a>
+    </nav>
+    <main class="main import-main">
+      <div class="import-wrap">
+        <h1>Bucket → PostGIS import</h1>
+        <p class="lead">
+          Loads <code>parcels.geojson.gz</code> from the Railway bucket into
+          <code>bcad_properties</code> (PostGIS). This powers the property map.
+        </p>
+
+        <div class="stat-row" id="statRow">
+          <div class="stat"><div class="stat-label">Status</div><div class="stat-value" id="stPhase">—</div></div>
+          <div class="stat"><div class="stat-label">Progress</div><div class="stat-value" id="stPct">0%</div></div>
+          <div class="stat"><div class="stat-label">Neighborhoods</div><div class="stat-value" id="stHoods">0 / 0</div></div>
+          <div class="stat"><div class="stat-label">Parcels inserted</div><div class="stat-value" id="stParcels">0</div></div>
+          <div class="stat"><div class="stat-label">Table total</div><div class="stat-value" id="stTable">—</div></div>
+          <div class="stat"><div class="stat-label">Failed</div><div class="stat-value" id="stFailed">0</div></div>
+        </div>
+
+        <div class="progress-track" aria-hidden="true">
+          <div class="progress-fill" id="progressFill" style="width:0%"></div>
+        </div>
+        <div class="current-line" id="currentLine">Idle</div>
+
+        <div class="actions" id="actions">
+          <button type="button" class="btn primary" id="btnStart">Start import</button>
+          <button type="button" class="btn danger" id="btnForce">Full reload (truncate)</button>
+          <button type="button" class="btn" id="btnCancel" disabled>Cancel</button>
+        </div>
+        <p class="hint" id="hint">Admin only. Resume/replace per neighborhood unless you choose full reload.</p>
+        <p class="err" id="error"></p>
+
+        <h2>Activity</h2>
+        <pre class="log" id="log"></pre>
+      </div>
+    </main>
+  </div>
+  <script src="/auth.js"></script>
+  <script>
+    (async function () {
+      const me = await PortalAuth.requireLogin();
+      if (!me) return;
+
+      const isAdmin = me.user.role === "ADMIN";
+      document.getElementById("version").textContent = "";
+      try {
+        const v = await (await fetch("/api/version")).json();
+        document.getElementById("version").textContent = "v" + v.version;
+      } catch {}
+
+      document.getElementById("userMeta").innerHTML = `
+        <span>${PortalAuth.escapeHtml(PortalAuth.displayName(me.user))}
+          <span style="opacity:0.7">(${PortalAuth.escapeHtml(me.user.role)})</span>
+        </span>
+        <button type="button" id="logoutBtn">Logout</button>`;
+      document.getElementById("logoutBtn").addEventListener("click", PortalAuth.logout);
+
+      if (!isAdmin) {
+        document.getElementById("actions").style.display = "none";
+        document.getElementById("hint").textContent =
+          "View-only. Ask an admin to start an import.";
+      }
+
+      const el = {
+        phase: document.getElementById("stPhase"),
+        pct: document.getElementById("stPct"),
+        hoods: document.getElementById("stHoods"),
+        parcels: document.getElementById("stParcels"),
+        table: document.getElementById("stTable"),
+        failed: document.getElementById("stFailed"),
+        fill: document.getElementById("progressFill"),
+        current: document.getElementById("currentLine"),
+        log: document.getElementById("log"),
+        err: document.getElementById("error"),
+        btnStart: document.getElementById("btnStart"),
+        btnForce: document.getElementById("btnForce"),
+        btnCancel: document.getElementById("btnCancel"),
+      };
+
+      function fmt(n) {
+        return Number(n || 0).toLocaleString();
+      }
+
+      function render(s) {
+        const p = s.progress || {};
+        const running = Boolean(s.running);
+        el.phase.textContent = running ? "Running" : (p.phase || "Idle");
+        el.pct.textContent = (p.pct != null ? p.pct : 0) + "%";
+        el.hoods.textContent = `${fmt(p.current)} / ${fmt(p.total)}`;
+        el.parcels.textContent = fmt(p.parcels);
+        el.failed.textContent = fmt(p.failed);
+        const tableN = p.tableTotal ?? s.result?.tableTotal;
+        el.table.textContent = tableN != null ? fmt(tableN) : "—";
+        el.fill.style.width = Math.min(100, Number(p.pct) || 0) + "%";
+        el.current.textContent = p.message || "Idle";
+        if (p.recent?.length) {
+          el.log.textContent = p.recent
+            .map((r) => `${r.status === "fail" ? "FAIL" : "OK  "} ${r.label} — ${r.detail}`)
+            .join("\n");
+          el.log.scrollTop = el.log.scrollHeight;
+        }
+        if (s.error) el.err.textContent = s.error;
+        else if (!running) el.err.textContent = "";
+
+        el.btnStart.disabled = !isAdmin || running || !s.bucketConfigured;
+        el.btnForce.disabled = !isAdmin || running || !s.bucketConfigured;
+        el.btnCancel.disabled = !isAdmin || !running;
+        if (!s.bucketConfigured) {
+          el.err.textContent =
+            "Bucket credentials not configured on this service (ENDPOINT / BUCKET / keys).";
+        }
+      }
+
+      async function refresh() {
+        const res = await PortalAuth.authFetch("/api/bcad/import/status");
+        const data = await res.json();
+        render(data);
+      }
+
+      // Live SSE
+      const token = PortalAuth.getToken();
+      const es = new EventSource(
+        "/api/bcad/import/events?token=" + encodeURIComponent(token)
+      );
+      es.onmessage = (ev) => {
+        try {
+          render(JSON.parse(ev.data));
+        } catch {}
+      };
+      es.onerror = () => {
+        // fallback poll
+        refresh().catch(() => {});
+      };
+
+      async function start(force) {
+        el.err.textContent = "";
+        if (force && !confirm("Truncate bcad_properties and re-import everything?")) {
+          return;
+        }
+        const res = await PortalAuth.authFetch("/api/bcad/import/start", {
+          method: "POST",
+          body: JSON.stringify({ force: Boolean(force) }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          el.err.textContent = data.error || "Failed to start";
+          return;
+        }
+        render(data);
+      }
+
+      el.btnStart.addEventListener("click", () => start(false));
+      el.btnForce.addEventListener("click", () => start(true));
+      el.btnCancel.addEventListener("click", async () => {
+        const res = await PortalAuth.authFetch("/api/bcad/import/cancel", {
+          method: "POST",
+          body: "{}",
+        });
+        render(await res.json());
+      });
+
+      // Also load table count from /status
+      try {
+        const st = await PortalAuth.authFetch("/api/bcad/status");
+        const d = await st.json();
+        if (d.count != null) el.table.textContent = fmt(d.count);
+      } catch {}
+
+      await refresh();
+    })();
+  </script>
+</body>
+</html>

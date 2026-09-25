@@ -1,10 +1,16 @@
 import { Router } from "express";
-import { requireAuth } from "../auth/middleware.js";
+import { requireAuth, requireAdmin } from "../auth/middleware.js";
 import {
   getBcadBounds,
   getBcadMvtTile,
   getBcadParcelById,
 } from "./bcadSchema.js";
+import {
+  getImportJobStatus,
+  startImportJob,
+  requestImportCancel,
+  subscribeImportProgress,
+} from "./bcadImportJob.js";
 
 const router = Router();
 
@@ -15,10 +21,56 @@ router.get("/status", requireAuth, async (_req, res) => {
       ok: true,
       count: info.count,
       bounds: info.bounds,
+      import: getImportJobStatus(),
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+router.get("/import/status", requireAuth, (_req, res) => {
+  res.json(getImportJobStatus());
+});
+
+/** SSE progress stream — EventSource uses ?token= */
+router.get("/import/events", requireAuth, (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+  const unsub = subscribeImportProgress(res);
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(": ping\n\n");
+    } catch {
+      clearInterval(keepAlive);
+    }
+  }, 15000);
+  req.on("close", () => {
+    clearInterval(keepAlive);
+    unsub();
+  });
+});
+
+router.post("/import/start", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const status = await startImportJob({
+      force: body.force === true,
+      limit: body.limit ? Number(body.limit) : 0,
+      hood: body.hood || null,
+      startedBy: req.user?.email || null,
+    });
+    res.status(202).json(status);
+  } catch (err) {
+    const code = err.code === "IMPORT_BUSY" ? 409 : 400;
+    res.status(code).json({ error: err.message });
+  }
+});
+
+router.post("/import/cancel", requireAuth, requireAdmin, (_req, res) => {
+  const ok = requestImportCancel();
+  res.json({ ok, ...getImportJobStatus() });
 });
 
 router.get("/parcel/:id", requireAuth, async (req, res) => {
@@ -35,10 +87,6 @@ router.get("/parcel/:id", requireAuth, async (req, res) => {
   }
 });
 
-/**
- * MapLibre vector source tiles. Auth via Authorization header or ?token=
- * (MapLibre cannot always set custom headers on tile requests).
- */
 router.get("/tiles/:z/:x/:y.mvt", requireAuth, async (req, res) => {
   try {
     const z = Number(req.params.z);

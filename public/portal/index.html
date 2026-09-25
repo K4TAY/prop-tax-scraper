@@ -142,6 +142,38 @@
       font-size: 0.8rem;
       color: var(--muted);
     }
+    .basemap-control {
+      position: absolute;
+      bottom: 1rem;
+      right: 0.85rem;
+      z-index: 10;
+      display: flex;
+      gap: 0;
+      background: rgba(18, 24, 32, 0.92);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+    }
+    .basemap-control button {
+      border: none;
+      background: transparent;
+      color: var(--text);
+      font-size: 0.82rem;
+      font-weight: 600;
+      padding: 0.45rem 0.75rem;
+      cursor: pointer;
+    }
+    .basemap-control button + button {
+      border-left: 1px solid var(--border);
+    }
+    .basemap-control button.active {
+      background: #16352c;
+      color: var(--accent);
+    }
+    .basemap-control button:hover:not(.active) {
+      background: #1a2330;
+    }
     .maplibregl-popup-content {
       background: #121820 !important;
       color: #e8edf2 !important;
@@ -174,15 +206,18 @@
   <div class="shell">
     <nav class="sidebar" aria-label="Main">
       <div class="nav-label">Maps</div>
-      <a class="nav-item active" href="/" data-page="map">
-        <span class="full">Bexar Property Map</span>
-        <span class="short" hidden>Map</span>
-      </a>
+      <a class="nav-item active" href="/">Bexar Property Map</a>
+      <div class="nav-label">Data</div>
+      <a class="nav-item" href="/import.html">Import</a>
     </nav>
     <main class="main">
       <div class="page-title"><strong>Bexar Property Map</strong> — parcel lines</div>
       <div id="map"></div>
       <div class="status-pill" id="status">Loading parcels…</div>
+      <div class="basemap-control" role="group" aria-label="Basemap">
+        <button type="button" class="active" data-basemap="street" id="btnStreet">Street map</button>
+        <button type="button" data-basemap="satellite" id="btnSat">Satellite</button>
+      </div>
     </main>
   </div>
 
@@ -229,7 +264,7 @@
         statusEl.textContent = e.message || "Status error";
       }
 
-      // Bexar County approx center
+      // Bexar County approx center — Street (OSM) + Esri World Imagery (same as Police Calls admin)
       const map = new maplibregl.Map({
         container: "map",
         style: {
@@ -240,14 +275,32 @@
               tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
               tileSize: 256,
               attribution: "© OpenStreetMap",
+              maxzoom: 19,
+            },
+            satellite: {
+              type: "raster",
+              // Esri World Imagery — {z}/{y}/{x} order (same URL as sapd entity-map-basemap.js)
+              tiles: [
+                "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+              ],
+              tileSize: 256,
+              attribution:
+                "Tiles © Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+              maxzoom: 19,
             },
           },
           layers: [
             {
-              id: "osm",
+              id: "basemap-osm",
               type: "raster",
               source: "osm",
-              paint: { "raster-opacity": 0.55 },
+              layout: { visibility: "visible" },
+            },
+            {
+              id: "basemap-satellite",
+              type: "raster",
+              source: "satellite",
+              layout: { visibility: "none" },
             },
           ],
         },
@@ -255,6 +308,42 @@
         zoom: 10,
       });
       map.addControl(new maplibregl.NavigationControl(), "top-right");
+
+      function setBasemap(mode) {
+        const street = mode === "street";
+        map.setLayoutProperty(
+          "basemap-osm",
+          "visibility",
+          street ? "visible" : "none"
+        );
+        map.setLayoutProperty(
+          "basemap-satellite",
+          "visibility",
+          street ? "none" : "visible"
+        );
+        // Parcel outlines: darker on street, light on satellite
+        if (map.getLayer("bcad-outline")) {
+          map.setPaintProperty(
+            "bcad-outline",
+            "line-color",
+            street ? "#1a3a2f" : "#f0f4f2"
+          );
+          map.setPaintProperty(
+            "bcad-fill",
+            "fill-opacity",
+            street ? 0.08 : 0.12
+          );
+          map.setPaintProperty(
+            "bcad-fill",
+            "fill-color",
+            street ? "#6ec9a8" : "#6ec9a8"
+          );
+        }
+        document.getElementById("btnStreet").classList.toggle("active", street);
+        document.getElementById("btnSat").classList.toggle("active", !street);
+      }
+      document.getElementById("btnStreet").addEventListener("click", () => setBasemap("street"));
+      document.getElementById("btnSat").addEventListener("click", () => setBasemap("satellite"));
 
       map.on("load", () => {
         map.addSource("bcad-parcels", {
