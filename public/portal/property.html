@@ -76,135 +76,68 @@
       padding-right: 0.25rem;
       border-radius: 8px;
     }
-    .galerts-dock {
+    .galerts-panel {
       display: none;
-      position: fixed;
-      top: 0;
-      right: 0;
-      bottom: 0;
-      width: min(520px, 46vw);
-      z-index: 40;
-      background: #0b1016;
-      border-left: 1px solid var(--border);
-      box-shadow: -8px 0 24px rgba(0, 0, 0, 0.35);
-      flex-direction: column;
-    }
-    .galerts-dock.open {
-      display: flex;
-    }
-    body.galerts-open .shell {
-      margin-right: min(520px, 46vw);
-    }
-    .galerts-dock-head {
-      flex: 0 0 auto;
-      padding: 0.75rem 0.85rem 0.55rem;
-      border-bottom: 1px solid var(--border);
+      margin: 0 0 1rem;
+      padding: 0.85rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
       background: #121820;
     }
-    .galerts-dock-head h3 {
-      margin: 0 0 0.25rem;
-      font-size: 0.95rem;
+    .galerts-panel.open { display: block; }
+    .galerts-panel h3 {
+      margin: 0 0 0.35rem;
+      font-size: 0.9rem;
       font-weight: 650;
     }
-    .galerts-dock-head .hint {
-      margin: 0 0 0.55rem;
-      font-size: 0.75rem;
+    .galerts-panel .hint {
+      margin: 0 0 0.65rem;
+      font-size: 0.78rem;
       color: var(--muted);
       line-height: 1.4;
     }
     .galerts-list {
       list-style: none;
-      margin: 0 0 0.55rem;
+      margin: 0;
       padding: 0;
       display: flex;
       flex-direction: column;
-      gap: 0.35rem;
-      max-height: 9.5rem;
-      overflow: auto;
+      gap: 0.45rem;
     }
     .galerts-list li {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.4rem;
+      gap: 0.5rem;
       align-items: center;
       justify-content: space-between;
-      padding: 0.4rem 0.5rem;
+      padding: 0.45rem 0.55rem;
       border: 1px solid var(--border);
       border-radius: 6px;
       background: #0b1016;
-      cursor: pointer;
-    }
-    .galerts-list li:hover,
-    .galerts-list li.active {
-      border-color: #2d5c4a;
-      background: #12241c;
     }
     .galerts-list .q {
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-      font-size: 0.72rem;
+      font-size: 0.78rem;
       color: var(--text);
     }
     .galerts-list .label {
       display: block;
-      font-size: 0.65rem;
+      font-size: 0.68rem;
       text-transform: uppercase;
       letter-spacing: 0.04em;
       color: var(--muted);
-      margin-bottom: 0.1rem;
+      margin-bottom: 0.15rem;
     }
     .galerts-actions {
+      margin-top: 0.65rem;
       display: flex;
       flex-wrap: wrap;
-      gap: 0.4rem;
+      gap: 0.45rem;
       align-items: center;
     }
-    .galerts-dock .status {
-      font-size: 0.72rem;
-      color: var(--muted);
-      flex: 1 1 8rem;
-    }
-    .galerts-frame-wrap {
-      flex: 1 1 auto;
-      min-height: 0;
-      position: relative;
-      background: #fff;
-    }
-    .galerts-frame-wrap iframe {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      border: 0;
-      background: #fff;
-    }
-    .galerts-frame-fallback {
-      display: none;
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      padding: 0.65rem 0.85rem;
-      background: rgba(18, 24, 32, 0.94);
-      border-top: 1px solid var(--border);
-      color: var(--muted);
+    .galerts-panel .status {
       font-size: 0.78rem;
-      line-height: 1.4;
-      z-index: 2;
-    }
-    .galerts-frame-fallback.show { display: block; }
-    .galerts-frame-fallback a { color: var(--accent); }
-    .galerts-frame-fallback button {
-      margin-left: 0.5rem;
-      background: transparent;
-      border: 0;
       color: var(--muted);
-      cursor: pointer;
-      text-decoration: underline;
-      font-size: inherit;
-    }
-    @media (max-width: 900px) {
-      .galerts-dock { width: min(100vw, 100%); }
-      body.galerts-open .shell { margin-right: 0; }
     }
     .badge.ok { border-color: #2d5c4a; color: var(--accent); background: #12241c; }
     .grid-2 {
@@ -353,6 +286,20 @@
           <span class="spacer"></span>
           <span class="badge" id="freshBadge">—</span>
         </div>
+        <div class="galerts-panel" id="galertsPanel" hidden>
+          <h3>Create Google Alerts</h3>
+          <p class="hint">
+            Opens each query in a new tab as <strong>name &amp; city</strong> and
+            <strong>name and state</strong>. Use the Google account signed in this browser,
+            then click <strong>Create Alert</strong> on each tab.
+          </p>
+          <ul class="galerts-list" id="galertsList"></ul>
+          <div class="galerts-actions">
+            <button type="button" class="btn primary" id="btnGalertsOpenAll">Open all in new tabs</button>
+            <button type="button" class="btn" id="btnGalertsClose">Close</button>
+            <span class="status" id="galertsStatus"></span>
+          </div>
+        </div>
         <div class="status-line" id="status"></div>
 
         <div class="grid-2">
@@ -425,39 +372,6 @@
       </div>
     </main>
   </div>
-
-  <aside class="galerts-dock" id="galertsDock" aria-label="Google Alerts" hidden>
-    <div class="galerts-dock-head">
-      <h3>Google Alerts</h3>
-      <p class="hint">
-        Loads each alert in the frame on the right. Use the Google account signed in this browser,
-        then click <strong>Create Alert</strong>. If Google blocks the embed, use
-        <strong>Open outside</strong>.
-      </p>
-      <ul class="galerts-list" id="galertsList"></ul>
-      <div class="galerts-actions">
-        <button type="button" class="btn" id="btnGalertsPrev">Prev</button>
-        <button type="button" class="btn primary" id="btnGalertsNext">Next</button>
-        <a class="btn" id="btnGalertsExternal" href="#" target="_blank" rel="noopener">Open outside</a>
-        <button type="button" class="btn" id="btnGalertsClose">Close</button>
-        <span class="status" id="galertsStatus"></span>
-      </div>
-    </div>
-    <div class="galerts-frame-wrap">
-      <iframe
-        id="galertsFrame"
-        title="Google Alerts"
-        referrerpolicy="no-referrer-when-downgrade"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"
-      ></iframe>
-      <div class="galerts-frame-fallback" id="galertsFallback">
-        If the frame is blank, Google blocked the embed —
-        <a id="galertsFallbackLink" href="#" target="_blank" rel="noopener">Open outside</a>.
-        <button type="button" id="galertsFallbackDismiss">Dismiss</button>
-      </div>
-    </div>
-  </aside>
-
   <script src="/auth.js"></script>
   <script>
     (async function () {
@@ -620,114 +534,69 @@
         return `https://www.google.com/alerts?q=${encodeURIComponent(query)}`;
       }
 
-      let galertsItems = [];
-      let galertsIndex = 0;
-
-      function closeGoogleAlertsDock() {
-        const dock = document.getElementById("galertsDock");
-        const frame = document.getElementById("galertsFrame");
-        dock.classList.remove("open");
-        dock.hidden = true;
-        document.body.classList.remove("galerts-open");
-        if (frame) frame.src = "about:blank";
-      }
-
-      function loadGalertsIndex(i) {
-        if (!galertsItems.length) return;
-        galertsIndex = Math.max(0, Math.min(i, galertsItems.length - 1));
-        const it = galertsItems[galertsIndex];
-        const url = googleAlertsCreateUrl(it.query);
-        const frame = document.getElementById("galertsFrame");
-        const fallback = document.getElementById("galertsFallback");
-        const status = document.getElementById("galertsStatus");
-        const external = document.getElementById("btnGalertsExternal");
-        const fallbackLink = document.getElementById("galertsFallbackLink");
-        external.href = url;
-        fallbackLink.href = url;
-        fallback.classList.remove("show");
-        frame.src = url;
-        document.querySelectorAll("#galertsList li").forEach((li, idx) => {
-          li.classList.toggle("active", idx === galertsIndex);
-        });
-        status.textContent = `${galertsIndex + 1} / ${galertsItems.length} · ${it.label}`;
-        // Keep a soft tip available; Google often refuses iframes via X-Frame-Options.
-        clearTimeout(loadGalertsIndex._t);
-        loadGalertsIndex._t = setTimeout(() => {
-          fallback.classList.add("show");
-        }, 2500);
-      }
-
       function renderGoogleAlertsPanel(detail) {
-        const dock = document.getElementById("galertsDock");
+        const panel = document.getElementById("galertsPanel");
         const list = document.getElementById("galertsList");
         const status = document.getElementById("galertsStatus");
-        galertsItems = buildGoogleAlertQueries(detail);
-        galertsIndex = 0;
-        if (!galertsItems.length) {
+        const items = buildGoogleAlertQueries(detail);
+        if (!items.length) {
           list.innerHTML = "";
           status.textContent = "No owner name or situs to alert on.";
-          document.getElementById("galertsFrame").src = "about:blank";
-          document.getElementById("galertsFallback").classList.add("show");
-          dock.hidden = false;
-          dock.classList.add("open");
-          document.body.classList.add("galerts-open");
-          return galertsItems;
+          panel.hidden = false;
+          panel.classList.add("open");
+          return items;
         }
-        list.innerHTML = galertsItems
+        list.innerHTML = items
           .map(
-            (it, i) => `
-          <li data-galert-idx="${i}" role="button" tabindex="0">
+            (it) => `
+          <li>
             <div>
               <span class="label">${esc(it.label)}</span>
               <span class="q">${esc(it.query)}</span>
             </div>
+            <a class="btn" href="${esc(googleAlertsCreateUrl(it.query))}" target="_blank" rel="noopener">Open tab</a>
           </li>`
           )
           .join("");
-        list.querySelectorAll("li").forEach((li) => {
-          const go = () => loadGalertsIndex(Number(li.dataset.galertIdx));
-          li.addEventListener("click", go);
-          li.addEventListener("keydown", (e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              go();
-            }
-          });
-        });
-        dock.hidden = false;
-        dock.classList.add("open");
-        document.body.classList.add("galerts-open");
-        loadGalertsIndex(0);
-        return galertsItems;
+        status.textContent = `${items.length} alert(s) ready — open tabs and click Create Alert.`;
+        panel.hidden = false;
+        panel.classList.add("open");
+        return items;
       }
 
       document.getElementById("btnGoogleAlerts").addEventListener("click", () => {
         if (!lastDetail) {
-          const dock = document.getElementById("galertsDock");
           document.getElementById("galertsStatus").textContent =
             "Load a property first.";
-          dock.hidden = false;
-          dock.classList.add("open");
-          document.body.classList.add("galerts-open");
+          const panel = document.getElementById("galertsPanel");
+          panel.hidden = false;
+          panel.classList.add("open");
           return;
         }
         renderGoogleAlertsPanel(lastDetail);
       });
-      document
-        .getElementById("btnGalertsClose")
-        .addEventListener("click", closeGoogleAlertsDock);
-      document.getElementById("btnGalertsPrev").addEventListener("click", () => {
-        loadGalertsIndex(galertsIndex - 1);
+      document.getElementById("btnGalertsClose").addEventListener("click", () => {
+        const panel = document.getElementById("galertsPanel");
+        panel.classList.remove("open");
+        panel.hidden = true;
       });
-      document.getElementById("btnGalertsNext").addEventListener("click", () => {
-        loadGalertsIndex(galertsIndex + 1);
-      });
-      document.getElementById("btnGalertsExternal").addEventListener("click", (e) => {
-        if (!galertsItems[galertsIndex]) e.preventDefault();
-      });
-      document.getElementById("galertsFallbackDismiss").addEventListener("click", () => {
-        document.getElementById("galertsFallback").classList.remove("show");
-        clearTimeout(loadGalertsIndex._t);
+      document.getElementById("btnGalertsOpenAll").addEventListener("click", () => {
+        if (!lastDetail) return;
+        const items = buildGoogleAlertQueries(lastDetail);
+        const status = document.getElementById("galertsStatus");
+        let opened = 0;
+        for (const it of items) {
+          const w = window.open(
+            googleAlertsCreateUrl(it.query),
+            "_blank",
+            "noopener"
+          );
+          if (w) opened += 1;
+        }
+        status.textContent =
+          opened === items.length
+            ? `Opened ${opened} tab(s). Click Create Alert on each (signed-in Google account).`
+            : `Opened ${opened} of ${items.length} — popup blocked? Use the Open tab links instead.`;
       });
 
       function applyClerkPacket(packet, opts = {}) {
