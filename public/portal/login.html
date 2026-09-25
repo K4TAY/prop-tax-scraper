@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in — Bexar CAD Portal</title>
+  <meta name="color-scheme" content="dark">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background:
+        radial-gradient(ellipse 80% 60% at 20% 10%, #1a3a2f 0%, transparent 55%),
+        radial-gradient(ellipse 70% 50% at 90% 80%, #1a2840 0%, transparent 50%),
+        #0c1014;
+      color: #e8edf2;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .card {
+      width: 100%;
+      max-width: 420px;
+      background: rgba(18, 24, 32, 0.92);
+      border: 1px solid #2a3544;
+      border-radius: 14px;
+      padding: 1.75rem;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+    }
+    .brand {
+      font-size: 0.75rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #6ec9a8;
+      margin: 0 0 0.5rem;
+      font-weight: 600;
+    }
+    h1 { margin: 0 0 0.35rem; font-size: 1.45rem; font-weight: 650; }
+    .lead { color: #8b9aab; font-size: 0.9rem; margin: 0 0 1.35rem; }
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: #c5d0db;
+      margin-bottom: 0.35rem;
+    }
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      border-radius: 8px;
+      border: 1px solid #2a3544;
+      background: #0c1014;
+      color: #e8edf2;
+      font-size: 0.95rem;
+      margin-bottom: 0.95rem;
+    }
+    input:focus {
+      outline: none;
+      border-color: #3d8f72;
+      box-shadow: 0 0 0 3px rgba(62, 143, 114, 0.25);
+    }
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: #c5d0db;
+      margin-bottom: 1.1rem;
+    }
+    .btn {
+      width: 100%;
+      padding: 0.7rem 1rem;
+      border-radius: 8px;
+      border: 1px solid #2d8a66;
+      background: #1f6b4e;
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn:hover { background: #268560; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .err { color: #f07178; font-size: 0.85rem; margin: 0 0 0.75rem; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <p class="brand">Bexar CAD Portal</p>
+    <h1>Sign in</h1>
+    <p class="lead">Same account as Prop Tax Scraper. Email or mobile + password.</p>
+    <div class="err" id="error"></div>
+    <form id="form">
+      <label for="username">Email or mobile</label>
+      <input id="username" name="username" type="text" autocomplete="username" required>
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+      <label class="check">
+        <input type="checkbox" id="saveCreds">
+        Save credentials on this device
+      </label>
+
+      <button class="btn" type="submit" id="submit">Sign in</button>
+    </form>
+  </div>
+  <script src="/auth.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const next = params.get("next") || "/";
+    const saved = PortalAuth.loadSavedCredentials();
+    if (saved.username) {
+      document.getElementById("username").value = saved.username;
+      document.getElementById("password").value = saved.password;
+      document.getElementById("saveCreds").checked = true;
+    }
+    if (PortalAuth.getToken()) {
+      window.location.replace(next.startsWith("/") ? next : "/");
+    }
+
+    document.getElementById("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const err = document.getElementById("error");
+      const btn = document.getElementById("submit");
+      err.textContent = "";
+      btn.disabled = true;
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value;
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Login failed");
+        PortalAuth.setToken(data.token);
+        PortalAuth.setCachedUser(data.user);
+        if (document.getElementById("saveCreds").checked) {
+          PortalAuth.saveCredentials(username, password);
+        } else {
+          PortalAuth.clearSavedCredentials();
+        }
+        window.location.href = next.startsWith("/") ? next : "/";
+      } catch (ex) {
+        err.textContent = ex.message || String(ex);
+        btn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bexar CAD Portal</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <style>
+    :root {
+      --bg: #0c1014;
+      --panel: #121820;
+      --border: #2a3544;
+      --text: #e8edf2;
+      --muted: #8b9aab;
+      --accent: #6ec9a8;
+      --nav-w: 240px;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+    }
+    .topbar {
+      height: 52px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 1rem 0 1.1rem;
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      z-index: 20;
+    }
+    .brand-wrap { display: flex; align-items: baseline; gap: 0.65rem; }
+    .brand {
+      font-weight: 700;
+      font-size: 1rem;
+      letter-spacing: 0.02em;
+    }
+    .version {
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .user-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+    .user-meta button {
+      background: #1a2330;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 0.3rem 0.7rem;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .user-meta button:hover { border-color: var(--accent); }
+    .shell {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+    .sidebar {
+      width: var(--nav-w);
+      flex-shrink: 0;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      padding: 1rem 0.65rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .nav-label {
+      font-size: 0.7rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 0.35rem 0.7rem 0.55rem;
+    }
+    .nav-item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 0.6rem 0.75rem;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text);
+      font-size: 0.9rem;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .nav-item:hover { background: #1a2330; }
+    .nav-item.active {
+      background: #16352c;
+      border-color: #2d5c4a;
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .main {
+      flex: 1;
+      min-width: 0;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+    }
+    .page-title {
+      position: absolute;
+      top: 0.75rem;
+      left: 0.85rem;
+      z-index: 10;
+      background: rgba(18, 24, 32, 0.88);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.45rem 0.75rem;
+      font-size: 0.85rem;
+      pointer-events: none;
+    }
+    .page-title strong { color: var(--accent); font-weight: 650; }
+    #map {
+      flex: 1;
+      width: 100%;
+      min-height: 0;
+    }
+    .status-pill {
+      position: absolute;
+      bottom: 1rem;
+      left: 0.85rem;
+      z-index: 10;
+      background: rgba(18, 24, 32, 0.9);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.4rem 0.7rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .maplibregl-popup-content {
+      background: #121820 !important;
+      color: #e8edf2 !important;
+      border: 1px solid #2a3544;
+      border-radius: 8px;
+      padding: 0.65rem 0.8rem;
+      font-size: 0.85rem;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    }
+    .maplibregl-popup-anchor-bottom .maplibregl-popup-tip {
+      border-top-color: #121820 !important;
+    }
+    .popup-row { margin: 0.15rem 0; }
+    .popup-row span { color: #8b9aab; }
+    @media (max-width: 720px) {
+      .sidebar { width: 56px; padding: 0.5rem; }
+      .nav-label, .nav-item .full { display: none; }
+      .nav-item { text-align: center; padding: 0.65rem; font-size: 0.75rem; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-wrap">
+      <div class="brand">Bexar CAD Portal</div>
+      <div class="version" id="version"></div>
+    </div>
+    <div class="user-meta" id="userMeta"></div>
+  </header>
+  <div class="shell">
+    <nav class="sidebar" aria-label="Main">
+      <div class="nav-label">Maps</div>
+      <a class="nav-item active" href="/" data-page="map">
+        <span class="full">Bexar Property Map</span>
+        <span class="short" hidden>Map</span>
+      </a>
+    </nav>
+    <main class="main">
+      <div class="page-title"><strong>Bexar Property Map</strong> — parcel lines</div>
+      <div id="map"></div>
+      <div class="status-pill" id="status">Loading parcels…</div>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="/auth.js"></script>
+  <script>
+    (async function () {
+      const me = await PortalAuth.requireLogin();
+      if (!me) return;
+
+      const verEl = document.getElementById("version");
+      const userMeta = document.getElementById("userMeta");
+      const statusEl = document.getElementById("status");
+
+      try {
+        const vRes = await fetch("/api/version");
+        const v = await vRes.json();
+        verEl.textContent = "v" + (v.version || "");
+      } catch { /* ignore */ }
+
+      userMeta.innerHTML = `
+        <span>${PortalAuth.escapeHtml(PortalAuth.displayName(me.user))}
+          <span style="opacity:0.7">(${PortalAuth.escapeHtml(me.user.role)})</span>
+        </span>
+        <button type="button" id="logoutBtn">Logout</button>`;
+      document.getElementById("logoutBtn").addEventListener("click", PortalAuth.logout);
+
+      const token = PortalAuth.getToken();
+      let parcelCount = 0;
+      let bounds = null;
+      try {
+        const st = await PortalAuth.authFetch("/api/bcad/status");
+        const data = await st.json();
+        if (st.ok) {
+          parcelCount = data.count || 0;
+          bounds = data.bounds;
+          statusEl.textContent = parcelCount
+            ? `${parcelCount.toLocaleString()} parcels loaded`
+            : "No parcels in bcad_properties — run import script";
+        } else {
+          statusEl.textContent = data.error || "Status failed";
+        }
+      } catch (e) {
+        statusEl.textContent = e.message || "Status error";
+      }
+
+      // Bexar County approx center
+      const map = new maplibregl.Map({
+        container: "map",
+        style: {
+          version: 8,
+          sources: {
+            osm: {
+              type: "raster",
+              tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+              tileSize: 256,
+              attribution: "© OpenStreetMap",
+            },
+          },
+          layers: [
+            {
+              id: "osm",
+              type: "raster",
+              source: "osm",
+              paint: { "raster-opacity": 0.55 },
+            },
+          ],
+        },
+        center: [-98.4936, 29.4241],
+        zoom: 10,
+      });
+      map.addControl(new maplibregl.NavigationControl(), "top-right");
+
+      map.on("load", () => {
+        map.addSource("bcad-parcels", {
+          type: "vector",
+          tiles: [
+            `${location.origin}/api/bcad/tiles/{z}/{x}/{y}.mvt?token=${encodeURIComponent(token)}`,
+          ],
+          minzoom: 8,
+          maxzoom: 16,
+        });
+
+        map.addLayer({
+          id: "bcad-fill",
+          type: "fill",
+          source: "bcad-parcels",
+          "source-layer": "parcels",
+          paint: {
+            "fill-color": "#6ec9a8",
+            "fill-opacity": 0.08,
+          },
+        });
+
+        map.addLayer({
+          id: "bcad-outline",
+          type: "line",
+          source: "bcad-parcels",
+          "source-layer": "parcels",
+          paint: {
+            "line-color": "#1a3a2f",
+            "line-width": [
+              "interpolate", ["linear"], ["zoom"],
+              8, 0.2,
+              12, 0.6,
+              15, 1.1,
+              17, 1.6
+            ],
+            "line-opacity": 0.9,
+          },
+        });
+
+        map.addLayer({
+          id: "bcad-outline-hi",
+          type: "line",
+          source: "bcad-parcels",
+          "source-layer": "parcels",
+          paint: {
+            "line-color": "#6ec9a8",
+            "line-width": 2,
+            "line-opacity": 1,
+          },
+          filter: ["==", ["id"], -1],
+        });
+
+        if (bounds && bounds[0] && bounds[1]) {
+          map.fitBounds(
+            [
+              [bounds[0][0], bounds[0][1]],
+              [bounds[1][0], bounds[1][1]],
+            ],
+            { padding: 40, maxZoom: 12 }
+          );
+        }
+
+        const popup = new maplibregl.Popup({
+          closeButton: true,
+          closeOnClick: true,
+          maxWidth: "280px",
+        });
+
+        map.on("mousemove", "bcad-fill", (e) => {
+          map.getCanvas().style.cursor = "pointer";
+          if (e.features?.[0]) {
+            map.setFilter("bcad-outline-hi", [
+              "==",
+              ["get", "id"],
+              e.features[0].properties.id,
+            ]);
+          }
+        });
+        map.on("mouseleave", "bcad-fill", () => {
+          map.getCanvas().style.cursor = "";
+          map.setFilter("bcad-outline-hi", ["==", ["get", "id"], -1]);
+        });
+
+        map.on("click", "bcad-fill", (e) => {
+          const f = e.features?.[0];
+          if (!f) return;
+          const p = f.properties || {};
+          const html = `
+            <div class="popup-row"><span>Owner</span><br>${PortalAuth.escapeHtml(p.owner_name || "—")}</div>
+            <div class="popup-row"><span>Situs</span><br>${PortalAuth.escapeHtml(p.situs || "—")}</div>
+            <div class="popup-row"><span>Appraised</span><br>${PortalAuth.escapeHtml(p.appraised_val || "—")}</div>
+            <div class="popup-row"><span>Prop ID</span><br>${PortalAuth.escapeHtml(p.pacs_prop_id || "—")}</div>
+          `;
+          popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

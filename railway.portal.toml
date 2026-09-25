@@ -1,0 +1,12 @@
+# Config for the bcad-portal Railway service (second service in this project).
+# Shares DATABASE_URL + JWT_SECRET with prop-tax-scraper.
+# Also set bucket credentials from Police Calls → bexar-cad-neighborhoods:
+#   ENDPOINT, BUCKET, ACCESS_KEY_ID, SECRET_ACCESS_KEY, REGION
+
+[build]
+builder = "RAILPACK"
+
+[deploy]
+startCommand = "bun src/portal/server.js"
+healthcheckPath = "/api/version"
+restartPolicyType = "ON_FAILURE"

@@ -10,6 +10,17 @@ data/csv/<hood_cd>.OVER_1000   # only when parcel count > 1000
 
 Exports **all** parcels per neighborhood (paginated past the map UI’s 1000-row Export limit). Oversized neighborhoods are still marked with `.OVER_1000`.
 
+## BCAD Portal (parcel map)
+
+Separate authenticated dashboard (same Postgres users + `JWT_SECRET`) with a left nav and **Bexar Property Map** (PostGIS + MapLibre MVT).
+
+```bash
+bun run portal          # http://localhost:3850
+bun run import:bcad     # load parcels.geojson.gz from Railway bucket → bcad_properties
+```
+
+See **[docs/bcad-portal.md](docs/bcad-portal.md)**. Railway service: `bcad-portal` (`https://bcad-portal-production.up.railway.app`).
+
 ## Web UI (Bexar-style console)
 
 ```bash
