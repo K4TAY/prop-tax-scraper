@@ -117,6 +117,47 @@
       max-width: 48rem;
       line-height: 1.45;
     }
+    .why-box {
+      margin: 0 0 1rem;
+      padding: 0.85rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #121820;
+      max-width: 52rem;
+    }
+    .why-box h2 {
+      margin: 0 0 0.45rem;
+      font-size: 0.82rem;
+      font-weight: 650;
+      color: var(--text);
+    }
+    .why-box p, .why-box li {
+      margin: 0.35rem 0 0;
+      font-size: 0.8rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .why-box ul {
+      margin: 0.4rem 0 0;
+      padding-left: 1.15rem;
+    }
+    .why-box .script {
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid var(--border);
+    }
+    .why-box .script pre {
+      margin: 0.45rem 0 0;
+      padding: 0.7rem 0.8rem;
+      background: #0b1016;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.74rem;
+      color: #c8d2dc;
+      line-height: 1.5;
+    }
   </style>
 </head>
 <body>
@@ -141,12 +182,41 @@
         <div>
           <h1>VA loan opportunities <span class="version" id="pageVersion" style="font-weight:400;font-size:0.85rem;color:var(--muted);margin-left:0.35rem;"></span></h1>
           <p>
-            Ranked from public BCAD disabled-veteran exemptions (DVHS / DV1–4),
-            ACT Tax escrow payers, and clerk Deeds of Trust — not from VA disability lists.
+            Public-record leads only: BCAD disabled-veteran exemptions (DVHS / DV1–4),
+            recent ACT Tax escrow payers, and clerk Deeds of Trust — not VA disability lists.
           </p>
         </div>
         <div class="stats" id="stats"></div>
       </div>
+
+      <div class="why-box">
+        <h2>Why we pursue these leads</h2>
+        <p>
+          A BCAD <strong style="color:var(--text)">DVHS / DV*</strong> exemption means the county
+          already recognizes a disabled-veteran homestead benefit. Many of those owners still carry
+          a <strong style="color:var(--text)">conventional or non-VA lien</strong> (or a high-rate
+          loan). The outreach thesis: offer a no-obligation review of whether a VA purchase /
+          cash-out / IRRRL Refinance could lower payment, drop PMI, or use funding-fee exemption
+          where they qualify — without claiming we know their VA file.
+        </p>
+        <ul>
+          <li><strong style="color:var(--text)">Hot</strong> — DV* plus <em>fresh</em> commercial mortgage evidence: lender tax escrow within ~2 years, and/or a commercial Deed of Trust within ~10 years. Stale escrow alone does <em>not</em> make hot (DVHS often means $0 tax after the exemption).</li>
+          <li><strong style="color:var(--text)">Warm</strong> — strong veteran signal, weaker or older financing evidence — still worth a soft check after clerk / tax refresh.</li>
+          <li><strong style="color:var(--text)">Watch</strong> — veteran signal only; need enrichment before calling.</li>
+        </ul>
+        <div class="script">
+          <h2>Sample homeowner approach (phone / door)</h2>
+          <p>Keep it public-record honest. Do not cite disability rating or imply access to VA medical data.</p>
+          <pre id="salesScript">Hi [Name] — this is [Your name] with [Company]. I help Bexar County homeowners who already have a disabled-veteran property-tax exemption on the appraisal roll.
+
+I'm not calling from the VA or the tax office. County records show a veteran homestead exemption on [street], and there may still be a mortgage or Deed of Trust on the property. A lot of veterans in that situation are on a conventional loan and haven't checked whether a VA loan benefit — including possible funding-fee exemption — would lower the payment or remove PMI.
+
+Would you be open to a short, no-obligation review of your current loan versus VA options? If you're already on a great VA rate or paid off, I'll get out of your hair. If not, I can tell you in plain numbers whether a refinance or new VA loan is even worth pursuing.
+
+Is now a bad time, or is there a better day this week?</pre>
+        </div>
+      </div>
+
       <div class="controls">
         <label>
           Tier
@@ -170,10 +240,9 @@
       </div>
       <div id="tableWrap"><div class="empty">Loading…</div></div>
       <p class="note">
-        Hot ≈ DVHS + active commercial mortgage signals (escrow payer and/or Deed of Trust).
-        Warm ≈ veteran exemption with weaker financing evidence. Enrichment (tax fetch / clerk import)
-        raises scores as those tables fill in. If the list is empty on Railway, click
-        <strong>Rebuild scores</strong> once (admin) to score DV* parcels in this database.
+        Rebuild scores after tax/clerk enrichment so tiers refresh. Lender tax payers older than
+        ~2 years and Deeds of Trust older than ~10 years are treated as historical only.
+        If the list is empty on Railway, click <strong>Rebuild scores</strong> once (admin).
       </p>
     </main>
   </div>
@@ -273,7 +342,11 @@
                       <td>${esc(r.exemptions)}<br><span style="color:var(--muted)">${esc(r.veteran_signal)}</span></td>
                       <td>
                     ${esc(r.mortgage_signal)}<br>
-                    <span style="color:var(--muted)">${esc(r.latest_tax_payer || "—")}</span><br>
+                    <span style="color:var(--muted)">${esc(r.latest_tax_payer || "—")}${
+                      r.latest_tax_paid_date
+                        ? " · paid " + esc(String(r.latest_tax_paid_date).slice(0, 10))
+                        : ""
+                    }</span><br>
                     <span style="color:var(--muted)">${esc(r.latest_dot_grantee || "")}${
                       r.latest_dot_date
                         ? " · " + esc(String(r.latest_dot_date).slice(0, 10))

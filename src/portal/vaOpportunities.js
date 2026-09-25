@@ -6,14 +6,23 @@ import { ensureTaxPaymentsSchema } from "./taxPayments.js";
  * VA loan marketing opportunity scoring from public records.
  *
  * Primary signal: BCAD exemption codes (DVHS / DV1–DV4) — public tax roll.
- * Enrichment: ACT Tax payers (escrow/servicer) + clerk Deeds of Trust.
+ * Enrichment: recent ACT Tax escrow payers + clerk Deeds of Trust.
+ *
+ * DVHS often zeroes the tax bill — a lender payment from years ago is not
+ * evidence of an active mortgage. Hot requires fresh escrow and/or a
+ * reasonably recent commercial Deed of Trust.
  */
 
 const LENDER_PAYER_RE =
-  /\b(MORTGAGE|MTGE|BANK|FEDERAL|CREDIT UNION|LOAN|FINANCIAL|SERVIC(?:E|ING)|NATIONSTAR|ROUNDPOINT|ROCKET|PENNYMAC|WELLS\s*FARGO|FREEDOM|QUICKEN|LOANDEPOT|CARRINGTON|NEWREZ|FLAGSTAR|LEADERONE|USAA|NAVY\s*FEDERAL|MR\.?\s*COOPER|CHASE|CITI|PNC|TRUIST|US\s*BANK|REGIONS|CENTRAL\s*LOAN)\b/i;
+  /\b(MORTGAGE|MTGE|BANK|FEDERAL|CREDIT UNION|LOAN|FINANCIAL|SERVIC(?:E|ING|ES)|CORELOGIC|NATIONSTAR|ROUNDPOINT|ROCKET|PENNYMAC|WELLS\s*FARGO|FREEDOM|QUICKEN|LOANDEPOT|CARRINGTON|NEWREZ|FLAGSTAR|LEADERONE|USAA|NAVY\s*FEDERAL|MR\.?\s*COOPER|CHASE|CITI|PNC|TRUIST|US\s*BANK|REGIONS|CENTRAL\s*LOAN)\b/i;
 
 const VA_LENDER_RE =
   /\b(DEPARTMENT OF VETERANS|VETERANS AFFAIRS|\bVA\b.*LOAN|VA\s*MORTGAGE|GNMA.*VA)\b/i;
+
+/** Lender tax payment older than this does not count as active escrow. */
+export const TAX_ESCROW_FRESH_YEARS = 2;
+/** Commercial DOT older than this is historical only (not hot evidence). */
+export const DOT_ACTIVE_YEARS = 10;
 
 export async function ensureVaOpportunitiesSchema(client = bcadPool) {
   await ensureClerkRecordsSchema(client);
@@ -32,6 +41,7 @@ export async function ensureVaOpportunitiesSchema(client = bcadPool) {
       dv_codes TEXT[],
       veteran_signal TEXT,
       latest_tax_payer TEXT,
+      latest_tax_paid_date DATE,
       tax_payer_class TEXT,
       latest_dot_grantee TEXT,
       latest_dot_date DATE,
@@ -44,6 +54,9 @@ export async function ensureVaOpportunitiesSchema(client = bcadPool) {
       clerk_search_url TEXT,
       scored_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    ALTER TABLE bcad_va_opportunities
+      ADD COLUMN IF NOT EXISTS latest_tax_paid_date DATE;
 
     CREATE INDEX IF NOT EXISTS bcad_va_opportunities_score_idx
       ON bcad_va_opportunities (score DESC);
@@ -90,6 +103,19 @@ function asIsoDate(v) {
   return null;
 }
 
+/** Calendar-year age from an ISO date (null → Infinity). */
+export function yearsSince(isoDate, now = new Date()) {
+  const iso = asIsoDate(isoDate);
+  if (!iso) return Infinity;
+  const d = new Date(`${iso}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return Infinity;
+  return (now.getTime() - d.getTime()) / (365.25 * 24 * 3600 * 1000);
+}
+
+export function isWithinYears(isoDate, maxYears, now = new Date()) {
+  return yearsSince(isoDate, now) <= maxYears;
+}
+
 export function classifyPayer(payer) {
   const p = String(payer || "").trim();
   if (!p) return "unknown";
@@ -115,12 +141,18 @@ export function classifyDotGrantee(grantee) {
 
 /**
  * Score one opportunity row (already assembled fields).
+ * Pass latest_tax_paid_date + latest_dot_date so stale escrow/DOT do not inflate hot.
  */
 export function scoreOpportunity(input) {
   let score = 0;
   const reasons = [];
   const offer_hints = [];
   const flags = input.flags || parseExemptionFlags(input.exemptions);
+  const now = input.now instanceof Date ? input.now : new Date();
+  const taxPaidIso = asIsoDate(input.latest_tax_paid_date);
+  const dotDateIso = asIsoDate(input.latest_dot_date);
+  const escrowFresh = isWithinYears(taxPaidIso, TAX_ESCROW_FRESH_YEARS, now);
+  const dotActive = isWithinYears(dotDateIso, DOT_ACTIVE_YEARS, now);
 
   if (flags.has_dvhs) {
     score += 40;
@@ -147,40 +179,111 @@ export function scoreOpportunity(input) {
   }
 
   const payerClass = input.tax_payer_class || classifyPayer(input.latest_tax_payer);
+  let freshEscrowEvidence = false;
+  let freshVaEscrow = false;
+
   if (payerClass === "commercial_lender_or_servicer") {
-    score += 18;
-    reasons.push(`Tax payments escrowed by ${input.latest_tax_payer}`);
-    offer_hints.push("possible_active_mortgage");
+    if (escrowFresh) {
+      score += 18;
+      freshEscrowEvidence = true;
+      reasons.push(
+        `Recent tax escrow by ${input.latest_tax_payer}` +
+          (taxPaidIso ? ` (${taxPaidIso})` : "")
+      );
+      offer_hints.push("possible_active_mortgage");
+    } else {
+      score += 2;
+      reasons.push(
+        `Stale lender tax payer ${input.latest_tax_payer}` +
+          (taxPaidIso ? ` last paid ${taxPaidIso}` : " (no paid date)") +
+          ` — ignored for hot (need payment within ${TAX_ESCROW_FRESH_YEARS}y; DVHS often $0 thereafter)`
+      );
+      offer_hints.push("stale_escrow_ignored");
+      if (flags.has_dvhs) offer_hints.push("zero_tax_expected_check_clerk_dot");
+    }
   } else if (payerClass === "individual_or_owner" && flags.has_any_dv) {
-    score += 8;
-    reasons.push("Owner/individual paying taxes (no lender escrow visible)");
-    offer_hints.push("cash_or_no_escrow_check");
+    if (!taxPaidIso || escrowFresh) {
+      score += 8;
+      reasons.push(
+        taxPaidIso
+          ? `Owner/individual paid taxes recently (${taxPaidIso}) — no lender escrow`
+          : "Owner/individual paying taxes (no lender escrow visible)"
+      );
+      offer_hints.push("cash_or_no_escrow_check");
+    } else {
+      score += 3;
+      reasons.push(
+        `Last owner tax payment ${taxPaidIso} is stale; DVHS parcels often show $0 thereafter`
+      );
+      offer_hints.push("cash_or_no_escrow_check");
+    }
   } else if (payerClass === "va_related") {
-    score += 5;
-    reasons.push("Tax payer looks VA-related");
-    offer_hints.push("irrrl_check");
+    if (escrowFresh) {
+      score += 5;
+      freshVaEscrow = true;
+      reasons.push(
+        `Recent VA-related tax payer ${input.latest_tax_payer}` +
+          (taxPaidIso ? ` (${taxPaidIso})` : "")
+      );
+      offer_hints.push("irrrl_check");
+    } else {
+      score += 1;
+      reasons.push(
+        `Stale VA-related tax payer ${input.latest_tax_payer}` +
+          (taxPaidIso ? ` (${taxPaidIso})` : "")
+      );
+    }
+  } else if (!input.latest_tax_payer && flags.has_any_dv) {
+    reasons.push(
+      "No tax payment rows on file — common for DVHS ($0 bill); use clerk DOT for mortgage evidence"
+    );
+    offer_hints.push("needs_tax_pull_or_clerk_dot");
   }
 
   const dotClass = input.dot_class || classifyDotGrantee(input.latest_dot_grantee);
+  let freshCommercialDot = false;
+  let freshVaDot = false;
+
   if (input.latest_dot_grantee) {
     if (dotClass === "commercial_lender_or_servicer") {
-      score += 22;
-      reasons.push(
-        `Latest Deed of Trust grantee: ${input.latest_dot_grantee}` +
-          (input.latest_dot_date ? ` (${input.latest_dot_date})` : "")
-      );
-      offer_hints.push("conventional_or_nonva_lien_check");
-      offer_hints.push("va_purchase_or_refi_benefit_review");
+      if (dotActive) {
+        score += 22;
+        freshCommercialDot = true;
+        reasons.push(
+          `Recent Deed of Trust grantee: ${input.latest_dot_grantee}` +
+            (dotDateIso ? ` (${dotDateIso})` : "")
+        );
+        offer_hints.push("conventional_or_nonva_lien_check");
+        offer_hints.push("va_purchase_or_refi_benefit_review");
+      } else {
+        score += 6;
+        reasons.push(
+          `Historical Deed of Trust (${dotDateIso || "unknown date"}) to ${input.latest_dot_grantee}` +
+            ` — older than ${DOT_ACTIVE_YEARS}y, not counted as active mortgage for hot`
+        );
+        offer_hints.push("stale_dot_verify_release");
+      }
     } else if (dotClass === "va_related") {
-      score += 12;
-      reasons.push("Latest DOT appears VA-related — check IRRRL / rate");
-      offer_hints.push("irrrl_check");
+      if (dotActive) {
+        score += 12;
+        freshVaDot = true;
+        reasons.push(
+          `Recent VA-related DOT: ${input.latest_dot_grantee}` +
+            (dotDateIso ? ` (${dotDateIso})` : "")
+        );
+        offer_hints.push("irrrl_check");
+      } else {
+        score += 4;
+        reasons.push(
+          `Historical VA-related DOT (${dotDateIso || "unknown date"}) — verify status`
+        );
+        offer_hints.push("irrrl_check");
+      }
     }
   } else if (flags.has_any_dv) {
     offer_hints.push("needs_clerk_dot_pull");
   }
 
-  // Dedupe offer hints
   const hints = [...new Set(offer_hints)];
 
   let veteran_signal = "none";
@@ -188,18 +291,25 @@ export function scoreOpportunity(input) {
   else if (flags.has_any_dv) veteran_signal = "dv_partial";
 
   let mortgage_signal = "unknown";
-  if (dotClass === "commercial_lender_or_servicer" || payerClass === "commercial_lender_or_servicer") {
+  if (freshEscrowEvidence || freshCommercialDot) {
     mortgage_signal = "likely_nonva_or_serviced";
-  } else if (dotClass === "va_related" || payerClass === "va_related") {
+  } else if (freshVaEscrow || freshVaDot) {
     mortgage_signal = "likely_va";
+  } else if (
+    payerClass === "commercial_lender_or_servicer" ||
+    (dotClass === "commercial_lender_or_servicer" && input.latest_dot_grantee)
+  ) {
+    mortgage_signal = "stale_financing_only";
   } else if (payerClass === "individual_or_owner") {
     mortgage_signal = "no_escrow_visible";
+  } else if (!input.latest_tax_payer && !input.latest_dot_grantee) {
+    mortgage_signal = "no_payment_history";
   }
 
-  // Hot = veteran signal + financing evidence (escrow and/or commercial DOT)
+  // Hot = DV* + fresh commercial mortgage evidence (recent escrow and/or recent DOT)
   let tier = "watch";
-  const hasMortgageEvidence = mortgage_signal === "likely_nonva_or_serviced";
-  if (flags.has_any_dv && hasMortgageEvidence && score >= 55) tier = "hot";
+  const hasFreshMortgageEvidence = freshEscrowEvidence || freshCommercialDot;
+  if (flags.has_any_dv && hasFreshMortgageEvidence && score >= 55) tier = "hot";
   else if (score >= 45 || (flags.has_dvhs && score >= 40)) tier = "warm";
   else if (score >= 20) tier = "watch";
 
@@ -212,6 +322,8 @@ export function scoreOpportunity(input) {
     mortgage_signal,
     tax_payer_class: payerClass,
     flags,
+    escrow_fresh: escrowFresh && !!taxPaidIso,
+    dot_active: dotActive && !!dotDateIso,
   };
 }
 
@@ -236,12 +348,13 @@ export async function rebuildVaOpportunities(opts = {}) {
       p.legal_desc,
       p.exemptions,
       pay.payer AS latest_tax_payer,
+      pay.paid_date AS latest_tax_paid_date,
       dot.grantee AS latest_dot_grantee,
       dot.recorded_date AS latest_dot_date,
       dot.doc_number AS latest_dot_doc_number
     FROM bcad_properties p
     LEFT JOIN LATERAL (
-      SELECT payer
+      SELECT payer, paid_date
       FROM bcad_tax_payments t
       WHERE t.bcad_property_id = p.id
         AND t.description ILIKE 'Payment'
@@ -288,6 +401,7 @@ export async function rebuildVaOpportunities(opts = {}) {
     exemptions: prop.exemptions,
     flags,
     latest_tax_payer: prop.latest_tax_payer,
+    latest_tax_paid_date: asIsoDate(prop.latest_tax_paid_date),
     latest_dot_grantee: prop.latest_dot_grantee,
     latest_dot_date: asIsoDate(prop.latest_dot_date),
   });
@@ -310,7 +424,7 @@ export async function rebuildVaOpportunities(opts = {}) {
         : null;
 
       values.push(
-        `($${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},NOW())`
+        `($${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},NOW())`
       );
       params.push(
         prop.id,
@@ -323,6 +437,7 @@ export async function rebuildVaOpportunities(opts = {}) {
         flags.dv_codes,
         scored.veteran_signal,
         prop.latest_tax_payer,
+        asIsoDate(prop.latest_tax_paid_date),
         scored.tax_payer_class,
         prop.latest_dot_grantee,
         asIsoDate(prop.latest_dot_date),
@@ -345,7 +460,7 @@ export async function rebuildVaOpportunities(opts = {}) {
       INSERT INTO bcad_va_opportunities (
         bcad_property_id, geo_id, owner_name, situs, exemptions,
         has_homestead, has_dvhs, dv_codes, veteran_signal,
-        latest_tax_payer, tax_payer_class,
+        latest_tax_payer, latest_tax_paid_date, tax_payer_class,
         latest_dot_grantee, latest_dot_date, latest_dot_doc_number,
         mortgage_signal, score, tier, offer_hints, reasons,
         clerk_search_url, scored_at
@@ -360,6 +475,7 @@ export async function rebuildVaOpportunities(opts = {}) {
         dv_codes = EXCLUDED.dv_codes,
         veteran_signal = EXCLUDED.veteran_signal,
         latest_tax_payer = EXCLUDED.latest_tax_payer,
+        latest_tax_paid_date = EXCLUDED.latest_tax_paid_date,
         tax_payer_class = EXCLUDED.tax_payer_class,
         latest_dot_grantee = EXCLUDED.latest_dot_grantee,
         latest_dot_date = EXCLUDED.latest_dot_date,
@@ -404,12 +520,13 @@ export async function upsertVaOpportunityForProperty(propertyId, opts = {}) {
       p.legal_desc,
       p.exemptions,
       pay.payer AS latest_tax_payer,
+      pay.paid_date AS latest_tax_paid_date,
       dot.grantee AS latest_dot_grantee,
       dot.recorded_date AS latest_dot_date,
       dot.doc_number AS latest_dot_doc_number
     FROM bcad_properties p
     LEFT JOIN LATERAL (
-      SELECT payer
+      SELECT payer, paid_date
       FROM bcad_tax_payments t
       WHERE t.bcad_property_id = p.id
         AND t.description ILIKE 'Payment'
@@ -437,6 +554,7 @@ export async function upsertVaOpportunityForProperty(propertyId, opts = {}) {
     exemptions: prop.exemptions,
     flags,
     latest_tax_payer: prop.latest_tax_payer,
+    latest_tax_paid_date: asIsoDate(prop.latest_tax_paid_date),
     latest_dot_grantee: prop.latest_dot_grantee,
     latest_dot_date: asIsoDate(prop.latest_dot_date),
   });
@@ -455,17 +573,17 @@ export async function upsertVaOpportunityForProperty(propertyId, opts = {}) {
     INSERT INTO bcad_va_opportunities (
       bcad_property_id, geo_id, owner_name, situs, exemptions,
       has_homestead, has_dvhs, dv_codes, veteran_signal,
-      latest_tax_payer, tax_payer_class,
+      latest_tax_payer, latest_tax_paid_date, tax_payer_class,
       latest_dot_grantee, latest_dot_date, latest_dot_doc_number,
       mortgage_signal, score, tier, offer_hints, reasons,
       clerk_search_url, scored_at
     ) VALUES (
       $1,$2,$3,$4,$5,
       $6,$7,$8,$9,
-      $10,$11,
-      $12,$13,$14,
-      $15,$16,$17,$18,$19,
-      $20, NOW()
+      $10,$11,$12,
+      $13,$14,$15,
+      $16,$17,$18,$19,$20,
+      $21, NOW()
     )
     ON CONFLICT (bcad_property_id) DO UPDATE SET
       geo_id = EXCLUDED.geo_id,
@@ -477,6 +595,7 @@ export async function upsertVaOpportunityForProperty(propertyId, opts = {}) {
       dv_codes = EXCLUDED.dv_codes,
       veteran_signal = EXCLUDED.veteran_signal,
       latest_tax_payer = EXCLUDED.latest_tax_payer,
+      latest_tax_paid_date = EXCLUDED.latest_tax_paid_date,
       tax_payer_class = EXCLUDED.tax_payer_class,
       latest_dot_grantee = EXCLUDED.latest_dot_grantee,
       latest_dot_date = EXCLUDED.latest_dot_date,
@@ -500,6 +619,7 @@ export async function upsertVaOpportunityForProperty(propertyId, opts = {}) {
       flags.dv_codes,
       scored.veteran_signal,
       prop.latest_tax_payer,
+      asIsoDate(prop.latest_tax_paid_date),
       scored.tax_payer_class,
       prop.latest_dot_grantee,
       asIsoDate(prop.latest_dot_date),
