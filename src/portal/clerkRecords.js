@@ -318,8 +318,8 @@ export function clerkFinancingSearchUrl(partyName, opts = {}) {
 }
 
 /**
- * Build the manual clerk financing import packet for a property (no live scrape).
- * publicsearch.us is websocket/UI-only — caller opens the URL and pastes results.
+ * Build the clerk financing packet for a property (search URL + existing counts).
+ * Used as fallback UI when live publicsearch pull fails.
  */
 export async function prepareClerkFinancingForProperty(propertyId, opts = {}) {
   const client = opts.client || bcadPool;
@@ -334,6 +334,7 @@ export async function prepareClerkFinancingForProperty(propertyId, opts = {}) {
   if (!party) {
     return {
       needs_manual: true,
+      automated: false,
       party: null,
       search_url: null,
       existing_count: 0,
@@ -345,6 +346,7 @@ export async function prepareClerkFinancingForProperty(propertyId, opts = {}) {
   const financing = existing.filter((r) => r.is_financing_related);
   return {
     needs_manual: true,
+    automated: false,
     party,
     search_url,
     owner_name: prop.owner_name,
@@ -354,8 +356,103 @@ export async function prepareClerkFinancingForProperty(propertyId, opts = {}) {
     existing_count: existing.length,
     financing_count: financing.length,
     message:
+      opts.message ||
       "Open the Bexar clerk search, copy financing results (TSV/JSON), then paste & import below.",
   };
+}
+
+/**
+ * Live-pull financing instruments from Bexar publicsearch (WebSocket) and import.
+ * Falls back to a manual paste packet if the live pull fails.
+ */
+export async function importClerkFinancingFromPublicsearch(propertyId, opts = {}) {
+  const client = opts.client || bcadPool;
+  await ensureClerkRecordsSchema(client);
+  const { rows: props } = await client.query(
+    `SELECT id, geo_id, owner_name, situs, legal_desc FROM bcad_properties WHERE id = $1`,
+    [propertyId]
+  );
+  if (!props.length) throw new Error(`property ${propertyId} not found`);
+  const prop = props[0];
+  const party = opts.search_party || ownerToClerkParty(prop.owner_name);
+  const search_url = party ? clerkFinancingSearchUrl(party) : null;
+
+  if (!party) {
+    return prepareClerkFinancingForProperty(propertyId, {
+      client,
+      message: "No owner name to search on the clerk site",
+    });
+  }
+
+  try {
+    const { searchPublicsearchByParty } = await import("./publicsearchClient.js");
+    const found = await searchPublicsearchByParty(party, {
+      maxRecords: opts.maxRecords ?? 200,
+      recordedDateRange: opts.recordedDateRange,
+      throttleMs: opts.throttleMs ?? 60,
+    });
+
+    let importResult;
+    try {
+      importResult = await importClerkResultsForProperty(propertyId, found.rows, {
+        client,
+        search_party: party,
+        source_url: search_url,
+        financingOnly: opts.financingOnly !== false,
+        forceMatch: opts.forceMatch === true,
+      });
+    } catch (importErr) {
+      // No financing rows after filter — still a successful auto pull.
+      if (/No financing instruments|No clerk rows/i.test(importErr.message)) {
+        const existing = await listClerkInstrumentsForProperty(propertyId, client);
+        const financing = existing.filter((r) => r.is_financing_related);
+        return {
+          needs_manual: false,
+          automated: true,
+          party,
+          search_url,
+          source: found.source,
+          fetched: found.total,
+          pages: found.pages,
+          inserted: 0,
+          skipped: 0,
+          matched: 0,
+          financing_only: true,
+          existing_count: existing.length,
+          financing_count: financing.length,
+          message: `Pulled ${found.total} clerk hit(s); none were financing instruments (DOT / release / assignment).`,
+        };
+      }
+      throw importErr;
+    }
+
+    const existing = await listClerkInstrumentsForProperty(propertyId, client);
+    const financing = existing.filter((r) => r.is_financing_related);
+
+    return {
+      needs_manual: false,
+      automated: true,
+      party,
+      search_url,
+      source: found.source,
+      fetched: found.total,
+      pages: found.pages,
+      inserted: importResult.inserted,
+      skipped: importResult.skipped,
+      matched: importResult.matched,
+      financing_only: importResult.financing_only,
+      existing_count: existing.length,
+      financing_count: financing.length,
+      message: `Pulled ${found.total} clerk hit(s) via publicsearch; imported ${importResult.inserted} new financing row(s), ${importResult.matched} matched to this property.`,
+    };
+  } catch (e) {
+    const fallback = await prepareClerkFinancingForProperty(propertyId, {
+      client,
+      search_party: party,
+      message: `Auto clerk pull failed (${e.message}). Paste results from the clerk search instead.`,
+    });
+    return { ...fallback, auto_error: e.message };
+  }
 }
 
 export function normalizeClerkInstrument(row, meta = {}) {

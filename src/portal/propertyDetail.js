@@ -19,8 +19,13 @@ import {
   buildExemptionTimeline,
   ensureHgoAppraisalSchema,
 } from "./hgoAppraisal.js";
-import { listClerkInstrumentsForProperty, prepareClerkFinancingForProperty, ensureClerkRecordsSchema } from "./clerkRecords.js";
-import { getVaOpportunity } from "./vaOpportunities.js";
+import {
+  listClerkInstrumentsForProperty,
+  prepareClerkFinancingForProperty,
+  importClerkFinancingFromPublicsearch,
+  ensureClerkRecordsSchema,
+} from "./clerkRecords.js";
+import { getVaOpportunity, upsertVaOpportunityForProperty } from "./vaOpportunities.js";
 
 /**
  * Full property packet for the portal detail page.
@@ -72,9 +77,9 @@ export async function getPropertyDetail(propertyId, client = bcadPool) {
 }
 
 /**
- * Refresh verified appraisal (HGO), tax office account + payments, and deeds.
- * Clerk financing cannot be scraped server-side (publicsearch websocket UI) —
- * refresh prepares the search URL and asks the UI for a paste/import step.
+ * Refresh verified appraisal (HGO), tax office account + payments, deeds,
+ * and automated Bexar clerk financing pull (publicsearch WebSocket).
+ * Paste UI remains as fallback when auto-pull fails.
  */
 export async function refreshPropertySources(propertyId, opts = {}) {
   const client = opts.client || bcadPool;
@@ -115,9 +120,24 @@ export async function refreshPropertySources(propertyId, opts = {}) {
   }
 
   try {
-    clerk = await prepareClerkFinancingForProperty(propertyId, { client });
+    clerk = await importClerkFinancingFromPublicsearch(propertyId, { client });
+    if (clerk?.automated && clerk.inserted >= 0) {
+      try {
+        await upsertVaOpportunityForProperty(propertyId, { client });
+      } catch (e) {
+        errors.push({ source: "va_rescore", error: e.message });
+      }
+    }
+    if (clerk?.auto_error) {
+      errors.push({ source: "clerk_auto", error: clerk.auto_error });
+    }
   } catch (e) {
-    errors.push({ source: "clerk_prep", error: e.message });
+    errors.push({ source: "clerk", error: e.message });
+    try {
+      clerk = await prepareClerkFinancingForProperty(propertyId, { client });
+    } catch {
+      /* ignore */
+    }
   }
 
   const detail = await getPropertyDetail(propertyId, client);

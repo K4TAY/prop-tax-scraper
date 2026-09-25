@@ -46,6 +46,7 @@ import {
   listClerkInstrumentsForProperty,
   importClerkResultsForProperty,
   prepareClerkFinancingForProperty,
+  importClerkFinancingFromPublicsearch,
   clerkPartySearchUrl,
   clerkDocumentSearchUrl,
   ownerToClerkParty,
@@ -379,6 +380,30 @@ router.get("/properties/:id/clerk-financing", requireAuth, async (req, res) => {
     }
     const packet = await prepareClerkFinancingForProperty(id);
     res.json(packet);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** Live publicsearch pull (same path refresh uses). Paste import remains available. */
+router.post("/properties/:id/clerk-financing/pull", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const result = await importClerkFinancingFromPublicsearch(id, {
+      forceMatch: req.body?.forceMatch === true,
+      financingOnly: req.body?.financingOnly !== false,
+    });
+    if (result.automated && req.body?.rescore !== false) {
+      try {
+        result.opportunity = await upsertVaOpportunityForProperty(id);
+      } catch (e) {
+        result.rescore_error = e.message;
+      }
+    }
+    res.json(result);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -223,11 +223,11 @@
 
         <div class="section">
           <h2>Clerk financing instruments <span class="badge" id="clerkBadge">—</span></h2>
-          <p class="meta">Deeds of Trust / releases from Bexar County Clerk — paste search results after opening the county site</p>
+          <p class="meta">Deeds of Trust / releases from Bexar County Clerk — auto-pulled on refresh; paste remains a fallback</p>
           <div id="clerkTable"></div>
           <div class="clerk-import" id="clerkImportPanel">
             <p class="hint" id="clerkHint">
-              Refresh prepares a party search. Open it, copy financing rows from publicsearch, paste here, then import.
+              Refresh auto-pulls financing from publicsearch. If that fails, open the clerk search, paste rows here, then import.
             </p>
             <div class="row">
               <a class="btn" id="btnClerkSearch" href="#" target="_blank" rel="noopener">Open clerk search</a>
@@ -279,7 +279,7 @@
         const badge = document.getElementById("clerkBadge");
         if (!packet) {
           hint.textContent =
-            "Refresh prepares a party search. Open it, copy financing rows from publicsearch, paste here, then import.";
+            "Refresh auto-pulls financing from publicsearch. Paste remains a fallback if auto fails.";
           link.href = "#";
           panel.classList.remove("needs-action");
           badge.textContent = "—";
@@ -296,12 +296,18 @@
           link.href = "#";
         }
         const fin = packet.financing_count ?? 0;
-        badge.textContent = fin ? `${fin} financing` : "none yet";
+        badge.textContent = fin
+          ? `${fin} financing`
+          : packet.automated
+            ? "auto · none"
+            : "none yet";
         badge.className = fin ? "badge ok" : "badge warn";
-        if (opts.highlight || packet.needs_manual) {
+        panel.classList.remove("needs-action");
+        const needsPaste = packet.needs_manual && !packet.automated;
+        if (opts.highlight || needsPaste) {
           panel.classList.add("needs-action");
         }
-        if (opts.openSearch && packet.search_url) {
+        if (opts.openSearch && needsPaste && packet.search_url) {
           window.open(packet.search_url, "_blank", "noopener");
         }
       }
@@ -696,7 +702,7 @@
         btn.disabled = true;
         status.className = "status-line";
         status.textContent =
-          "Fetching HGO / ACT Tax / deeds, then preparing clerk financing search…";
+          "Fetching HGO / ACT Tax / deeds / clerk financing…";
         try {
           const res = await PortalAuth.authFetch(
             `/api/bcad/properties/${id}/refresh`,
@@ -707,8 +713,8 @@
           if (data.detail) render(data.detail);
           if (data.clerk) {
             applyClerkPacket(data.clerk, {
-              highlight: true,
-              openSearch: !!data.clerk.search_url,
+              highlight: !!data.clerk.needs_manual && !data.clerk.automated,
+              openSearch: !!data.clerk.needs_manual && !data.clerk.automated,
             });
           }
           const bits = [];
@@ -728,10 +734,16 @@
             bits.push(
               `Deeds ${data.deeds.inserted} (${data.deeds.parsed} parsed)`
             );
-          if (data.clerk?.needs_manual)
+          if (data.clerk?.automated) {
             bits.push(
-              `Clerk search ready${data.clerk.party ? ` for ${data.clerk.party}` : ""} — paste results to import`
+              `Clerk auto ${data.clerk.inserted ?? 0} new / ${data.clerk.matched ?? 0} matched` +
+                (data.clerk.fetched != null ? ` (${data.clerk.fetched} fetched)` : "")
             );
+          } else if (data.clerk?.needs_manual) {
+            bits.push(
+              `Clerk paste fallback${data.clerk.party ? ` for ${data.clerk.party}` : ""}`
+            );
+          }
           if (data.errors?.length) {
             status.className = "status-line err";
             status.textContent =
