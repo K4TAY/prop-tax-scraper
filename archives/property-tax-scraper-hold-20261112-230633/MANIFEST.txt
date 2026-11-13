@@ -1,0 +1,63 @@
+property-tax-scraper — Railway hold / decommission
+=================================================
+Stamp:        20261112-230633 (America/Chicago)
+Source HEAD:  c3c22311ce4800940ba4f7d80f235d19fac3bf4d (K4TAY/prop-tax-scraper @main, v0.3.65)
+
+Railway (deleted)
+-----------------
+Project:      property-tax-scraper  7f7ac689-e19c-4874-9ea0-4f658bec1d8a
+Environment:  production            ee4e3afd-cafc-421c-ba26-9484fb17dbfa
+Services:
+  bcad-portal       8f95661e-1d5f-486b-8f77-32ee3a0b60f5  (bun src/portal/server.js)
+  prop-tax-scraper  38f79060-8593-4641-83c4-4f500c504b92  (bun src/server.js, volume csv-data -> /data)
+  va-enrich-cron    d0cb3c26-cbbc-4399-b602-a15141b238be  (cron */10, scripts/cron-enrich-va-opportunity.js)
+  Postgres          7191a347-ef2e-407f-b085-89eaedd2cdd6  (postgres-ssl:18; auth users + county *_tx_* tables)
+  PostGIS           607a157a-7a9f-415b-9e75-60378f905afa  (postgis/postgis:16-master; bcad_* tables)
+Volumes:
+  csv-data         7a13fb71-4b5d-4d8a-a2ed-4d98e012667a
+  postgres-volume  73982484-b167-46a6-b6ba-69c5ea43e18f
+  postgis-volume   897e8ddf-47d6-4afa-aa96-8eae4d5c434a
+TCP proxies:
+  Postgres  acela.proxy.rlwy.net:56765
+  PostGIS   iriguchi.proxy.rlwy.net:36736
+Domains:
+  revmortgagedemo.forteapps.dev -> bcad-portal  (bcad-portal-production.up.railway.app)
+  property.forteapps.dev        -> prop-tax-scraper (prop-tax-scraper-production.up.railway.app)
+
+App services were stopped (railway down) before the final PostGIS snapshot so
+no writers were active. Both DBs had 0 other client connections at snapshot.
+
+Backups
+-------
+db/postgres-auth-production-20261112-230633.dump     pg_dump -Fc (Postgres 18.6)  ~489 MB
+db/postgres-auth-production-20261112-230633.sql.gz   plain SQL gz                 ~487 MB
+db/postgis-bcad-production-20261112-230633.dump      pg_dump -Fc (Postgres 16.15, PostGIS 3.7.0dev) ~171 MB
+db/postgis-bcad-production-20261112-230633.sql.gz    plain SQL gz                 ~171 MB
+volumes/csv-data-volume.tgz                          tar of /data (69,251 entries) ~327 MB
+  sha256 matches in-container sha: 74e2c3b5af69f537122154a7b841d0d3ae71ba15ba30a99c34b460aec30ef2fa
+property-tax-scraper-source-20261112-230633.tar.gz   repo incl .git (excl node_modules, data, .env)
+meta/                                                non-secret service vars, var names, railway status, railway*.toml
+secrets-local-only/                                  full service env (--kv). LOCAL ONLY, never commit.
+
+Verification
+------------
+Both dumps restored into local Homebrew Postgres 18 (PostGIS 3.6.4):
+  prop_tax       <- postgres-auth dump: 381 tables, 10,075,531 rows, per-table counts identical to production
+  prop_tax_bcad  <- postgis-bcad dump:  10 tables, per-table counts identical to production (final snapshot)
+
+Restore
+-------
+createdb prop_tax && pg_restore --no-owner --no-acl -j 4 -d prop_tax db/postgres-auth-production-20261112-230633.dump
+createdb prop_tax_bcad && psql -d prop_tax_bcad -c 'CREATE EXTENSION postgis' \
+  && pg_restore --no-owner --no-acl -j 4 -d prop_tax_bcad db/postgis-bcad-production-20261112-230633.dump
+# or: gunzip -c db/<file>.sql.gz | psql "$DATABASE_URL"
+tar -xzf volumes/csv-data-volume.tgz -C <DATA_DIR>
+
+Notes
+-----
+- The S3 bucket configured in bcad-portal (bexar-cad-neighborhoods-fntdll @ t3.storageapi.dev,
+  Police Calls project) returned NoSuchBucket at decommission time; it was not part of this project.
+
+In-repo copy (archives/property-tax-scraper-hold-20261112-230633): MANIFEST, SHA256SUMS, non-secret meta only.
+DB dumps (>100MB, contain PII), volume tarball, source tarball and secrets
+remain only under ~/Archives/property-tax-scraper-hold-20261112-230633/ on this Mac.

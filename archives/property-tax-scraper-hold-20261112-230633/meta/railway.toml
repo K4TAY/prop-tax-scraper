@@ -1,0 +1,7 @@
+[build]
+builder = "RAILPACK"
+
+[deploy]
+startCommand = "bun src/server.js"
+healthcheckPath = "/api/version"
+restartPolicyType = "ON_FAILURE"

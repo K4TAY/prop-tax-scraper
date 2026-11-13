@@ -1,0 +1,1002 @@
+{
+  "id": "7f7ac689-e19c-4874-9ea0-4f658bec1d8a",
+  "name": "property-tax-scraper",
+  "deletedAt": null,
+  "workspace": {
+    "name": "K4TaY's Projects"
+  },
+  "environments": {
+    "edges": [
+      {
+        "node": {
+          "id": "ee4e3afd-cafc-421c-ba26-9484fb17dbfa",
+          "name": "production",
+          "canAccess": true,
+          "deletedAt": null,
+          "serviceInstances": {
+            "edges": [
+              {
+                "node": {
+                  "id": "33a5d514-36ea-45bb-89a7-49f421817007",
+                  "serviceId": "8f95661e-1d5f-486b-8f77-32ee3a0b60f5",
+                  "serviceName": "bcad-portal",
+                  "environmentId": "ee4e3afd-cafc-421c-ba26-9484fb17dbfa",
+                  "latestDeployment": {
+                    "canRedeploy": true,
+                    "id": "50383908-2415-46cb-9c03-68a70699215c",
+                    "meta": {
+                      "branch": "main",
+                      "buildOnly": false,
+                      "commitAuthor": "K4TAY",
+                      "commitHash": "c3c22311ce4800940ba4f7d80f235d19fac3bf4d",
+                      "commitMessage": "Fix VA enrich cron crash from JSDoc closing on schedule comment (v0.3.65).",
+                      "fileServiceManifest": {},
+                      "imageDigest": "sha256:13618e51a122a0c117cbeba1edb7a8ba72fbff201144251c50bb05fa9a9c35b8",
+                      "logsV2": true,
+                      "nixpacksProviders": [],
+                      "plan": "pro",
+                      "propertyFileMapping": {
+                        "build.builder": "$.build.builder",
+                        "deploy.healthcheckPath": "$.deploy.healthcheckPath",
+                        "deploy.restartPolicyType": "$.deploy.restartPolicyType",
+                        "deploy.startCommand": "$.deploy.startCommand"
+                      },
+                      "railpackInfo": {
+                        "detectedProviders": [
+                          "node"
+                        ],
+                        "metadata": {
+                          "nodePackageManager": "bun",
+                          "nodeRuntime": "bun",
+                          "providers": "node"
+                        },
+                        "railpackVersion": "0.40.0",
+                        "resolvedPackages": {
+                          "bun": {
+                            "requestedVersion": "latest",
+                            "resolvedVersion": "1.4.2"
+                          },
+                          "node": {
+                            "requestedVersion": "lts",
+                            "resolvedVersion": "24.21.0"
+                          },
+                          "python": {
+                            "requestedVersion": "3.13",
+                            "resolvedVersion": "3.13.15"
+                          }
+                        }
+                      },
+                      "reason": "deploy",
+                      "repo": "K4TAY/prop-tax-scraper",
+                      "rootDirectory": null,
+                      "runtime": "V2",
+                      "serviceManifest": {
+                        "build": {
+                          "buildCommand": null,
+                          "buildEnvironment": "V3",
+                          "builder": "RAILPACK",
+                          "dockerfilePath": null,
+                          "nixpacksConfigPath": null,
+                          "nixpacksPlan": null,
+                          "watchPatterns": []
+                        },
+                        "deploy": {
+                          "cronSchedule": null,
+                          "drainingSeconds": null,
+                          "healthcheckPath": "/api/version",
+                          "healthcheckTimeout": null,
+                          "ipv6EgressEnabled": false,
+                          "limitOverride": null,
+                          "multiRegionConfig": {
+                            "us-west2": {
+                              "numReplicas": 1
+                            }
+                          },
+                          "numReplicas": 1,
+                          "overlapSeconds": null,
+                          "preDeployCommand": null,
+                          "preDeployTimeoutSeconds": null,
+                          "region": null,
+                          "registryCredentials": null,
+                          "requiredMountPath": null,
+                          "restartPolicyMaxRetries": 10,
+                          "restartPolicyType": "ON_FAILURE",
+                          "runtime": "V2",
+                          "sleepApplication": false,
+                          "startCommand": "bun src/portal/server.js",
+                          "useLegacyStacker": false
+                        }
+                      },
+                      "volumeMounts": []
+                    },
+                    "status": "SUCCESS",
+                    "createdAt": "2026-09-25T17:34:44.943Z",
+                    "deploymentStopped": false
+                  },
+                  "activeDeployments": [
+                    {
+                      "id": "50383908-2415-46cb-9c03-68a70699215c",
+                      "status": "SUCCESS",
+                      "createdAt": "2026-09-25T17:34:44.943Z",
+                      "meta": {
+                        "branch": "main",
+                        "buildOnly": false,
+                        "commitAuthor": "K4TAY",
+                        "commitHash": "c3c22311ce4800940ba4f7d80f235d19fac3bf4d",
+                        "commitMessage": "Fix VA enrich cron crash from JSDoc closing on schedule comment (v0.3.65).",
+                        "fileServiceManifest": {},
+                        "imageDigest": "sha256:13618e51a122a0c117cbeba1edb7a8ba72fbff201144251c50bb05fa9a9c35b8",
+                        "logsV2": true,
+                        "nixpacksProviders": [],
+                        "plan": "pro",
+                        "propertyFileMapping": {
+                          "build.builder": "$.build.builder",
+                          "deploy.healthcheckPath": "$.deploy.healthcheckPath",
+                          "deploy.restartPolicyType": "$.deploy.restartPolicyType",
+                          "deploy.startCommand": "$.deploy.startCommand"
+                        },
+                        "railpackInfo": {
+                          "detectedProviders": [
+                            "node"
+                          ],
+                          "metadata": {
+                            "nodePackageManager": "bun",
+                            "nodeRuntime": "bun",
+                            "providers": "node"
+                          },
+                          "railpackVersion": "0.40.0",
+                          "resolvedPackages": {
+                            "bun": {
+                              "requestedVersion": "latest",
+                              "resolvedVersion": "1.4.2"
+                            },
+                            "node": {
+                              "requestedVersion": "lts",
+                              "resolvedVersion": "24.21.0"
+                            },
+                            "python": {
+                              "requestedVersion": "3.13",
+                              "resolvedVersion": "3.13.15"
+                            }
+                          }
+                        },
+                        "reason": "deploy",
+                        "repo": "K4TAY/prop-tax-scraper",
+                        "rootDirectory": null,
+                        "runtime": "V2",
+                        "serviceManifest": {
+                          "build": {
+                            "buildCommand": null,
+                            "buildEnvironment": "V3",
+                            "builder": "RAILPACK",
+                            "dockerfilePath": null,
+                            "nixpacksConfigPath": null,
+                            "nixpacksPlan": null,
+                            "watchPatterns": []
+                          },
+                          "deploy": {
+                            "cronSchedule": null,
+                            "drainingSeconds": null,
+                            "healthcheckPath": "/api/version",
+                            "healthcheckTimeout": null,
+                            "ipv6EgressEnabled": false,
+                            "limitOverride": null,
+                            "multiRegionConfig": {
+                              "us-west2": {
+                                "numReplicas": 1
+                              }
+                            },
+                            "numReplicas": 1,
+                            "overlapSeconds": null,
+                            "preDeployCommand": null,
+                            "preDeployTimeoutSeconds": null,
+                            "region": null,
+                            "registryCredentials": null,
+                            "requiredMountPath": null,
+                            "restartPolicyMaxRetries": 10,
+                            "restartPolicyType": "ON_FAILURE",
+                            "runtime": "V2",
+                            "sleepApplication": false,
+                            "startCommand": "bun src/portal/server.js",
+                            "useLegacyStacker": false
+                          }
+                        },
+                        "volumeMounts": []
+                      }
+                    }
+                  ],
+                  "source": {
+                    "repo": "K4TAY/prop-tax-scraper",
+                    "image": null
+                  },
+                  "domains": {
+                    "serviceDomains": [
+                      {
+                        "id": "aa57a707-c13b-4b09-aa9f-52e56355cb89",
+                        "domain": "bcad-portal-production.up.railway.app",
+                        "targetPort": null
+                      }
+                    ],
+                    "customDomains": [
+                      {
+                        "id": "b058aafb-836e-4679-9ffb-c39c00911122",
+                        "domain": "revmortgagedemo.forteapps.dev",
+                        "targetPort": 8080
+                      }
+                    ]
+                  },
+                  "cronSchedule": null,
+                  "nextCronRunAt": null,
+                  "startCommand": "bun src/portal/server.js"
+                }
+              },
+              {
+                "node": {
+                  "id": "3b913d91-fa67-4736-b427-8f1b1c7012b2",
+                  "serviceId": "d0cb3c26-cbbc-4399-b602-a15141b238be",
+                  "serviceName": "va-enrich-cron",
+                  "environmentId": "ee4e3afd-cafc-421c-ba26-9484fb17dbfa",
+                  "latestDeployment": {
+                    "canRedeploy": false,
+                    "id": "0fb429a7-eeef-4c3f-b46a-c41614817742",
+                    "meta": {
+                      "branch": "main",
+                      "buildOnly": false,
+                      "commitAuthor": "K4TAY",
+                      "commitHash": "c3c22311ce4800940ba4f7d80f235d19fac3bf4d",
+                      "commitMessage": "Fix VA enrich cron crash from JSDoc closing on schedule comment (v0.3.65).",
+                      "cronSchedule": "*/10 * * * *",
+                      "duration": 16,
+                      "fileServiceManifest": {},
+                      "ignoreWatchPatterns": true,
+                      "imageDigest": "sha256:ceb5e4140c8d0ea46f2f877bf8f8a31489365e73a5b9a87f6e958e1e5260dc05",
+                      "logsV2": true,
+                      "nixpacksProviders": [],
+                      "plan": "pro",
+                      "propertyFileMapping": {
+                        "build.builder": "$.build.builder",
+                        "deploy.healthcheckPath": "$.deploy.healthcheckPath",
+                        "deploy.restartPolicyType": "$.deploy.restartPolicyType",
+                        "deploy.startCommand": "$.deploy.startCommand"
+                      },
+                      "railpackInfo": {
+                        "detectedProviders": [
+                          "node"
+                        ],
+                        "metadata": {
+                          "nodePackageManager": "bun",
+                          "nodeRuntime": "bun",
+                          "providers": "node"
+                        },
+                        "railpackVersion": "0.40.0",
+                        "resolvedPackages": {
+                          "bun": {
+                            "requestedVersion": "latest",
+                            "resolvedVersion": "1.4.2"
+                          },
+                          "node": {
+                            "requestedVersion": "lts",
+                            "resolvedVersion": "24.21.0"
+                          },
+                          "python": {
+                            "requestedVersion": "3.13",
+                            "resolvedVersion": "3.13.15"
+                          }
+                        }
+                      },
+                      "reason": "redeploy",
+                      "repo": "K4TAY/prop-tax-scraper",
+                      "rootDirectory": null,
+                      "runtime": "V2",
+                      "serviceManifest": {
+                        "build": {
+                          "buildCommand": null,
+                          "buildEnvironment": "V3",
+                          "builder": "RAILPACK",
+                          "dockerfilePath": null,
+                          "nixpacksConfigPath": null,
+                          "nixpacksPlan": null,
+                          "watchPatterns": []
+                        },
+                        "deploy": {
+                          "cronSchedule": "*/10 * * * *",
+                          "drainingSeconds": null,
+                          "healthcheckPath": null,
+                          "healthcheckTimeout": null,
+                          "ipv6EgressEnabled": false,
+                          "limitOverride": null,
+                          "multiRegionConfig": {
+                            "us-west2": {
+                              "numReplicas": 1
+                            }
+                          },
+                          "numReplicas": 1,
+                          "overlapSeconds": null,
+                          "preDeployCommand": null,
+                          "preDeployTimeoutSeconds": null,
+                          "region": null,
+                          "registryCredentials": null,
+                          "requiredMountPath": null,
+                          "restartPolicyMaxRetries": null,
+                          "restartPolicyType": "NEVER",
+                          "runtime": "V2",
+                          "sleepApplication": false,
+                          "startCommand": "bun scripts/cron-enrich-va-opportunity.js --min-score=50",
+                          "useLegacyStacker": false
+                        }
+                      },
+                      "volumeMounts": []
+                    },
+                    "status": "SUCCESS",
+                    "createdAt": "2026-11-05T09:10:53.248Z",
+                    "deploymentStopped": true
+                  },
+                  "activeDeployments": [
+                    {
+                      "id": "0fb429a7-eeef-4c3f-b46a-c41614817742",
+                      "status": "SUCCESS",
+                      "createdAt": "2026-11-05T09:10:53.248Z",
+                      "meta": {
+                        "branch": "main",
+                        "buildOnly": false,
+                        "commitAuthor": "K4TAY",
+                        "commitHash": "c3c22311ce4800940ba4f7d80f235d19fac3bf4d",
+                        "commitMessage": "Fix VA enrich cron crash from JSDoc closing on schedule comment (v0.3.65).",
+                        "cronSchedule": "*/10 * * * *",
+                        "duration": 16,
+                        "fileServiceManifest": {},
+                        "ignoreWatchPatterns": true,
+                        "imageDigest": "sha256:ceb5e4140c8d0ea46f2f877bf8f8a31489365e73a5b9a87f6e958e1e5260dc05",
+                        "logsV2": true,
+                        "nixpacksProviders": [],
+                        "plan": "pro",
+                        "propertyFileMapping": {
+                          "build.builder": "$.build.builder",
+                          "deploy.healthcheckPath": "$.deploy.healthcheckPath",
+                          "deploy.restartPolicyType": "$.deploy.restartPolicyType",
+                          "deploy.startCommand": "$.deploy.startCommand"
+                        },
+                        "railpackInfo": {
+                          "detectedProviders": [
+                            "node"
+                          ],
+                          "metadata": {
+                            "nodePackageManager": "bun",
+                            "nodeRuntime": "bun",
+                            "providers": "node"
+                          },
+                          "railpackVersion": "0.40.0",
+                          "resolvedPackages": {
+                            "bun": {
+                              "requestedVersion": "latest",
+                              "resolvedVersion": "1.4.2"
+                            },
+                            "node": {
+                              "requestedVersion": "lts",
+                              "resolvedVersion": "24.21.0"
+                            },
+                            "python": {
+                              "requestedVersion": "3.13",
+                              "resolvedVersion": "3.13.15"
+                            }
+                          }
+                        },
+                        "reason": "redeploy",
+                        "repo": "K4TAY/prop-tax-scraper",
+                        "rootDirectory": null,
+                        "runtime": "V2",
+                        "serviceManifest": {
+                          "build": {
+                            "buildCommand": null,
+                            "buildEnvironment": "V3",
+                            "builder": "RAILPACK",
+                            "dockerfilePath": null,
+                            "nixpacksConfigPath": null,
+                            "nixpacksPlan": null,
+                            "watchPatterns": []
+                          },
+                          "deploy": {
+                            "cronSchedule": "*/10 * * * *",
+                            "drainingSeconds": null,
+                            "healthcheckPath": null,
+                            "healthcheckTimeout": null,
+                            "ipv6EgressEnabled": false,
+                            "limitOverride": null,
+                            "multiRegionConfig": {
+                              "us-west2": {
+                                "numReplicas": 1
+                              }
+                            },
+                            "numReplicas": 1,
+                            "overlapSeconds": null,
+                            "preDeployCommand": null,
+                            "preDeployTimeoutSeconds": null,
+                            "region": null,
+                            "registryCredentials": null,
+                            "requiredMountPath": null,
+                            "restartPolicyMaxRetries": null,
+                            "restartPolicyType": "NEVER",
+                            "runtime": "V2",
+                            "sleepApplication": false,
+                            "startCommand": "bun scripts/cron-enrich-va-opportunity.js --min-score=50",
+                            "useLegacyStacker": false
+                          }
+                        },
+                        "volumeMounts": []
+                      }
+                    }
+                  ],
+                  "source": {
+                    "repo": "K4TAY/prop-tax-scraper",
+                    "image": null
+                  },
+                  "domains": {
+                    "serviceDomains": [],
+                    "customDomains": []
+                  },
+                  "cronSchedule": "*/10 * * * *",
+                  "nextCronRunAt": "2026-11-13T05:10:00Z",
+                  "startCommand": "bun scripts/cron-enrich-va-opportunity.js --min-score=50"
+                }
+              },
+              {
+                "node": {
+                  "id": "6141d3c4-161b-4dff-a79b-940e5e81b008",
+                  "serviceId": "607a157a-7a9f-415b-9e75-60378f905afa",
+                  "serviceName": "PostGIS",
+                  "environmentId": "ee4e3afd-cafc-421c-ba26-9484fb17dbfa",
+                  "latestDeployment": {
+                    "canRedeploy": true,
+                    "id": "11da0d1d-155f-4691-a9e4-54e80801bf04",
+                    "meta": {
+                      "image": "postgis/postgis:16-master",
+                      "imageDigest": "sha256:afaf08e1937d753762cfdb943c69ed46296bf50faa80c5f89494e2d0d12980de",
+                      "logsV2": true,
+                      "patchId": "964fb858-3ec6-4fb3-a54a-43841709861e",
+                      "reason": "deploy",
+                      "runtime": "V2",
+                      "serviceManifest": {
+                        "build": {
+                          "buildCommand": null,
+                          "buildEnvironment": "V3",
+                          "builder": "RAILPACK",
+                          "dockerfilePath": null,
+                          "nixpacksConfigPath": null,
+                          "nixpacksPlan": null,
+                          "watchPatterns": []
+                        },
+                        "deploy": {
+                          "cronSchedule": null,
+                          "drainingSeconds": null,
+                          "healthcheckPath": null,
+                          "healthcheckTimeout": null,
+                          "ipv6EgressEnabled": false,
+                          "limitOverride": null,
+                          "multiRegionConfig": {
+                            "us-west2": {
+                              "numReplicas": 1
+                            }
+                          },
+                          "numReplicas": 1,
+                          "overlapSeconds": null,
+                          "preDeployCommand": null,
+                          "preDeployTimeoutSeconds": null,
+                          "region": null,
+                          "registryCredentials": null,
+                          "requiredMountPath": "/var/lib/postgresql/data",
+                          "restartPolicyMaxRetries": 10,
+                          "restartPolicyType": "ON_FAILURE",
+                          "runtime": "V2",
+                          "sleepApplication": false,
+                          "startCommand": null,
+                          "useLegacyStacker": false
+                        }
+                      },
+                      "volumeMounts": [
+                        "/var/lib/postgresql/data"
+                      ]
+                    },
+                    "status": "SUCCESS",
+                    "createdAt": "2026-09-25T02:58:36.300Z",
+                    "deploymentStopped": false
+                  },
+                  "activeDeployments": [
+                    {
+                      "id": "11da0d1d-155f-4691-a9e4-54e80801bf04",
+                      "status": "SUCCESS",
+                      "createdAt": "2026-09-25T02:58:36.300Z",
+                      "meta": {
+                        "image": "postgis/postgis:16-master",
+                        "imageDigest": "sha256:afaf08e1937d753762cfdb943c69ed46296bf50faa80c5f89494e2d0d12980de",
+                        "logsV2": true,
+                        "patchId": "964fb858-3ec6-4fb3-a54a-43841709861e",
+                        "reason": "deploy",
+                        "runtime": "V2",
+                        "serviceManifest": {
+                          "build": {
+                            "buildCommand": null,
+                            "buildEnvironment": "V3",
+                            "builder": "RAILPACK",
+                            "dockerfilePath": null,
+                            "nixpacksConfigPath": null,
+                            "nixpacksPlan": null,
+                            "watchPatterns": []
+                          },
+                          "deploy": {
+                            "cronSchedule": null,
+                            "drainingSeconds": null,
+                            "healthcheckPath": null,
+                            "healthcheckTimeout": null,
+                            "ipv6EgressEnabled": false,
+                            "limitOverride": null,
+                            "multiRegionConfig": {
+                              "us-west2": {
+                                "numReplicas": 1
+                              }
+                            },
+                            "numReplicas": 1,
+                            "overlapSeconds": null,
+                            "preDeployCommand": null,
+                            "preDeployTimeoutSeconds": null,
+                            "region": null,
+                            "registryCredentials": null,
+                            "requiredMountPath": "/var/lib/postgresql/data",
+                            "restartPolicyMaxRetries": 10,
+                            "restartPolicyType": "ON_FAILURE",
+                            "runtime": "V2",
+                            "sleepApplication": false,
+                            "startCommand": null,
+                            "useLegacyStacker": false
+                          }
+                        },
+                        "volumeMounts": [
+                          "/var/lib/postgresql/data"
+                        ]
+                      }
+                    }
+                  ],
+                  "source": {
+                    "repo": null,
+                    "image": "postgis/postgis:16-master"
+                  },
+                  "domains": {
+                    "serviceDomains": [],
+                    "customDomains": []
+                  },
+                  "cronSchedule": null,
+                  "nextCronRunAt": null,
+                  "startCommand": null
+                }
+              },
+              {
+                "node": {
+                  "id": "99946fb8-946b-4181-a5aa-470626ab1b07",
+                  "serviceId": "7191a347-ef2e-407f-b085-89eaedd2cdd6",
+                  "serviceName": "Postgres",
+                  "environmentId": "ee4e3afd-cafc-421c-ba26-9484fb17dbfa",
+                  "latestDeployment": {
+                    "canRedeploy": true,
+                    "id": "84f3ad8f-a99a-403b-a72a-c74e04651f5a",
+                    "meta": {
+                      "image": "ghcr.io/railwayapp-templates/postgres-ssl:18",
+                      "imageDigest": "sha256:469c779c7c57ec6bad4670a0a3cb5a830aa6e0ce4f3707137608de5223a5041c",
+                      "logsV2": true,
+                      "patchId": "c2f95b7f-6ed5-4750-b935-7d0cb169112e",
+                      "reason": "deploy",
+                      "runtime": "V2",
+                      "serviceManifest": {
+                        "build": {
+                          "buildCommand": null,
+                          "buildEnvironment": "V3",
+                          "builder": "RAILPACK",
+                          "dockerfilePath": null,
+                          "nixpacksConfigPath": null,
+                          "nixpacksPlan": null,
+                          "watchPatterns": []
+                        },
+                        "deploy": {
+                          "cronSchedule": null,
+                          "drainingSeconds": null,
+                          "healthcheckPath": null,
+                          "healthcheckTimeout": null,
+                          "ipv6EgressEnabled": false,
+                          "limitOverride": null,
+                          "multiRegionConfig": {
+                            "us-west2": {
+                              "numReplicas": 1
+                            }
+                          },
+                          "numReplicas": 1,
+                          "overlapSeconds": null,
+                          "preDeployCommand": null,
+                          "preDeployTimeoutSeconds": null,
+                          "region": null,
+                          "registryCredentials": null,
+                          "requiredMountPath": "/var/lib/postgresql/data",
+                          "restartPolicyMaxRetries": 10,
+                          "restartPolicyType": "ON_FAILURE",
+                          "runtime": "V2",
+                          "sleepApplication": false,
+                          "startCommand": null,
+                          "useLegacyStacker": false
+                        }
+                      },
+                      "volumeMounts": [
+                        "/var/lib/postgresql/data"
+                      ]
+                    },
+                    "status": "SUCCESS",
+                    "createdAt": "2026-09-05T19:37:29.736Z",
+                    "deploymentStopped": false
+                  },
+                  "activeDeployments": [
+                    {
+                      "id": "84f3ad8f-a99a-403b-a72a-c74e04651f5a",
+                      "status": "SUCCESS",
+                      "createdAt": "2026-09-05T19:37:29.736Z",
+                      "meta": {
+                        "image": "ghcr.io/railwayapp-templates/postgres-ssl:18",
+                        "imageDigest": "sha256:469c779c7c57ec6bad4670a0a3cb5a830aa6e0ce4f3707137608de5223a5041c",
+                        "logsV2": true,
+                        "patchId": "c2f95b7f-6ed5-4750-b935-7d0cb169112e",
+                        "reason": "deploy",
+                        "runtime": "V2",
+                        "serviceManifest": {
+                          "build": {
+                            "buildCommand": null,
+                            "buildEnvironment": "V3",
+                            "builder": "RAILPACK",
+                            "dockerfilePath": null,
+                            "nixpacksConfigPath": null,
+                            "nixpacksPlan": null,
+                            "watchPatterns": []
+                          },
+                          "deploy": {
+                            "cronSchedule": null,
+                            "drainingSeconds": null,
+                            "healthcheckPath": null,
+                            "healthcheckTimeout": null,
+                            "ipv6EgressEnabled": false,
+                            "limitOverride": null,
+                            "multiRegionConfig": {
+                              "us-west2": {
+                                "numReplicas": 1
+                              }
+                            },
+                            "numReplicas": 1,
+                            "overlapSeconds": null,
+                            "preDeployCommand": null,
+                            "preDeployTimeoutSeconds": null,
+                            "region": null,
+                            "registryCredentials": null,
+                            "requiredMountPath": "/var/lib/postgresql/data",
+                            "restartPolicyMaxRetries": 10,
+                            "restartPolicyType": "ON_FAILURE",
+                            "runtime": "V2",
+                            "sleepApplication": false,
+                            "startCommand": null,
+                            "useLegacyStacker": false
+                          }
+                        },
+                        "volumeMounts": [
+                          "/var/lib/postgresql/data"
+                        ]
+                      }
+                    }
+                  ],
+                  "source": {
+                    "repo": null,
+                    "image": "ghcr.io/railwayapp-templates/postgres-ssl:18"
+                  },
+                  "domains": {
+                    "serviceDomains": [],
+                    "customDomains": []
+                  },
+                  "cronSchedule": null,
+                  "nextCronRunAt": null,
+                  "startCommand": null
+                }
+              },
+              {
+                "node": {
+                  "id": "a982f68f-5855-4cc0-8f6b-8ab184de755e",
+                  "serviceId": "38f79060-8593-4641-83c4-4f500c504b92",
+                  "serviceName": "prop-tax-scraper",
+                  "environmentId": "ee4e3afd-cafc-421c-ba26-9484fb17dbfa",
+                  "latestDeployment": {
+                    "canRedeploy": true,
+                    "id": "4459d9ea-5d54-4006-816e-845ba80576fa",
+                    "meta": {
+                      "branch": "main",
+                      "buildOnly": false,
+                      "commitAuthor": "K4TAY",
+                      "commitHash": "c3c22311ce4800940ba4f7d80f235d19fac3bf4d",
+                      "commitMessage": "Fix VA enrich cron crash from JSDoc closing on schedule comment (v0.3.65).",
+                      "fileServiceManifest": {},
+                      "imageDigest": "sha256:cf7a25ed3d5d8f21b9e23e23543f686c321d20c4d0886a4e1aa8bbd72f2865af",
+                      "logsV2": true,
+                      "nixpacksProviders": [],
+                      "plan": "pro",
+                      "propertyFileMapping": {
+                        "build.builder": "$.build.builder",
+                        "deploy.healthcheckPath": "$.deploy.healthcheckPath",
+                        "deploy.restartPolicyType": "$.deploy.restartPolicyType",
+                        "deploy.startCommand": "$.deploy.startCommand"
+                      },
+                      "railpackInfo": {
+                        "detectedProviders": [
+                          "node"
+                        ],
+                        "metadata": {
+                          "nodePackageManager": "bun",
+                          "nodeRuntime": "bun",
+                          "providers": "node"
+                        },
+                        "railpackVersion": "0.40.0",
+                        "resolvedPackages": {
+                          "bun": {
+                            "requestedVersion": "latest",
+                            "resolvedVersion": "1.4.2"
+                          },
+                          "node": {
+                            "requestedVersion": "lts",
+                            "resolvedVersion": "24.21.0"
+                          },
+                          "python": {
+                            "requestedVersion": "3.13",
+                            "resolvedVersion": "3.13.15"
+                          }
+                        }
+                      },
+                      "reason": "deploy",
+                      "repo": "K4TAY/prop-tax-scraper",
+                      "rootDirectory": null,
+                      "runtime": "V2",
+                      "serviceManifest": {
+                        "build": {
+                          "buildCommand": null,
+                          "buildEnvironment": "V3",
+                          "builder": "RAILPACK",
+                          "dockerfilePath": null,
+                          "nixpacksConfigPath": null,
+                          "nixpacksPlan": null,
+                          "watchPatterns": []
+                        },
+                        "deploy": {
+                          "cronSchedule": null,
+                          "drainingSeconds": null,
+                          "healthcheckPath": "/api/version",
+                          "healthcheckTimeout": null,
+                          "ipv6EgressEnabled": false,
+                          "limitOverride": null,
+                          "multiRegionConfig": {
+                            "us-west2": {
+                              "numReplicas": 1
+                            }
+                          },
+                          "numReplicas": 1,
+                          "overlapSeconds": null,
+                          "preDeployCommand": null,
+                          "preDeployTimeoutSeconds": null,
+                          "region": null,
+                          "registryCredentials": null,
+                          "requiredMountPath": null,
+                          "restartPolicyMaxRetries": 10,
+                          "restartPolicyType": "ON_FAILURE",
+                          "runtime": "V2",
+                          "sleepApplication": false,
+                          "startCommand": "bun src/server.js",
+                          "useLegacyStacker": false
+                        }
+                      },
+                      "volumeMounts": [
+                        "/data"
+                      ]
+                    },
+                    "status": "SUCCESS",
+                    "createdAt": "2026-09-25T17:34:44.943Z",
+                    "deploymentStopped": false
+                  },
+                  "activeDeployments": [
+                    {
+                      "id": "4459d9ea-5d54-4006-816e-845ba80576fa",
+                      "status": "SUCCESS",
+                      "createdAt": "2026-09-25T17:34:44.943Z",
+                      "meta": {
+                        "branch": "main",
+                        "buildOnly": false,
+                        "commitAuthor": "K4TAY",
+                        "commitHash": "c3c22311ce4800940ba4f7d80f235d19fac3bf4d",
+                        "commitMessage": "Fix VA enrich cron crash from JSDoc closing on schedule comment (v0.3.65).",
+                        "fileServiceManifest": {},
+                        "imageDigest": "sha256:cf7a25ed3d5d8f21b9e23e23543f686c321d20c4d0886a4e1aa8bbd72f2865af",
+                        "logsV2": true,
+                        "nixpacksProviders": [],
+                        "plan": "pro",
+                        "propertyFileMapping": {
+                          "build.builder": "$.build.builder",
+                          "deploy.healthcheckPath": "$.deploy.healthcheckPath",
+                          "deploy.restartPolicyType": "$.deploy.restartPolicyType",
+                          "deploy.startCommand": "$.deploy.startCommand"
+                        },
+                        "railpackInfo": {
+                          "detectedProviders": [
+                            "node"
+                          ],
+                          "metadata": {
+                            "nodePackageManager": "bun",
+                            "nodeRuntime": "bun",
+                            "providers": "node"
+                          },
+                          "railpackVersion": "0.40.0",
+                          "resolvedPackages": {
+                            "bun": {
+                              "requestedVersion": "latest",
+                              "resolvedVersion": "1.4.2"
+                            },
+                            "node": {
+                              "requestedVersion": "lts",
+                              "resolvedVersion": "24.21.0"
+                            },
+                            "python": {
+                              "requestedVersion": "3.13",
+                              "resolvedVersion": "3.13.15"
+                            }
+                          }
+                        },
+                        "reason": "deploy",
+                        "repo": "K4TAY/prop-tax-scraper",
+                        "rootDirectory": null,
+                        "runtime": "V2",
+                        "serviceManifest": {
+                          "build": {
+                            "buildCommand": null,
+                            "buildEnvironment": "V3",
+                            "builder": "RAILPACK",
+                            "dockerfilePath": null,
+                            "nixpacksConfigPath": null,
+                            "nixpacksPlan": null,
+                            "watchPatterns": []
+                          },
+                          "deploy": {
+                            "cronSchedule": null,
+                            "drainingSeconds": null,
+                            "healthcheckPath": "/api/version",
+                            "healthcheckTimeout": null,
+                            "ipv6EgressEnabled": false,
+                            "limitOverride": null,
+                            "multiRegionConfig": {
+                              "us-west2": {
+                                "numReplicas": 1
+                              }
+                            },
+                            "numReplicas": 1,
+                            "overlapSeconds": null,
+                            "preDeployCommand": null,
+                            "preDeployTimeoutSeconds": null,
+                            "region": null,
+                            "registryCredentials": null,
+                            "requiredMountPath": null,
+                            "restartPolicyMaxRetries": 10,
+                            "restartPolicyType": "ON_FAILURE",
+                            "runtime": "V2",
+                            "sleepApplication": false,
+                            "startCommand": "bun src/server.js",
+                            "useLegacyStacker": false
+                          }
+                        },
+                        "volumeMounts": [
+                          "/data"
+                        ]
+                      }
+                    }
+                  ],
+                  "source": {
+                    "repo": "K4TAY/prop-tax-scraper",
+                    "image": null
+                  },
+                  "domains": {
+                    "serviceDomains": [
+                      {
+                        "id": "f18bf3dd-42fc-4286-b76c-ad0f4f3d61e9",
+                        "domain": "prop-tax-scraper-production.up.railway.app",
+                        "targetPort": null
+                      }
+                    ],
+                    "customDomains": [
+                      {
+                        "id": "85261adc-1f8d-406e-8911-3b6c588b18da",
+                        "domain": "property.forteapps.dev",
+                        "targetPort": 8080
+                      }
+                    ]
+                  },
+                  "cronSchedule": null,
+                  "nextCronRunAt": null,
+                  "startCommand": "bun src/server.js"
+                }
+              }
+            ]
+          },
+          "volumeInstances": {
+            "edges": [
+              {
+                "node": {
+                  "serviceId": "7191a347-ef2e-407f-b085-89eaedd2cdd6",
+                  "mountPath": "/var/lib/postgresql/data",
+                  "environmentId": "ee4e3afd-cafc-421c-ba26-9484fb17dbfa",
+                  "currentSizeMB": 7366.647808,
+                  "sizeMB": 50000,
+                  "volume": {
+                    "name": "postgres-volume",
+                    "id": "73982484-b167-46a6-b6ba-69c5ea43e18f"
+                  }
+                }
+              },
+              {
+                "node": {
+                  "serviceId": "38f79060-8593-4641-83c4-4f500c504b92",
+                  "mountPath": "/data",
+                  "environmentId": "ee4e3afd-cafc-421c-ba26-9484fb17dbfa",
+                  "currentSizeMB": 3065.397248,
+                  "sizeMB": 50000,
+                  "volume": {
+                    "name": "csv-data",
+                    "id": "7a13fb71-4b5d-4d8a-a2ed-4d98e012667a"
+                  }
+                }
+              },
+              {
+                "node": {
+                  "serviceId": "607a157a-7a9f-415b-9e75-60378f905afa",
+                  "mountPath": "/var/lib/postgresql/data",
+                  "environmentId": "ee4e3afd-cafc-421c-ba26-9484fb17dbfa",
+                  "currentSizeMB": 2388.688896,
+                  "sizeMB": 50000,
+                  "volume": {
+                    "name": "postgis-volume",
+                    "id": "897e8ddf-47d6-4afa-aa96-8eae4d5c434a"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "services": {
+    "edges": [
+      {
+        "node": {
+          "id": "38f79060-8593-4641-83c4-4f500c504b92",
+          "name": "prop-tax-scraper"
+        }
+      },
+      {
+        "node": {
+          "id": "607a157a-7a9f-415b-9e75-60378f905afa",
+          "name": "PostGIS"
+        }
+      },
+      {
+        "node": {
+          "id": "7191a347-ef2e-407f-b085-89eaedd2cdd6",
+          "name": "Postgres"
+        }
+      },
+      {
+        "node": {
+          "id": "8f95661e-1d5f-486b-8f77-32ee3a0b60f5",
+          "name": "bcad-portal"
+        }
+      },
+      {
+        "node": {
+          "id": "d0cb3c26-cbbc-4399-b602-a15141b238be",
+          "name": "va-enrich-cron"
+        }
+      }
+    ]
+  }
+}
