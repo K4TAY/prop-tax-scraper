@@ -38,9 +38,8 @@ export const BCAD_BROWSE_FIELDS = [
   { name: "imported_at", label: "Imported at", type: "timestamp", defaultVisible: false },
 ];
 
-export const DEFAULT_BCAD_FILTERS = [
-  { field: "appraised_val_num", op: "gt", value: "0" },
-];
+/** No default filter: the 2027 BCAD parcel layer publishes appraised_val as "N/A" for every parcel. */
+export const DEFAULT_BCAD_FILTERS = [];
 
 const FIELD_SET = new Set(BCAD_BROWSE_FIELDS.map((f) => f.name));
 const OPS = new Set([
