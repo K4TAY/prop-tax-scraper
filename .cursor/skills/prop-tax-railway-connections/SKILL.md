@@ -1,48 +1,105 @@
 ---
 name: prop-tax-railway-connections
 description: >-
-  Where prop-tax-scraper / BCAD portal data lives now that the Railway project
-  is decommissioned (2026-11-12): local Postgres databases, local run commands,
-  and the hold archive with restore steps. Use when connecting to the database,
-  creating portal users, running the portal or VA enrich scripts, or asked
-  about Railway / revmortgagedemo / property.forteapps.dev.
+  Railway connection info for prop-tax-scraper / BCAD portal after 2026-11-16
+  redeploy: project IDs, services, public URLs, Postgres vs PostGIS, TCP proxy
+  access from a laptop, admin users, and VA enrich cron. Use when connecting to
+  production DB, creating portal users, running railway ssh/run, or diagnosing
+  revmortgagedemo / bcad-portal / PostGIS access.
 ---
 
-# Prop-tax data and runtime (post-Railway)
+# Prop-tax Railway connections
 
-The Railway project `property-tax-scraper` (`7f7ac689-e19c-4874-9ea0-4f658bec1d8a`) was
-**deleted on 2026-11-12**. DNS for `property.forteapps.dev` and
-`revmortgagedemo.forteapps.dev` was removed. Nothing is hosted; everything runs locally.
+Redeployed **2026-11-16** from local `prop_tax` + `prop_tax_bcad` (schema + data).
+Prior hold archive (2026-11-12): `~/Archives/property-tax-scraper-hold-20261112-230633/`.
 
-## Hold archive
+## Project
 
-- Full backup (dumps, CSV volume, secrets): `~/Archives/property-tax-scraper-hold-20261112-230633/` (this Mac only)
-- In-repo manifest + non-secret metadata: `archives/property-tax-scraper-hold-20261112-230633/`
+| | |
+|--|--|
+| **Project** | `property-tax-scraper` |
+| **Project ID** | `bd32b9b9-ffe9-4828-9a19-f904aa1bea5e` |
+| **Environment** | `production` (`fe0ed3b3-85cd-4c87-b695-414e0a90f8da`) |
+| **GitHub** | `K4TAY/prop-tax-scraper` `@main` |
 
-`MANIFEST.txt` has the old service IDs and restore commands.
+## Public URLs
 
-## Local databases (Homebrew Postgres 18 + PostGIS)
+| App | URL |
+|-----|-----|
+| BCAD / VA portal (demo) | https://revmortgagedemo.forteapps.dev |
+| Main scraper UI | https://property.forteapps.dev |
+| Portal Railway default | https://bcad-portal-production.up.railway.app |
+| Scraper Railway default | https://prop-tax-scraper-production.up.railway.app |
 
-| Env var | Local DB | Contents |
-|---------|----------|----------|
-| `DB_*` (`DB_NAME=prop_tax`) | `prop_tax` | Auth `users`, county `*_tx_*` tables, `cad_sources` |
-| `BCAD_DATABASE_URL` | `prop_tax_bcad` | PostGIS `bcad_*` tables, VA opportunities |
+Login is shared JWT auth (`/api/auth/login`, cookie/token key `propTax.jwt`).
 
-`DATABASE_SSL=false` locally. Do not set `DATABASE_URL` locally or it overrides `DB_*`.
+## Services
 
-`prop_tax_pre_railway_20261112` is the older local DB that existed before the restore; it is safe to drop once no longer needed.
+| Service | ID | Role |
+|---------|-----|------|
+| `bcad-portal` | `0b5c6f8b-25e3-4f17-ab2c-ba2a1c5bb59f` | Portal web app (`bun src/portal/server.js`) |
+| `prop-tax-scraper` | `7ead9e11-5bd1-415b-9398-5a20f1d20581` | Neighborhood scrape / CSV UI |
+| `va-enrich-cron` | `f6b0139c-df84-495d-b3b1-fdc86090bf28` | Cron: enrich 1 VA opp (score≥50) every 10m |
+| `Postgres` | `0e2175bb-0d91-4498-a0e1-3338df07dd1d` | **Auth** DB (`users`, JWT) + county `*_tx_*` |
+| `PostGIS` | `9f545667-3bb0-4365-8b9d-ed224672188f` | **BCAD** spatial DB (`bcad_*`, VA opps) |
 
-## Run
+## Two databases (do not mix)
+
+| Env var | Service | Used for |
+|---------|---------|----------|
+| `DATABASE_URL` | Postgres | Auth users / login (`src/db.js`) + county tables |
+| `BCAD_DATABASE_URL` | PostGIS (`DATABASE_PRIVATE_URL`) | Parcels, tax, clerk, VA (`src/portal/bcadDb.js`) |
+
+Portal needs **both**. Cron `va-enrich-cron` needs at least `BCAD_DATABASE_URL`.
+
+Internal hostnames (`*.railway.internal`) only work **inside** Railway. From a laptop use the **TCP proxy**.
+
+## Connect from a laptop (TCP proxy)
 
 ```bash
-bun start          # scraper UI  http://localhost:3847
-bun run portal     # BCAD portal http://localhost:3850 (PORTAL_PORT=3850 in .env)
-bun run va:enrich-one -- --min-score=50   # what the old Railway cron ran every 10m
+railway variables -s Postgres --environment production --json
+# Use: RAILWAY_TCP_PROXY_DOMAIN + RAILWAY_TCP_PROXY_PORT
+#      + POSTGRES_USER + POSTGRES_PASSWORD + POSTGRES_DB
 ```
 
-CSV data lives in `data/` (`data/tx/<county>/csv|processed`, restored from the old `csv-data` volume).
+Build URL:
+
+```text
+postgresql://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{RAILWAY_TCP_PROXY_DOMAIN}:{RAILWAY_TCP_PROXY_PORT}/{POSTGRES_DB}
+```
+
+Connect with `ssl: { rejectUnauthorized: false }` / `PGSSLMODE=require`.
+
+**Critical:** local `.env` `DATABASE_URL` / `DB_*` will override Railway if you `import` `src/db.js`. For one-off scripts against production, use a **standalone `pg.Pool`** with the TCP-proxy URL — do not load project `.env`.
+
+Same pattern against the **PostGIS** service for BCAD data.
+
+## Railway SSH
+
+```bash
+railway ssh -s prop-tax-scraper -- echo ok
+railway ssh -s bcad-portal -- bun scripts/cron-enrich-va-opportunity.js --min-score=50
+```
+
+## Local (optional)
+
+| Env | Local DB |
+|-----|----------|
+| `DB_*` (`DB_NAME=prop_tax`) | Homebrew `prop_tax` |
+| `BCAD_DATABASE_URL` | Homebrew `prop_tax_bcad` |
+
+`bun start` → :3847 · `bun run portal` → :3850 (`PORTAL_PORT`).
 
 ## Admin users
 
-Role `ADMIN` bypasses county grants. Boot upserts `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env`.
-Password hashing: Bun `argon2id` via `src/auth/password.js`. Never commit plaintext passwords.
+Role `ADMIN` bypasses county grants. Boot upserts `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
+Password hashing: Bun `argon2id` via `src/auth/password.js`.
+
+## VA enrich cron
+
+- Schedule: `*/10 * * * *` (UTC)
+- Command: `bun scripts/cron-enrich-va-opportunity.js --min-score=50`
+
+## Version after Railway deploys
+
+Bump `package.json` `version` on commit/push and tell the user the version string (portal `/api/version`).
