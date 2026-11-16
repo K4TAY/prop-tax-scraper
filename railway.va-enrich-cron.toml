@@ -1,4 +1,4 @@
-# Railway cron service: enrich one high-score VA opportunity every 10 minutes.
+# Railway cron service: enrich the next 5 high-score VA opportunities every 5 minutes.
 # Create a separate service (e.g. va-enrich-cron) pointing at this repo with:
 #   Config file path: railway.va-enrich-cron.toml
 # Shares BCAD_DATABASE_URL (PostGIS) with bcad-portal.
@@ -7,6 +7,6 @@
 builder = "RAILPACK"
 
 [deploy]
-startCommand = "bun scripts/cron-enrich-va-opportunity.js --min-score=50"
-cronSchedule = "*/10 * * * *"
+startCommand = "bun scripts/cron-enrich-va-opportunity.js --min-score=50 --limit=5 --gap-seconds=5"
+cronSchedule = "*/5 * * * *"
 restartPolicyType = "NEVER"

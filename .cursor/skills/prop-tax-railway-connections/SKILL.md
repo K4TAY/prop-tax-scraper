@@ -97,8 +97,9 @@ Password hashing: Bun `argon2id` via `src/auth/password.js`.
 
 ## VA enrich cron
 
-- Schedule: `*/10 * * * *` (UTC)
-- Command: `bun scripts/cron-enrich-va-opportunity.js --min-score=50`
+- Schedule: `*/5 * * * *` (UTC)
+- Command: `bun scripts/cron-enrich-va-opportunity.js --min-score=50 --limit=5 --gap-seconds=5`
+- Enriches 5 opportunities per run, sequentially, with a 5s pause between pulls
 
 ## Version after Railway deploys
 
