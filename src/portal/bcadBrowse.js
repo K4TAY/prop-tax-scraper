@@ -38,10 +38,136 @@ export const BCAD_BROWSE_FIELDS = [
   { name: "imported_at", label: "Imported at", type: "timestamp", defaultVisible: false },
 ];
 
+/** Computed enrichment flags (EXISTS against child tables). */
+export const BCAD_ENRICHMENT_FIELDS = [
+  {
+    name: "has_tax_account",
+    label: "Has tax account",
+    type: "boolean",
+    defaultVisible: false,
+    group: "enrichment",
+    existsSql:
+      "EXISTS (SELECT 1 FROM bcad_tax_accounts t WHERE t.bcad_property_id = bcad_properties.id)",
+  },
+  {
+    name: "has_tax_payments",
+    label: "Has tax payments",
+    type: "boolean",
+    defaultVisible: false,
+    group: "enrichment",
+    existsSql:
+      "EXISTS (SELECT 1 FROM bcad_tax_payments t WHERE t.bcad_property_id = bcad_properties.id)",
+  },
+  {
+    name: "has_deeds",
+    label: "Has deeds",
+    type: "boolean",
+    defaultVisible: false,
+    group: "enrichment",
+    existsSql:
+      "EXISTS (SELECT 1 FROM bcad_deeds d WHERE d.bcad_property_id = bcad_properties.id)",
+  },
+  {
+    name: "has_clerk",
+    label: "Has clerk records",
+    type: "boolean",
+    defaultVisible: false,
+    group: "enrichment",
+    existsSql:
+      "EXISTS (SELECT 1 FROM bcad_clerk_instruments c WHERE c.bcad_property_id = bcad_properties.id)",
+  },
+  {
+    name: "has_hgo",
+    label: "Has HGO appraisal",
+    type: "boolean",
+    defaultVisible: false,
+    group: "enrichment",
+    existsSql:
+      "EXISTS (SELECT 1 FROM bcad_hgo_appraisals h WHERE h.bcad_property_id = bcad_properties.id)",
+  },
+  {
+    name: "has_any_enrichment",
+    label: "Has any enrichment",
+    type: "boolean",
+    defaultVisible: false,
+    group: "enrichment",
+    existsSql: `(
+      EXISTS (SELECT 1 FROM bcad_tax_accounts t WHERE t.bcad_property_id = bcad_properties.id)
+      OR EXISTS (SELECT 1 FROM bcad_deeds d WHERE d.bcad_property_id = bcad_properties.id)
+      OR EXISTS (SELECT 1 FROM bcad_clerk_instruments c WHERE c.bcad_property_id = bcad_properties.id)
+      OR EXISTS (SELECT 1 FROM bcad_hgo_appraisals h WHERE h.bcad_property_id = bcad_properties.id)
+    )`,
+  },
+];
+
+/** One-click missing-data filters for the browse sidebar. */
+export const BCAD_MISSING_DATA_PRESETS = [
+  {
+    id: "missing_enrichment",
+    label: "No enrichment",
+    filters: [{ field: "has_any_enrichment", op: "eq", value: "false" }],
+  },
+  {
+    id: "missing_tax",
+    label: "Missing tax account",
+    filters: [{ field: "has_tax_account", op: "eq", value: "false" }],
+  },
+  {
+    id: "missing_tax_payments",
+    label: "Missing tax payments",
+    filters: [{ field: "has_tax_payments", op: "eq", value: "false" }],
+  },
+  {
+    id: "missing_deeds",
+    label: "Missing deeds",
+    filters: [{ field: "has_deeds", op: "eq", value: "false" }],
+  },
+  {
+    id: "missing_clerk",
+    label: "Missing clerk records",
+    filters: [{ field: "has_clerk", op: "eq", value: "false" }],
+  },
+  {
+    id: "missing_hgo",
+    label: "Missing HGO appraisal",
+    filters: [{ field: "has_hgo", op: "eq", value: "false" }],
+  },
+  {
+    id: "missing_owner",
+    label: "Missing owner",
+    filters: [{ field: "owner_name", op: "is_null" }],
+  },
+  {
+    id: "missing_geo_id",
+    label: "Missing geo ID",
+    filters: [{ field: "geo_id", op: "is_null" }],
+  },
+  {
+    id: "missing_exemptions",
+    label: "Missing exemptions",
+    filters: [{ field: "exemptions", op: "is_null" }],
+  },
+  {
+    id: "missing_mail",
+    label: "Missing mail address",
+    filters: [{ field: "addr_line1", op: "is_null" }],
+  },
+  {
+    id: "missing_appraised",
+    label: "Missing appraised $",
+    filters: [{ field: "appraised_val_num", op: "is_null" }],
+  },
+];
+
 /** No default filter: the 2027 BCAD parcel layer publishes appraised_val as "N/A" for every parcel. */
 export const DEFAULT_BCAD_FILTERS = [];
 
-const FIELD_SET = new Set(BCAD_BROWSE_FIELDS.map((f) => f.name));
+const ALL_BROWSE_FIELDS = [...BCAD_BROWSE_FIELDS, ...BCAD_ENRICHMENT_FIELDS];
+const FIELD_SET = new Set(ALL_BROWSE_FIELDS.map((f) => f.name));
+const COLUMN_FIELD_SET = new Set(BCAD_BROWSE_FIELDS.map((f) => f.name));
+const ENRICHMENT_BY_NAME = Object.fromEntries(
+  BCAD_ENRICHMENT_FIELDS.map((f) => [f.name, f])
+);
 const OPS = new Set([
   "eq",
   "neq",
@@ -61,8 +187,31 @@ const OPS = new Set([
 const PAGE_SIZES = new Set([25, 50, 100, 250, 500, 1000]);
 
 function quoteIdent(name) {
-  if (!FIELD_SET.has(name)) throw new Error(`Invalid field: ${name}`);
+  if (!COLUMN_FIELD_SET.has(name)) throw new Error(`Invalid field: ${name}`);
   return `"${name}"`;
+}
+
+function isTruthyFilterValue(value) {
+  const s = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return s === "true" || s === "1" || s === "yes" || s === "y" || s === "t";
+}
+
+function isFalsyFilterValue(value) {
+  const s = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return s === "false" || s === "0" || s === "no" || s === "n" || s === "f";
+}
+
+/** NULL or blank string — matches UI label "is empty". */
+function blankPredicate(colSql) {
+  return `(${colSql} IS NULL OR btrim(${colSql}::text) = '')`;
+}
+
+function presentPredicate(colSql) {
+  return `(${colSql} IS NOT NULL AND btrim(${colSql}::text) <> '')`;
 }
 
 function normalizeFilters(filters) {
@@ -99,6 +248,43 @@ function normalizeLimit(raw) {
   return Math.min(Math.max(n, 1), 1000);
 }
 
+function selectExpr(field) {
+  const enrich = ENRICHMENT_BY_NAME[field];
+  if (enrich) return `${enrich.existsSql} AS "${field}"`;
+  return quoteIdent(field);
+}
+
+function sortExpr(field) {
+  const enrich = ENRICHMENT_BY_NAME[field];
+  if (enrich) return enrich.existsSql;
+  return quoteIdent(field);
+}
+
+function appendEnrichmentFilter(f, whereParts) {
+  const enrich = ENRICHMENT_BY_NAME[f.field];
+  if (!enrich) return false;
+  const exists = enrich.existsSql;
+  if (f.op === "is_null" || (f.op === "eq" && isFalsyFilterValue(f.value))) {
+    whereParts.push(`NOT (${exists})`);
+    return true;
+  }
+  if (f.op === "not_null" || (f.op === "eq" && isTruthyFilterValue(f.value))) {
+    whereParts.push(`(${exists})`);
+    return true;
+  }
+  if (f.op === "neq") {
+    if (isTruthyFilterValue(f.value)) {
+      whereParts.push(`NOT (${exists})`);
+      return true;
+    }
+    if (isFalsyFilterValue(f.value)) {
+      whereParts.push(`(${exists})`);
+      return true;
+    }
+  }
+  return true; // known enrichment field but ignored op/value
+}
+
 /**
  * @param {{
  *   fields?: string[],
@@ -122,13 +308,15 @@ export async function browseBcadProperties(opts = {}) {
   const params = [];
 
   for (const f of filters) {
+    if (appendEnrichmentFilter(f, whereParts)) continue;
+
     const col = quoteIdent(f.field);
     if (f.op === "is_null") {
-      whereParts.push(`${col} IS NULL`);
+      whereParts.push(blankPredicate(col));
       continue;
     }
     if (f.op === "not_null") {
-      whereParts.push(`${col} IS NOT NULL`);
+      whereParts.push(presentPredicate(col));
       continue;
     }
     if (f.op === "in") {
@@ -202,7 +390,7 @@ export async function browseBcadProperties(opts = {}) {
   }
 
   const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
-  const selectList = fields.map((f) => quoteIdent(f)).join(", ");
+  const selectList = fields.map((f) => selectExpr(f)).join(", ");
 
   const countRes = await bcadPool.query(
     `SELECT COUNT(*)::bigint AS n FROM bcad_properties ${whereSql}`,
@@ -218,7 +406,7 @@ export async function browseBcadProperties(opts = {}) {
     SELECT ${selectList}
     FROM bcad_properties
     ${whereSql}
-    ORDER BY ${quoteIdent(sort)} ${order} NULLS LAST, id ASC
+    ORDER BY ${sortExpr(sort)} ${order} NULLS LAST, id ASC
     LIMIT $${limIdx}
     OFFSET $${offIdx}
     `,
@@ -236,12 +424,104 @@ export async function browseBcadProperties(opts = {}) {
   };
 }
 
+export async function getBcadCompletenessStats() {
+  const { rows } = await bcadPool.query(`
+    SELECT
+      COUNT(*)::bigint AS total_parcels,
+      COUNT(*) FILTER (
+        WHERE owner_name IS NULL OR btrim(owner_name) = ''
+      )::bigint AS missing_owner,
+      COUNT(*) FILTER (
+        WHERE geo_id IS NULL OR btrim(geo_id) = ''
+      )::bigint AS missing_geo_id,
+      COUNT(*) FILTER (
+        WHERE exemptions IS NULL OR btrim(exemptions) = ''
+      )::bigint AS missing_exemptions,
+      COUNT(*) FILTER (
+        WHERE addr_line1 IS NULL OR btrim(addr_line1) = ''
+      )::bigint AS missing_mail,
+      COUNT(*) FILTER (
+        WHERE appraised_val_num IS NULL
+      )::bigint AS missing_appraised,
+      COUNT(*) FILTER (
+        WHERE situs IS NULL OR btrim(situs) = ''
+      )::bigint AS missing_situs,
+      COUNT(*) FILTER (
+        WHERE EXISTS (
+          SELECT 1 FROM bcad_tax_accounts t WHERE t.bcad_property_id = bcad_properties.id
+        )
+      )::bigint AS has_tax_account,
+      COUNT(*) FILTER (
+        WHERE EXISTS (
+          SELECT 1 FROM bcad_tax_payments t WHERE t.bcad_property_id = bcad_properties.id
+        )
+      )::bigint AS has_tax_payments,
+      COUNT(*) FILTER (
+        WHERE EXISTS (
+          SELECT 1 FROM bcad_deeds d WHERE d.bcad_property_id = bcad_properties.id
+        )
+      )::bigint AS has_deeds,
+      COUNT(*) FILTER (
+        WHERE EXISTS (
+          SELECT 1 FROM bcad_clerk_instruments c WHERE c.bcad_property_id = bcad_properties.id
+        )
+      )::bigint AS has_clerk,
+      COUNT(*) FILTER (
+        WHERE EXISTS (
+          SELECT 1 FROM bcad_hgo_appraisals h WHERE h.bcad_property_id = bcad_properties.id
+        )
+      )::bigint AS has_hgo,
+      COUNT(*) FILTER (
+        WHERE EXISTS (
+          SELECT 1 FROM bcad_tax_accounts t WHERE t.bcad_property_id = bcad_properties.id
+        )
+        OR EXISTS (
+          SELECT 1 FROM bcad_deeds d WHERE d.bcad_property_id = bcad_properties.id
+        )
+        OR EXISTS (
+          SELECT 1 FROM bcad_clerk_instruments c WHERE c.bcad_property_id = bcad_properties.id
+        )
+        OR EXISTS (
+          SELECT 1 FROM bcad_hgo_appraisals h WHERE h.bcad_property_id = bcad_properties.id
+        )
+      )::bigint AS has_any_enrichment
+    FROM bcad_properties
+  `);
+  const r = rows[0] || {};
+  const total = Number(r.total_parcels ?? 0);
+  const hasAny = Number(r.has_any_enrichment ?? 0);
+  return {
+    total_parcels: total,
+    cad: {
+      missing_owner: Number(r.missing_owner ?? 0),
+      missing_geo_id: Number(r.missing_geo_id ?? 0),
+      missing_exemptions: Number(r.missing_exemptions ?? 0),
+      missing_mail: Number(r.missing_mail ?? 0),
+      missing_appraised: Number(r.missing_appraised ?? 0),
+      missing_situs: Number(r.missing_situs ?? 0),
+    },
+    enrichment: {
+      has_tax_account: Number(r.has_tax_account ?? 0),
+      has_tax_payments: Number(r.has_tax_payments ?? 0),
+      has_deeds: Number(r.has_deeds ?? 0),
+      has_clerk: Number(r.has_clerk ?? 0),
+      has_hgo: Number(r.has_hgo ?? 0),
+      has_any_enrichment: hasAny,
+      missing_any_enrichment: Math.max(0, total - hasAny),
+    },
+  };
+}
+
 export function listBcadBrowseFields() {
-  return BCAD_BROWSE_FIELDS;
+  return ALL_BROWSE_FIELDS.map(({ existsSql, ...rest }) => rest);
 }
 
 export function listDefaultBcadFilters() {
   return DEFAULT_BCAD_FILTERS;
+}
+
+export function listBcadMissingDataPresets() {
+  return BCAD_MISSING_DATA_PRESETS;
 }
 
 export function listBcadPageSizes() {

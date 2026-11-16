@@ -178,6 +178,37 @@
     .pager { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
     .pager button:disabled { opacity: 0.45; cursor: not-allowed; }
     .empty { padding: 2rem; text-align: center; color: var(--muted); }
+    .missing-presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    .missing-presets button {
+      font-size: 0.72rem;
+      padding: 0.28rem 0.45rem;
+      border-radius: 999px;
+      background: #121820;
+      border: 1px solid var(--border);
+      color: #c5d0db;
+      cursor: pointer;
+    }
+    .missing-presets button:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+    .missing-presets button.active {
+      background: #16352c;
+      border-color: #2d8a66;
+      color: #9fe0c3;
+    }
+    .completeness {
+      margin-top: 0.45rem;
+      font-size: 0.72rem;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+    .completeness strong { color: #c5d0db; font-weight: 600; }
+    .completeness .warn { color: #e6c07b; }
   </style>
 </head>
 <body>
@@ -208,6 +239,13 @@
 
           <div class="section-label">Column order</div>
           <div class="col-order" id="colOrder" aria-label="Drag to reorder columns"></div>
+
+          <div class="section-label">Missing data</div>
+          <p style="margin:0 0 0.4rem;font-size:0.75rem;color:var(--muted);">
+            Click a gap to filter. Counts load from the database.
+          </p>
+          <div class="missing-presets" id="missingPresets"></div>
+          <div class="completeness" id="completeness">Loading completeness…</div>
 
           <div class="section-label">Filters</div>
           <div class="filters" id="filters"></div>
@@ -272,11 +310,14 @@
         <button type="button" id="logoutBtn">Logout</button>`;
       document.getElementById("logoutBtn").addEventListener("click", PortalAuth.logout);
 
-      const STORE_KEY = "bcadPortal.browse.v1";
+      const STORE_KEY = "bcadPortal.browse.v2";
       let fieldMeta = [];
       let fieldByName = {};
       let visibleOrder = [];
       let filters = [];
+      let missingDataPresets = [];
+      let activeMissingPresetId = null;
+      let completeness = null;
       let sort = "id";
       let order = "asc";
       let offset = 0;
@@ -292,10 +333,30 @@
         { v: "gte", t: "≥" },
         { v: "lt", t: "<" },
         { v: "lte", t: "≤" },
+        { v: "has_token", t: "has code" },
         { v: "is_null", t: "is empty" },
         { v: "not_null", t: "not empty" },
         { v: "in", t: "in list" },
       ];
+
+      function fmtCount(n) {
+        return Number(n || 0).toLocaleString();
+      }
+
+      function ensureEnrichmentColumnsVisible() {
+        const needed = [
+          "has_tax_account",
+          "has_deeds",
+          "has_clerk",
+          "has_hgo",
+          "has_any_enrichment",
+        ];
+        for (const name of needed) {
+          if (fieldByName[name] && !visibleOrder.includes(name)) {
+            visibleOrder.push(name);
+          }
+        }
+      }
 
       function loadState() {
         try {
@@ -310,7 +371,14 @@
       function saveState() {
         localStorage.setItem(
           STORE_KEY,
-          JSON.stringify({ visibleOrder, filters, sort, order, limit })
+          JSON.stringify({
+            visibleOrder,
+            filters,
+            activeMissingPresetId,
+            sort,
+            order,
+            limit,
+          })
         );
       }
 
@@ -411,6 +479,109 @@
         });
       }
 
+      function presetCount(preset) {
+        if (!completeness) return null;
+        const map = {
+          missing_enrichment: completeness.enrichment?.missing_any_enrichment,
+          missing_tax:
+            completeness.total_parcels -
+            (completeness.enrichment?.has_tax_account || 0),
+          missing_tax_payments:
+            completeness.total_parcels -
+            (completeness.enrichment?.has_tax_payments || 0),
+          missing_deeds:
+            completeness.total_parcels -
+            (completeness.enrichment?.has_deeds || 0),
+          missing_clerk:
+            completeness.total_parcels -
+            (completeness.enrichment?.has_clerk || 0),
+          missing_hgo:
+            completeness.total_parcels - (completeness.enrichment?.has_hgo || 0),
+          missing_owner: completeness.cad?.missing_owner,
+          missing_geo_id: completeness.cad?.missing_geo_id,
+          missing_exemptions: completeness.cad?.missing_exemptions,
+          missing_mail: completeness.cad?.missing_mail,
+          missing_appraised: completeness.cad?.missing_appraised,
+        };
+        return map[preset.id];
+      }
+
+      function renderMissingPresets() {
+        const box = document.getElementById("missingPresets");
+        if (!missingDataPresets.length) {
+          box.innerHTML =
+            '<span style="font-size:0.75rem;color:var(--muted);">No presets</span>';
+          return;
+        }
+        box.innerHTML = missingDataPresets
+          .map((p) => {
+            const n = presetCount(p);
+            const count =
+              n == null ? "" : ` (${fmtCount(n)})`;
+            const active = activeMissingPresetId === p.id ? "active" : "";
+            return `<button type="button" class="${active}" data-preset="${PortalAuth.escapeHtml(
+              p.id
+            )}">${PortalAuth.escapeHtml(p.label)}${count}</button>`;
+          })
+          .join("");
+        box.querySelectorAll("[data-preset]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const id = btn.getAttribute("data-preset");
+            const preset = missingDataPresets.find((p) => p.id === id);
+            if (!preset) return;
+            if (activeMissingPresetId === id) {
+              activeMissingPresetId = null;
+              filters = [];
+            } else {
+              activeMissingPresetId = id;
+              filters = (preset.filters || []).map((f) => ({ ...f }));
+              const enrichIds = new Set([
+                "missing_enrichment",
+                "missing_tax",
+                "missing_tax_payments",
+                "missing_deeds",
+                "missing_clerk",
+                "missing_hgo",
+              ]);
+              if (enrichIds.has(preset.id)) {
+                ensureEnrichmentColumnsVisible();
+                renderColPool();
+                renderColOrder();
+              }
+            }
+            renderMissingPresets();
+            renderFilters();
+            saveState();
+            offset = 0;
+            search();
+          });
+        });
+      }
+
+      function renderCompleteness() {
+        const el = document.getElementById("completeness");
+        if (!completeness) {
+          el.textContent = "Completeness unavailable.";
+          return;
+        }
+        const total = completeness.total_parcels || 0;
+        const enriched = completeness.enrichment?.has_any_enrichment || 0;
+        const missingEnriched = Math.max(0, total - enriched);
+        el.innerHTML = `
+          <div><strong>${fmtCount(total)}</strong> parcels</div>
+          <div class="warn"><strong>${fmtCount(missingEnriched)}</strong> missing any enrichment
+            (<strong>${fmtCount(enriched)}</strong> enriched)</div>
+          <div>CAD gaps — owner <strong>${fmtCount(
+            completeness.cad?.missing_owner
+          )}</strong>,
+            geo <strong>${fmtCount(completeness.cad?.missing_geo_id)}</strong>,
+            exemptions <strong>${fmtCount(
+              completeness.cad?.missing_exemptions
+            )}</strong>,
+            mail <strong>${fmtCount(completeness.cad?.missing_mail)}</strong></div>
+        `;
+      }
+
       function renderFilters() {
         const box = document.getElementById("filters");
         if (!filters.length) {
@@ -433,6 +604,8 @@
                 `<option value="${o.v}" ${o.v === f.op ? "selected" : ""}>${o.t}</option>`
             ).join("");
             const noVal = f.op === "is_null" || f.op === "not_null";
+            const placeholder =
+              fieldByName[f.field]?.type === "boolean" ? "true / false" : "value";
             return `
             <div class="filter-row" data-i="${i}">
               <select data-k="field">${fieldOpts}</select>
@@ -440,7 +613,7 @@
                 <select data-k="op">${opOpts}</select>
                 <input data-k="value" type="text" value="${PortalAuth.escapeHtml(
                   f.value ?? ""
-                )}" ${noVal ? "disabled" : ""} placeholder="value">
+                )}" ${noVal ? "disabled" : ""} placeholder="${placeholder}">
                 <button type="button" class="danger" data-del="${i}">×</button>
               </div>
             </div>`;
@@ -453,7 +626,9 @@
             el.addEventListener("change", () => {
               const k = el.getAttribute("data-k");
               filters[i][k] = el.value;
-              if (k === "op") renderFilters();
+              activeMissingPresetId = null;
+              renderMissingPresets();
+              if (k === "op" || k === "field") renderFilters();
               saveState();
             });
           });
@@ -461,6 +636,8 @@
         box.querySelectorAll("[data-del]").forEach((btn) => {
           btn.addEventListener("click", () => {
             filters.splice(Number(btn.getAttribute("data-del")), 1);
+            activeMissingPresetId = null;
+            renderMissingPresets();
             renderFilters();
             saveState();
           });
@@ -469,6 +646,7 @@
 
       function escapeCell(v) {
         if (v == null) return "";
+        if (typeof v === "boolean") return v ? "yes" : "no";
         return PortalAuth.escapeHtml(String(v));
       }
 
@@ -567,6 +745,7 @@
       if (!metaRes.ok) throw new Error(meta.error || "Failed to load fields");
       fieldMeta = meta.fields || [];
       fieldByName = Object.fromEntries(fieldMeta.map((f) => [f.name, f]));
+      missingDataPresets = meta.missingDataPresets || [];
       window.__defaultFilters = meta.defaultFilters || [];
       const pageSizes = meta.pageSizes || [25, 50, 100, 250, 500, 1000];
       const ps = document.getElementById("pageSize");
@@ -578,6 +757,7 @@
       if (saved?.visibleOrder?.length) {
         visibleOrder = saved.visibleOrder.filter((n) => fieldByName[n]);
         filters = Array.isArray(saved.filters) ? saved.filters : [];
+        activeMissingPresetId = saved.activeMissingPresetId || null;
         sort = fieldByName[saved.sort] ? saved.sort : "id";
         order = saved.order === "desc" ? "desc" : "asc";
         limit = pageSizes.includes(Number(saved.limit))
@@ -590,7 +770,21 @@
 
       renderColPool();
       renderColOrder();
+      renderMissingPresets();
       renderFilters();
+
+      PortalAuth.authFetch("/api/bcad/browse/completeness")
+        .then(async (res) => {
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "completeness failed");
+          completeness = data.completeness || null;
+          renderCompleteness();
+          renderMissingPresets();
+        })
+        .catch(() => {
+          document.getElementById("completeness").textContent =
+            "Completeness unavailable.";
+        });
 
       document.getElementById("btnAddFilter").addEventListener("click", () => {
         filters.push({
@@ -598,6 +792,8 @@
           op: "ilike",
           value: "",
         });
+        activeMissingPresetId = null;
+        renderMissingPresets();
         renderFilters();
         saveState();
       });
@@ -607,15 +803,19 @@
       });
       document.getElementById("btnDefaults").addEventListener("click", () => {
         defaultsFromMeta();
+        activeMissingPresetId = null;
         document.getElementById("pageSize").value = "1000";
         renderColPool();
         renderColOrder();
+        renderMissingPresets();
         renderFilters();
         saveState();
         search();
       });
       document.getElementById("btnClearFilters").addEventListener("click", () => {
         filters = [];
+        activeMissingPresetId = null;
+        renderMissingPresets();
         renderFilters();
         saveState();
       });

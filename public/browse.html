@@ -108,6 +108,37 @@
     button.ghost { background: transparent; }
     button.danger { background: #2a1215; color: #f85149; border-color: #da3633; }
     .actions { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.75rem; }
+    .missing-presets {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    .missing-presets button {
+      font-size: 0.72rem;
+      padding: 0.28rem 0.45rem;
+      border-radius: 999px;
+      background: #0d1117;
+      border: 1px solid #30363d;
+      color: #c9d1d9;
+      cursor: pointer;
+    }
+    .missing-presets button:hover {
+      border-color: #58a6ff;
+      color: #58a6ff;
+    }
+    .missing-presets button.active {
+      background: #12261a;
+      border-color: #2ea043;
+      color: #3fb950;
+    }
+    .completeness {
+      margin-top: 0.45rem;
+      font-size: 0.72rem;
+      color: #8b949e;
+      line-height: 1.45;
+    }
+    .completeness strong { color: #c9d1d9; font-weight: 600; }
+    .completeness .warn { color: #d29922; }
     .meta {
       display: flex;
       flex-wrap: wrap;
@@ -336,6 +367,13 @@
         <button type="button" class="ghost" onclick="selectAllColumns(false)">None</button>
       </div>
 
+      <div class="section-label">Missing data</div>
+      <p style="margin:0 0 0.4rem;font-size:0.75rem;color:#8b949e;">
+        Click a gap to filter. Counts load from the database.
+      </p>
+      <div class="missing-presets" id="missingPresets"></div>
+      <div class="completeness" id="completeness">Loading completeness…</div>
+
       <div class="section-label">Filters</div>
       <div class="filters" id="filterList"></div>
       <button type="button" class="ghost" onclick="addFilterRow()" style="margin-top:0.4rem;width:100%;">+ Add filter</button>
@@ -461,6 +499,9 @@
 
     let fieldMeta = [];
     let defaultFilters = [{ field: 'appraised_val_num', op: 'gt', value: '0' }];
+    let missingDataPresets = [];
+    let activeMissingPresetId = null;
+    let completeness = null;
     let sort = 'pacs_prop_id';
     let order = 'asc';
     let offset = 0;
@@ -470,6 +511,10 @@
     const selectedExemptionCodes = new Set();
     /** @type {Set<string>} */
     const selectedStateCodes = new Set();
+
+    function fmtCount(n) {
+      return Number(n || 0).toLocaleString();
+    }
 
     const pathMatch = location.pathname.match(/^\/c\/([a-z]{2})\/([a-z0-9_]+)\/browse\/?/i);
     if (!pathMatch) {
@@ -739,6 +784,9 @@
       defaultFilters = Array.isArray(fieldsData.defaultFilters)
         ? fieldsData.defaultFilters
         : [{ field: 'appraised_val_num', op: 'gt', value: '0' }];
+      missingDataPresets = Array.isArray(fieldsData.missingDataPresets)
+        ? fieldsData.missingDataPresets
+        : [];
       const stats = await statsRes.json().catch(() => ({}));
       if (stats.version) document.getElementById('version').textContent = `v${stats.version}`;
       if (stats.countyName) {
@@ -750,7 +798,85 @@
       renderExemptionLegend();
       renderStateCodeLegend();
       renderColumns();
+      renderMissingPresets();
       applyDefaultFilters();
+      runSearch(0);
+
+      PropTaxAuth.authFetch(`${API}/browse/completeness`)
+        .then(async (res) => {
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'completeness failed');
+          completeness = data.completeness || null;
+          renderCompleteness();
+          renderMissingPresets();
+        })
+        .catch(() => {
+          document.getElementById('completeness').textContent =
+            'Completeness unavailable.';
+        });
+    }
+
+    function presetCount(preset) {
+      if (!completeness?.cad) return null;
+      return completeness.cad[preset.id] ?? null;
+    }
+
+    function renderCompleteness() {
+      const el = document.getElementById('completeness');
+      if (!completeness) {
+        el.textContent = 'Completeness unavailable.';
+        return;
+      }
+      const totalParcels = completeness.total_parcels || 0;
+      const cad = completeness.cad || {};
+      el.innerHTML = `
+        <div><strong>${fmtCount(totalParcels)}</strong> parcels</div>
+        <div class="warn">CAD gaps — owner <strong>${fmtCount(cad.missing_owner)}</strong>,
+          geo <strong>${fmtCount(cad.missing_geo_id)}</strong>,
+          situs <strong>${fmtCount(cad.missing_situs)}</strong>,
+          exemptions <strong>${fmtCount(cad.missing_exemptions)}</strong>,
+          mail <strong>${fmtCount(cad.missing_mail)}</strong>,
+          appraised <strong>${fmtCount(cad.missing_appraised)}</strong></div>
+      `;
+    }
+
+    function renderMissingPresets() {
+      const box = document.getElementById('missingPresets');
+      if (!missingDataPresets.length) {
+        box.innerHTML = '<span style="font-size:0.75rem;color:#8b949e;">No presets</span>';
+        return;
+      }
+      box.innerHTML = missingDataPresets.map((p) => {
+        const n = presetCount(p);
+        const count = n == null ? '' : ` (${fmtCount(n)})`;
+        const active = activeMissingPresetId === p.id ? 'active' : '';
+        return `<button type="button" class="${active}" data-preset="${escapeHtml(p.id)}">${escapeHtml(p.label)}${count}</button>`;
+      }).join('');
+      box.querySelectorAll('[data-preset]').forEach((btn) => {
+        btn.onclick = () => applyMissingPreset(btn.getAttribute('data-preset'));
+      });
+    }
+
+    function applyMissingPreset(id) {
+      const preset = missingDataPresets.find((p) => p.id === id);
+      if (!preset) return;
+      selectedExemptionCodes.clear();
+      selectedStateCodes.clear();
+      const wrap = document.getElementById('filterList');
+      if (activeMissingPresetId === id) {
+        activeMissingPresetId = null;
+        wrap.innerHTML = '';
+        addFilterRow();
+      } else {
+        activeMissingPresetId = id;
+        wrap.innerHTML = '';
+        for (const f of preset.filters || []) {
+          addFilterRow(f);
+        }
+      }
+      syncLegendActive();
+      syncStateLegendActive();
+      renderMissingPresets();
       runSearch(0);
     }
 
@@ -790,6 +916,7 @@
     function applyDefaultFilters() {
       selectedExemptionCodes.clear();
       selectedStateCodes.clear();
+      activeMissingPresetId = null;
       document.getElementById('filterList').innerHTML = '';
       const presets = defaultFilters.length
         ? defaultFilters
@@ -799,6 +926,7 @@
       }
       syncLegendActive();
       syncStateLegendActive();
+      renderMissingPresets();
     }
 
     function selectAllColumns(on) {
@@ -871,10 +999,12 @@
     function clearFilters() {
       selectedExemptionCodes.clear();
       selectedStateCodes.clear();
+      activeMissingPresetId = null;
       document.getElementById('filterList').innerHTML = '';
       addFilterRow();
       syncLegendActive();
       syncStateLegendActive();
+      renderMissingPresets();
     }
 
     function collectFilters() {

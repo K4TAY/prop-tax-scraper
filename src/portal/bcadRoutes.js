@@ -17,8 +17,10 @@ import {
 } from "./bcadImportJob.js";
 import {
   browseBcadProperties,
+  getBcadCompletenessStats,
   listBcadBrowseFields,
   listDefaultBcadFilters,
+  listBcadMissingDataPresets,
   listBcadPageSizes,
 } from "./bcadBrowse.js";
 import {
@@ -45,6 +47,8 @@ import {
   upsertVaOpportunityForProperty,
   listVaOpportunities,
   getVaOpportunity,
+  getVaOpportunityWithDetail,
+  stampVaOpportunityEnriched,
 } from "./vaOpportunities.js";
 import {
   listClerkInstrumentsForProperty,
@@ -121,9 +125,19 @@ router.get("/browse/meta", requireAuth, (_req, res) => {
   res.json({
     fields: listBcadBrowseFields(),
     defaultFilters: listDefaultBcadFilters(),
+    missingDataPresets: listBcadMissingDataPresets(),
     pageSizes: listBcadPageSizes(),
     defaultPageSize: 1000,
   });
+});
+
+router.get("/browse/completeness", requireAuth, async (_req, res) => {
+  try {
+    const completeness = await getBcadCompletenessStats();
+    res.json({ completeness });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.post("/browse", requireAuth, async (req, res) => {
@@ -293,6 +307,50 @@ router.post("/va-opportunities/rebuild", requireAuth, requireAdmin, async (req, 
       onlyDv: body.onlyDv !== false,
     });
     res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * Pull live public records (ACT Tax + HGO + clerk), rescore, stamp enriched_at.
+ * Used by the VA Opportunities grid "Pull records" button.
+ */
+router.post("/va-opportunities/:id/enrich", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const parcel = await getBcadParcelById(id);
+    if (!parcel) return res.status(404).json({ error: "not found" });
+
+    const refresh = await refreshPropertySources(id, {
+      year: req.body?.year,
+      ownerNo: req.body?.ownerNo ?? 0,
+    });
+    await upsertVaOpportunityForProperty(id);
+    await stampVaOpportunityEnriched(id);
+    const opportunity = await getVaOpportunityWithDetail(id);
+
+    res.json({
+      ok: refresh.ok,
+      errors: refresh.errors || [],
+      tax: refresh.tax,
+      deeds: refresh.deeds,
+      appraisal: refresh.appraisal,
+      clerk: refresh.clerk
+        ? {
+            automated: refresh.clerk.automated,
+            needs_manual: refresh.clerk.needs_manual,
+            inserted: refresh.clerk.inserted,
+            financing_count: refresh.clerk.financing_count,
+            message: refresh.clerk.message,
+            auto_error: refresh.clerk.auto_error,
+          }
+        : null,
+      opportunity,
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

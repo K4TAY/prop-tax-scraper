@@ -40,6 +40,45 @@ export const DEFAULT_BROWSE_FILTERS = [
   { field: "appraised_val_num", op: "gt", value: "0" },
 ];
 
+/** One-click missing-data filters (CAD columns only; shared across counties). */
+export const MISSING_DATA_PRESETS = [
+  {
+    id: "missing_owner",
+    label: "Missing owner",
+    filters: [{ field: "owner_name", op: "is_null" }],
+  },
+  {
+    id: "missing_geo_id",
+    label: "Missing geo ID",
+    filters: [{ field: "geo_id", op: "is_null" }],
+  },
+  {
+    id: "missing_situs",
+    label: "Missing situs",
+    filters: [{ field: "situs", op: "is_null" }],
+  },
+  {
+    id: "missing_exemptions",
+    label: "Missing exemptions",
+    filters: [{ field: "exemptions", op: "is_null" }],
+  },
+  {
+    id: "missing_mail",
+    label: "Missing mail address",
+    filters: [{ field: "addr_line1", op: "is_null" }],
+  },
+  {
+    id: "missing_appraised",
+    label: "Missing appraised $",
+    filters: [{ field: "appraised_val_num", op: "is_null" }],
+  },
+  {
+    id: "missing_state_cd",
+    label: "Missing state code",
+    filters: [{ field: "state_cd", op: "is_null" }],
+  },
+];
+
 const FIELD_SET = new Set(PROPERTY_FIELDS.map((f) => f.name));
 const OPS = new Set([
   "eq",
@@ -62,6 +101,15 @@ function quoteIdent(name) {
     throw new Error(`Invalid field: ${name}`);
   }
   return `"${name}"`;
+}
+
+/** NULL or blank string — matches UI label "is empty". */
+function blankPredicate(colSql) {
+  return `(${colSql} IS NULL OR btrim(${colSql}::text) = '')`;
+}
+
+function presentPredicate(colSql) {
+  return `(${colSql} IS NOT NULL AND btrim(${colSql}::text) <> '')`;
 }
 
 function normalizeFilters(filters) {
@@ -117,11 +165,11 @@ export async function browseProperties(opts = {}) {
   for (const f of filters) {
     const col = quoteIdent(f.field);
     if (f.op === "is_null") {
-      whereParts.push(`${col} IS NULL`);
+      whereParts.push(blankPredicate(col));
       continue;
     }
     if (f.op === "not_null") {
-      whereParts.push(`${col} IS NOT NULL`);
+      whereParts.push(presentPredicate(col));
       continue;
     }
     if (f.op === "in") {
@@ -230,10 +278,64 @@ export async function browseProperties(opts = {}) {
   };
 }
 
+/**
+ * CAD-column completeness counts for a county properties table.
+ * @param {string} propertiesTable
+ */
+export async function getBrowseCompletenessStats(propertiesTable) {
+  if (!/^[a-z0-9_]+$/.test(propertiesTable || "")) {
+    throw new Error(`Invalid properties table: ${propertiesTable}`);
+  }
+  const fromTable = `"${propertiesTable}"`;
+  const { rows } = await pool.query(`
+    SELECT
+      COUNT(*)::bigint AS total_parcels,
+      COUNT(*) FILTER (
+        WHERE owner_name IS NULL OR btrim(owner_name::text) = ''
+      )::bigint AS missing_owner,
+      COUNT(*) FILTER (
+        WHERE geo_id IS NULL OR btrim(geo_id::text) = ''
+      )::bigint AS missing_geo_id,
+      COUNT(*) FILTER (
+        WHERE situs IS NULL OR btrim(situs::text) = ''
+      )::bigint AS missing_situs,
+      COUNT(*) FILTER (
+        WHERE exemptions IS NULL OR btrim(exemptions::text) = ''
+      )::bigint AS missing_exemptions,
+      COUNT(*) FILTER (
+        WHERE addr_line1 IS NULL OR btrim(addr_line1::text) = ''
+      )::bigint AS missing_mail,
+      COUNT(*) FILTER (
+        WHERE appraised_val_num IS NULL
+      )::bigint AS missing_appraised,
+      COUNT(*) FILTER (
+        WHERE state_cd IS NULL OR btrim(state_cd::text) = ''
+      )::bigint AS missing_state_cd
+    FROM ${fromTable}
+  `);
+  const r = rows[0] || {};
+  return {
+    total_parcels: Number(r.total_parcels ?? 0),
+    cad: {
+      missing_owner: Number(r.missing_owner ?? 0),
+      missing_geo_id: Number(r.missing_geo_id ?? 0),
+      missing_situs: Number(r.missing_situs ?? 0),
+      missing_exemptions: Number(r.missing_exemptions ?? 0),
+      missing_mail: Number(r.missing_mail ?? 0),
+      missing_appraised: Number(r.missing_appraised ?? 0),
+      missing_state_cd: Number(r.missing_state_cd ?? 0),
+    },
+  };
+}
+
 export function listBrowseFields() {
   return PROPERTY_FIELDS;
 }
 
 export function listDefaultBrowseFilters() {
   return DEFAULT_BROWSE_FILTERS;
+}
+
+export function listMissingDataPresets() {
+  return MISSING_DATA_PRESETS;
 }

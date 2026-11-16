@@ -7,7 +7,13 @@ import { fileURLToPath } from "url";
 import open from "open";
 import logger from "./logger.js";
 import { importCsvDirectory, ensureSchema, ImportAbortedError } from "./importCsv.js";
-import { browseProperties, listBrowseFields, listDefaultBrowseFilters } from "./browse.js";
+import {
+  browseProperties,
+  getBrowseCompletenessStats,
+  listBrowseFields,
+  listDefaultBrowseFilters,
+  listMissingDataPresets,
+} from "./browse.js";
 import {
   searchAllProperties,
   listSearchFields,
@@ -1006,7 +1012,24 @@ app.get(
     res.json({
       fields: listBrowseFields(),
       defaultFilters: listDefaultBrowseFilters(),
+      missingDataPresets: listMissingDataPresets(),
     });
+  }
+);
+
+app.get(
+  "/api/c/:state/:county/browse/completeness",
+  requireAuth,
+  requireCountyAccess,
+  async (req, res) => {
+    try {
+      const ctx = resolveCtx(req);
+      await ensureCountyTables(ctx);
+      const completeness = await getBrowseCompletenessStats(ctx.propertiesTable);
+      res.json({ completeness });
+    } catch (err) {
+      res.status(500).json({ error: err.message || String(err) });
+    }
   }
 );
 

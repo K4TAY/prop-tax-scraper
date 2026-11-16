@@ -648,29 +648,85 @@ export async function upsertVaOpportunityForProperty(propertyId, opts = {}) {
   return getVaOpportunity(propertyId, client);
 }
 
+/** EXISTS flags for child public-record tables + derived detail_status. */
+const DETAIL_SELECT = `
+  v.*,
+  EXISTS (
+    SELECT 1 FROM bcad_tax_accounts t WHERE t.bcad_property_id = v.bcad_property_id
+  ) AS has_tax,
+  EXISTS (
+    SELECT 1 FROM bcad_hgo_appraisals h WHERE h.bcad_property_id = v.bcad_property_id
+  ) AS has_hgo,
+  EXISTS (
+    SELECT 1 FROM bcad_deeds d WHERE d.bcad_property_id = v.bcad_property_id
+  ) AS has_deeds,
+  EXISTS (
+    SELECT 1 FROM bcad_clerk_instruments c WHERE c.bcad_property_id = v.bcad_property_id
+  ) AS has_clerk
+`;
+
+function withDetailStatus(row) {
+  if (!row) return null;
+  const has_tax = Boolean(row.has_tax);
+  const has_hgo = Boolean(row.has_hgo);
+  const has_deeds = Boolean(row.has_deeds);
+  const has_clerk = Boolean(row.has_clerk);
+  const enriched = row.enriched_at != null;
+  // "Complete" = full public-record packet needed for VA scoring is on file.
+  const detail_complete = has_tax && has_hgo && has_clerk && enriched;
+  const anyDetail = has_tax || has_hgo || has_deeds || has_clerk || enriched;
+  let detail_status = "missing";
+  if (detail_complete) detail_status = "complete";
+  else if (anyDetail) detail_status = "partial";
+  return {
+    ...row,
+    has_tax,
+    has_hgo,
+    has_deeds,
+    has_clerk,
+    detail_complete,
+    detail_status,
+  };
+}
+
 export async function listVaOpportunities(opts = {}) {
   const client = opts.client || bcadPool;
   await ensureVaOpportunitiesSchema(client);
-  const limit = Math.min(Number(opts.limit) || 100, 1000);
+  const rawLimit = opts.limit;
+  const wantAll =
+    rawLimit == null ||
+    rawLimit === "" ||
+    String(rawLimit).toLowerCase() === "all";
+  const limit = wantAll
+    ? null
+    : Math.min(Math.max(Number(rawLimit) || 100, 1), 100000);
   const offset = Math.max(Number(opts.offset) || 0, 0);
   const tier = opts.tier || null;
   const minScore = opts.minScore != null ? Number(opts.minScore) : 0;
 
-  const params = [minScore, limit, offset];
+  const params = [minScore];
   let tierSql = "";
   if (tier) {
     params.push(tier);
-    tierSql = ` AND tier = $${params.length}`;
+    tierSql = ` AND v.tier = $${params.length}`;
+  }
+
+  let limitSql = "";
+  if (limit != null) {
+    params.push(limit);
+    limitSql += ` LIMIT $${params.length}`;
+    params.push(offset);
+    limitSql += ` OFFSET $${params.length}`;
   }
 
   const { rows } = await client.query(
     `
-    SELECT *
-    FROM bcad_va_opportunities
-    WHERE score >= $1
+    SELECT ${DETAIL_SELECT}
+    FROM bcad_va_opportunities v
+    WHERE v.score >= $1
       ${tierSql}
-    ORDER BY score DESC, bcad_property_id
-    LIMIT $2 OFFSET $3
+    ORDER BY v.score DESC, v.bcad_property_id
+    ${limitSql}
     `,
     params
   );
@@ -682,13 +738,15 @@ export async function listVaOpportunities(opts = {}) {
            COUNT(*) FILTER (WHERE tier = 'warm')::int AS warm,
            COUNT(*) FILTER (WHERE tier = 'watch')::int AS watch
     FROM bcad_va_opportunities
-    WHERE score >= $1
-      ${tier ? "AND tier = $2" : ""}
-    `,
-    tier ? [minScore, tier] : [minScore]
+    `
   );
 
-  return { total: countRows[0], rows };
+  return {
+    total: countRows[0],
+    rows: rows.map(withDetailStatus),
+    limit: limit ?? "all",
+    offset,
+  };
 }
 
 export async function getVaOpportunity(propertyId, client = bcadPool) {
@@ -697,4 +755,28 @@ export async function getVaOpportunity(propertyId, client = bcadPool) {
     [propertyId]
   );
   return rows[0] || null;
+}
+
+export async function getVaOpportunityWithDetail(propertyId, client = bcadPool) {
+  await ensureVaOpportunitiesSchema(client);
+  const { rows } = await client.query(
+    `
+    SELECT ${DETAIL_SELECT}
+    FROM bcad_va_opportunities v
+    WHERE v.bcad_property_id = $1
+    `,
+    [propertyId]
+  );
+  return withDetailStatus(rows[0] || null);
+}
+
+export async function stampVaOpportunityEnriched(propertyId, client = bcadPool) {
+  await client.query(
+    `
+    UPDATE bcad_va_opportunities
+    SET enriched_at = NOW()
+    WHERE bcad_property_id = $1
+    `,
+    [propertyId]
+  );
 }
