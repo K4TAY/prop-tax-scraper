@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VA Opportunities — Bexar CAD Portal</title>
+  <title>VA Lead Pool — Bexar CAD Portal</title>
   <meta name="color-scheme" content="dark">
   <link rel="stylesheet" href="/portal.css">
   <style>
@@ -338,6 +338,33 @@
       border-color: #2d5c4a;
       color: #9fe0c3;
     }
+    .btn-claim {
+      display: inline-block;
+      background: #16352c;
+      border: 1px solid #2d5c4a;
+      color: var(--accent);
+      border-radius: 6px;
+      padding: 0.28rem 0.6rem;
+      font-size: 0.74rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn-claim:hover:not(:disabled) { background: #1f4d3c; }
+    .btn-claim:disabled { opacity: 0.55; cursor: not-allowed; }
+    .btn-claim.taken {
+      background: #1a2330;
+      border-color: var(--border);
+      color: var(--muted);
+      font-weight: 400;
+      cursor: default;
+    }
+    .btn-claim.mine {
+      background: #122b22;
+      border-color: #1f4d3c;
+      color: #9fe0c3;
+      cursor: default;
+    }
     .note {
       margin-top: 0.75rem;
       font-size: 0.78rem;
@@ -360,18 +387,23 @@
     <nav class="sidebar" aria-label="Main">
       <div class="nav-label">Maps</div>
       <a class="nav-item" href="/">Bexar Property Map</a>
+      <div class="nav-label">Leads</div>
+      <a class="nav-item active" href="/va.html">VA Opportunities</a>
+      <a class="nav-item" href="/leads.html">My Leads</a>
       <div class="nav-label">Data</div>
       <a class="nav-item" href="/data.html">Browse</a>
-      <a class="nav-item active" href="/va.html">VA Opportunities</a>
       <a class="nav-item" href="/import.html">Import</a>
+      <div class="nav-label admin-only" id="adminSection" style="display:none">Admin</div>
+      <a class="nav-item admin-only" id="usersLink" href="/users.html" style="display:none">Users</a>
     </nav>
     <main class="va-main">
       <div class="va-head">
         <div>
-          <h1>VA loan opportunities <span class="version" id="pageVersion" style="font-weight:400;font-size:0.85rem;color:var(--muted);margin-left:0.35rem;"></span></h1>
+          <h1>VA Lead Pool <span class="version" id="pageVersion" style="font-weight:400;font-size:0.85rem;color:var(--muted);margin-left:0.35rem;"></span></h1>
           <p>
-            Call list built from public records only: county disabled-veteran tax exemptions
-            (DVHS / DV1–4) plus clues of an active mortgage. Not a VA disability list.
+            Unclaimed opportunities — county disabled-veteran tax exemptions
+            (DVHS / DV1–4) plus clues of an active mortgage.
+            <strong style="color:var(--text)">Claim a row</strong> to add it to <a href="/leads.html">My Leads</a> and start tracking.
             Read the <strong style="color:var(--text)">Why call</strong> column first.
           </p>
         </div>
@@ -542,6 +574,11 @@ Is now a bad time, or is there a better day this week?</pre>
         </span>
         <button type="button" id="logoutBtn">Logout</button>`;
       document.getElementById("logoutBtn").addEventListener("click", PortalAuth.logout);
+
+      if (me.user.role === "ADMIN") {
+        document.getElementById("adminSection").style.display = "";
+        document.getElementById("usersLink").style.display = "";
+      }
 
       try {
         const v = await (await fetch("/api/version")).json();
@@ -954,6 +991,7 @@ Is now a bad time, or is there a better day this week?</pre>
           <table>
             <thead>
               <tr>
+                <th>Claim</th>
                 <th>Tier</th>
                 <th>Score</th>
                 <th>Owner / situs</th>
@@ -984,7 +1022,17 @@ Is now a bad time, or is there a better day this week?</pre>
                           : ""
                       }</div>
                     </div>`;
+                    const claimCell = (() => {
+                    if (r.claimed_by_me) {
+                      return `<button type="button" class="btn-claim mine" disabled>Claimed ✓</button>`;
+                    }
+                    if (r.claimed_by) {
+                      return `<button type="button" class="btn-claim taken" disabled>Taken</button>`;
+                    }
+                    return `<button type="button" class="btn-claim" data-claim="${esc(r.bcad_property_id)}">Claim</button>`;
+                  })();
                   return `<tr data-id="${esc(r.bcad_property_id)}">
+                    <td>${claimCell}</td>
                     <td><span class="tier ${esc(r.tier)}">${esc(r.tier)}</span></td>
                     <td><strong>${esc(r.score)}</strong></td>
                     <td>
@@ -1010,6 +1058,12 @@ Is now a bad time, or is there a better day this week?</pre>
             enrichRow(btn.getAttribute("data-enrich"), btn);
           });
         });
+
+        wrap.querySelectorAll("[data-claim]").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            claimLead(btn.getAttribute("data-claim"), btn);
+          });
+        });
       }
 
       function applyFilters(resetPage = true) {
@@ -1018,13 +1072,54 @@ Is now a bad time, or is there a better day this week?</pre>
         renderGrid();
       }
 
-      async function load() {
-        wrap.innerHTML = `<div class="empty">Loading all opportunities…</div>`;
-        document.getElementById("gridMeta").textContent = "Loading…";
+      async function claimLead(propertyId, btn) {
+        const id = Number(propertyId);
+        if (!Number.isFinite(id)) return;
+        const prev = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = "Claiming…";
         try {
           const res = await PortalAuth.authFetch(
-            "/api/bcad/va-opportunities?limit=all&min_score=0"
+            `/api/bcad/va-leads/${id}/claim`,
+            { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) }
           );
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            alert(data.error || "Claim failed");
+            btn.textContent = prev;
+            btn.disabled = false;
+            return;
+          }
+          // Mark row as claimed by me in local state
+          const idx = allRows.findIndex((r) => Number(r.bcad_property_id) === id);
+          if (idx >= 0) allRows[idx] = { ...allRows[idx], claimed_by_me: true, claimed_by: "me" };
+          btn.className = "btn-claim mine";
+          btn.textContent = "Claimed ✓";
+          btn.removeAttribute("data-claim");
+          // Notify user and offer navigation
+          const goLeads = confirm("Lead claimed! Go to My Leads?");
+          if (goLeads) window.location.href = "/leads.html";
+        } catch (err) {
+          alert(err.message || "Claim failed");
+          btn.textContent = prev;
+          btn.disabled = false;
+        }
+      }
+
+      async function load() {
+        wrap.innerHTML = `<div class="empty">Loading opportunities…</div>`;
+        document.getElementById("gridMeta").textContent = "Loading…";
+        try {
+          // Try new leads pool API first; fall back to legacy va-opportunities
+          let res = await PortalAuth.authFetch(
+            "/api/bcad/va-leads/pool?limit=1000&offset=0"
+          );
+          let useLegacy = !res.ok;
+          if (useLegacy) {
+            res = await PortalAuth.authFetch(
+              "/api/bcad/va-opportunities?limit=all&min_score=0"
+            );
+          }
           const data = await res.json().catch(() => ({}));
           if (!res.ok) {
             wrap.innerHTML = `<div class="empty">Error: ${esc(data.error || res.status)}</div>`;

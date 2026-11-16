@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Leads — Bexar CAD Portal</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="stylesheet" href="/portal.css">
+  <style>
+    .leads-main {
+      padding: 1rem 1.25rem 2rem;
+      overflow: auto;
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .leads-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 0.85rem;
+      flex-shrink: 0;
+    }
+    .leads-head h1 {
+      margin: 0;
+      font-size: 1.15rem;
+      font-weight: 650;
+    }
+    .leads-head p {
+      margin: 0.35rem 0 0;
+      color: var(--muted);
+      font-size: 0.85rem;
+      max-width: 42rem;
+    }
+
+    /* ---- status badge colors ---- */
+    .status-badge {
+      display: inline-block;
+      padding: 0.12rem 0.5rem;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+    .status-new       { background: #1a2330; color: #8b9aab; }
+    .status-contacted { background: #1f3348; color: #6ab0e0; }
+    .status-qualified { background: #1a2e1a; color: #80c980; }
+    .status-proposal  { background: #2e2a14; color: #d4b44a; }
+    .status-won       { background: #16352c; color: #9fe0c3; }
+    .status-lost      { background: #3a1a1a; color: #c07070; }
+
+    /* ---- sidebar status sub-items ---- */
+    .nav-sub {
+      display: block;
+      width: 100%;
+      padding: 0.42rem 0.75rem 0.42rem 1.6rem;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--muted);
+      font-size: 0.82rem;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .nav-sub:hover { background: #1a2330; color: var(--text); }
+    .nav-sub.active {
+      background: #122b22;
+      border-color: #1f4d3c;
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .nav-sub .dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      margin-right: 0.45rem;
+      vertical-align: middle;
+    }
+
+    /* ---- stats ---- */
+    .stats {
+      display: flex;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+    .stat {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 0.45rem 0.75rem;
+      min-width: 4.5rem;
+    }
+    .stat .n { font-size: 1.1rem; font-weight: 700; color: var(--accent); }
+    .stat .l { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+
+    /* ---- toolbar ---- */
+    .grid-shell {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+      overflow: hidden;
+    }
+    .grid-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 0.75rem;
+      align-items: flex-end;
+      padding: 0.6rem 0.85rem;
+      border-bottom: 1px solid var(--border);
+      background: #0a0e12;
+      flex-shrink: 0;
+    }
+    .grid-toolbar label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+    .grid-toolbar select,
+    .grid-toolbar input,
+    .grid-toolbar button {
+      background: #1a2330;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 0.4rem 0.65rem;
+      font-size: 0.85rem;
+      text-transform: none;
+      letter-spacing: normal;
+    }
+    .grid-toolbar input[type="search"] { min-width: 13rem; }
+    .grid-toolbar button { cursor: pointer; }
+    .grid-toolbar button:hover { border-color: var(--accent); }
+    .grid-toolbar .spacer { flex: 1; min-width: 0.5rem; }
+    .toggle-all-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    .toggle-all-wrap input { width: auto; }
+    .grid-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: center;
+      padding: 0.4rem 0.85rem;
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 0.8rem;
+      flex-shrink: 0;
+    }
+    .grid-meta strong { color: var(--text); }
+    .table-wrap {
+      flex: 1;
+      min-height: 12rem;
+      overflow: auto;
+    }
+
+    /* ---- table ---- */
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    th, td {
+      text-align: left;
+      padding: 0.5rem 0.6rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      position: sticky;
+      top: 0;
+      background: #0a0e12;
+      z-index: 2;
+    }
+    tr.lead-row:hover > td { background: #0d1218; cursor: pointer; }
+    tr.lead-row.expanded > td { background: #0d1218; }
+    tr.detail-row > td {
+      background: #0a0e12;
+      border-top: none;
+      padding: 0;
+    }
+    tr.detail-row.hidden { display: none; }
+
+    .tier {
+      display: inline-block;
+      padding: 0.12rem 0.45rem;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+    }
+    .tier.hot   { background: #3a1a1a; color: #f07178; }
+    .tier.warm  { background: #3a2e14; color: #e6b450; }
+    .tier.watch { background: #1a2330; color: #8b9aab; }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .empty { color: var(--muted); padding: 2rem 0.85rem; }
+
+    /* ---- detail panel ---- */
+    .detail-panel {
+      padding: 0.85rem 1rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    @media (max-width: 700px) {
+      .detail-panel { grid-template-columns: 1fr; }
+    }
+    .dp-section h3 {
+      margin: 0 0 0.6rem;
+      font-size: 0.78rem;
+      font-weight: 650;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .status-form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: flex-end;
+    }
+    .status-form select,
+    .status-form button {
+      background: #1a2330;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 0.38rem 0.65rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .status-form button:hover { border-color: var(--accent); }
+    .status-form button.primary {
+      background: #16352c;
+      border-color: #2d5c4a;
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .status-form button.danger {
+      background: #3a1a1e;
+      border-color: #6b2a32;
+      color: #f0b4b8;
+    }
+    .status-msg {
+      font-size: 0.78rem;
+      margin-top: 0.35rem;
+      min-height: 1.2em;
+    }
+    .status-msg.ok  { color: var(--accent); }
+    .status-msg.err { color: #f07178; }
+
+    /* ---- notes ---- */
+    .notes-list {
+      list-style: none;
+      margin: 0 0 0.6rem;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
+      max-height: 12rem;
+      overflow-y: auto;
+    }
+    .notes-list li {
+      background: #0a0e12;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.45rem 0.6rem;
+      font-size: 0.8rem;
+      line-height: 1.4;
+    }
+    .notes-list li .note-meta {
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-bottom: 0.2rem;
+    }
+    .note-form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .note-form textarea {
+      background: #1a2330;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 0.45rem 0.6rem;
+      font-size: 0.82rem;
+      font-family: inherit;
+      resize: vertical;
+      min-height: 3.5rem;
+    }
+    .note-form textarea:focus { outline: none; border-color: var(--accent); }
+    .note-form button {
+      background: #16352c;
+      border: 1px solid #2d5c4a;
+      color: var(--accent);
+      border-radius: 6px;
+      padding: 0.38rem 0.75rem;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      align-self: flex-end;
+    }
+    .note-form button:hover { background: #1f4d3c; }
+    .note-form button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .note-err { font-size: 0.75rem; color: #f07178; min-height: 1.1em; }
+
+    /* ---- pager ---- */
+    .pager {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      padding: 0.55rem 0.85rem;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .pager button {
+      background: #1a2330;
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 6px;
+      padding: 0.35rem 0.65rem;
+      font-size: 0.82rem;
+      cursor: pointer;
+    }
+    .pager button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .pager-info { color: var(--muted); font-size: 0.82rem; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-wrap">
+      <div class="brand">Bexar CAD Portal</div>
+      <div class="version" id="version"></div>
+    </div>
+    <div class="user-meta" id="userMeta"></div>
+  </header>
+  <div class="shell">
+    <nav class="sidebar" aria-label="Main">
+      <div class="nav-label">Maps</div>
+      <a class="nav-item" href="/">Bexar Property Map</a>
+      <div class="nav-label">Leads</div>
+      <a class="nav-item" href="/va.html">VA Opportunities</a>
+      <a class="nav-item" id="navAllLeads" href="/leads.html">My Leads</a>
+      <a class="nav-sub" id="navNew"       href="/leads.html#new"       data-status="new">
+        <span class="dot" style="background:#8b9aab"></span>New
+      </a>
+      <a class="nav-sub" id="navContacted" href="/leads.html#contacted"  data-status="contacted">
+        <span class="dot" style="background:#6ab0e0"></span>Contacted
+      </a>
+      <a class="nav-sub" id="navQualified" href="/leads.html#qualified"  data-status="qualified">
+        <span class="dot" style="background:#80c980"></span>Qualified
+      </a>
+      <a class="nav-sub" id="navProposal"  href="/leads.html#proposal"   data-status="proposal">
+        <span class="dot" style="background:#d4b44a"></span>Proposal
+      </a>
+      <a class="nav-sub" id="navWon"       href="/leads.html#won"        data-status="won">
+        <span class="dot" style="background:#9fe0c3"></span>Won
+      </a>
+      <a class="nav-sub" id="navLost"      href="/leads.html#lost"       data-status="lost">
+        <span class="dot" style="background:#c07070"></span>Lost
+      </a>
+      <div class="nav-label">Data</div>
+      <a class="nav-item" href="/data.html">Browse</a>
+      <a class="nav-item" href="/import.html">Import</a>
+      <div class="nav-label admin-only" id="adminSection" style="display:none">Admin</div>
+      <a class="nav-item admin-only" id="usersLink" href="/users.html" style="display:none">Users</a>
+    </nav>
+    <main class="leads-main">
+      <div class="leads-head">
+        <div>
+          <h1>My Leads <span class="version" id="pageVersion" style="font-weight:400;font-size:0.85rem;color:var(--muted);margin-left:0.35rem;"></span></h1>
+          <p id="headDesc">Your claimed VA opportunities. Click a row to change status, release, or add notes.</p>
+        </div>
+        <div class="stats" id="stats"></div>
+      </div>
+
+      <section class="grid-shell" aria-label="My leads grid">
+        <div class="grid-toolbar">
+          <label>
+            Tier
+            <select id="filterTier">
+              <option value="">All</option>
+              <option value="hot">Hot</option>
+              <option value="warm">Warm</option>
+              <option value="watch">Watch</option>
+            </select>
+          </label>
+          <label>
+            Search
+            <input type="search" id="filterSearch" placeholder="Owner, situs, geo ID…" autocomplete="off">
+          </label>
+          <div class="spacer"></div>
+          <label id="adminToggleWrap" class="toggle-all-wrap" style="display:none">
+            <input type="checkbox" id="showAll">
+            Show all users' leads
+          </label>
+          <button type="button" id="btnRefresh">↺ Refresh</button>
+        </div>
+        <div class="grid-meta" id="gridMeta">Loading…</div>
+        <div class="table-wrap" id="tableWrap"><div class="empty">Loading…</div></div>
+        <div class="pager">
+          <button type="button" id="btnPrev" disabled>Previous</button>
+          <span class="pager-info" id="pageInfo">Page 1</span>
+          <button type="button" id="btnNext" disabled>Next</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/auth.js"></script>
+  <script>
+  (async function () {
+    const me = await PortalAuth.requireLogin();
+    if (!me) return;
+
+    const isAdmin = me.user.role === "ADMIN";
+
+    document.getElementById("userMeta").innerHTML = `
+      <span>${PortalAuth.escapeHtml(PortalAuth.displayName(me.user))}
+        <span style="opacity:0.7">(${PortalAuth.escapeHtml(me.user.role)})</span>
+      </span>
+      <button type="button" id="logoutBtn">Logout</button>`;
+    document.getElementById("logoutBtn").addEventListener("click", PortalAuth.logout);
+
+    if (isAdmin) {
+      document.getElementById("adminSection").style.display = "";
+      document.getElementById("usersLink").style.display = "";
+      document.getElementById("adminToggleWrap").style.display = "";
+    }
+
+    // version badge
+    try {
+      const v = await (await fetch("/api/version")).json();
+      const label = "v" + (v.version || "");
+      document.getElementById("version").textContent = label;
+      const pv = document.getElementById("pageVersion");
+      if (pv) pv.textContent = label;
+    } catch { /* ignore */ }
+
+    const esc = PortalAuth.escapeHtml;
+
+    // ── Status metadata ──────────────────────────────────────────────────────
+    let STATUS_LIST = [
+      { id: "new",       label: "New" },
+      { id: "contacted", label: "Contacted" },
+      { id: "qualified", label: "Qualified" },
+      { id: "proposal",  label: "Proposal" },
+      { id: "won",       label: "Won" },
+      { id: "lost",      label: "Lost" },
+    ];
+    try {
+      const r = await PortalAuth.authFetch("/api/bcad/va-leads/meta");
+      if (r.ok) {
+        const d = await r.json().catch(() => ({}));
+        if (Array.isArray(d.statuses) && d.statuses.length) STATUS_LIST = d.statuses;
+      }
+    } catch { /* use defaults */ }
+
+    // ── State ────────────────────────────────────────────────────────────────
+    /** @type {any[]} */
+    let allRows = [];
+    let activeStatus = ""; // "" = all
+    let pageOffset   = 0;
+    const PAGE_SIZE  = 50;
+
+    // ── Hash-based status routing ─────────────────────────────────────────────
+    function readHash() {
+      const h = window.location.hash.slice(1).toLowerCase();
+      const valid = STATUS_LIST.map((s) => s.id);
+      return valid.includes(h) ? h : "";
+    }
+
+    function updateSidebarActive(status) {
+      document.getElementById("navAllLeads").classList.toggle("active", !status);
+      STATUS_LIST.forEach((s) => {
+        const el = document.getElementById("nav" + s.id.charAt(0).toUpperCase() + s.id.slice(1));
+        if (el) el.classList.toggle("active", s.id === status);
+      });
+    }
+
+    // ── Counts for stats bar ──────────────────────────────────────────────────
+    function computeStats() {
+      const counts = { total: allRows.length };
+      STATUS_LIST.forEach((s) => { counts[s.id] = 0; });
+      allRows.forEach((r) => {
+        const st = String(r.lead_status || r.status || "new");
+        if (counts[st] !== undefined) counts[st]++;
+      });
+      return counts;
+    }
+
+    function renderStats(counts) {
+      const items = [["total", counts.total], ...STATUS_LIST.map((s) => [s.id, counts[s.id] ?? 0])];
+      document.getElementById("stats").innerHTML = items
+        .map(([l, n]) => `<div class="stat"><div class="n">${n ?? 0}</div><div class="l">${esc(l)}</div></div>`)
+        .join("");
+    }
+
+    // ── Filtering ─────────────────────────────────────────────────────────────
+    function filteredRows() {
+      const tier = document.getElementById("filterTier").value;
+      const q    = String(document.getElementById("filterSearch").value || "").trim().toLowerCase();
+      return allRows.filter((r) => {
+        if (activeStatus) {
+          const st = String(r.lead_status || r.status || "new");
+          if (st !== activeStatus) return false;
+        }
+        if (tier && r.tier !== tier) return false;
+        if (q) {
+          const hay = [r.owner_name, r.situs, r.geo_id, r.exemptions]
+            .map((x) => String(x || "").toLowerCase()).join(" ");
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+    }
+
+    // ── Render ────────────────────────────────────────────────────────────────
+    function shortDate(v) { return v ? String(v).slice(0, 10) : ""; }
+
+    function statusBadge(st) {
+      return `<span class="status-badge status-${esc(st)}">${esc(st)}</span>`;
+    }
+
+    function statusOptions(current) {
+      return STATUS_LIST.map((s) =>
+        `<option value="${esc(s.id)}" ${s.id === current ? "selected" : ""}>${esc(s.label)}</option>`
+      ).join("");
+    }
+
+    function renderGrid() {
+      const rows      = filteredRows();
+      const pages     = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+      if (pageOffset >= rows.length && rows.length > 0)
+        pageOffset = Math.floor((rows.length - 1) / PAGE_SIZE) * PAGE_SIZE;
+      if (pageOffset < 0) pageOffset = 0;
+      const page  = Math.floor(pageOffset / PAGE_SIZE) + 1;
+      const slice = rows.slice(pageOffset, pageOffset + PAGE_SIZE);
+
+      document.getElementById("gridMeta").innerHTML =
+        `Showing <strong>${slice.length.toLocaleString()}</strong> of ` +
+        `<strong>${rows.length.toLocaleString()}</strong> filtered · ` +
+        `<strong>${allRows.length.toLocaleString()}</strong> total`;
+
+      document.getElementById("pageInfo").textContent = `Page ${page} / ${pages}`;
+      document.getElementById("btnPrev").disabled = pageOffset <= 0;
+      document.getElementById("btnNext").disabled = pageOffset + PAGE_SIZE >= rows.length;
+
+      const wrap = document.getElementById("tableWrap");
+
+      if (!allRows.length) {
+        wrap.innerHTML = `<div class="empty">No leads claimed yet. Head to <a href="/va.html">VA Opportunities</a> and claim a row.</div>`;
+        return;
+      }
+      if (!rows.length) {
+        wrap.innerHTML = `<div class="empty">No leads match the current filter.</div>`;
+        return;
+      }
+
+      const showUser = isAdmin && document.getElementById("showAll").checked;
+
+      let html = `<table>
+        <thead><tr>
+          <th>Tier</th>
+          <th>Score</th>
+          <th>Owner / Situs</th>
+          <th>Status</th>
+          <th>Claimed</th>
+          ${showUser ? "<th>User</th>" : ""}
+          <th style="width:1.5rem"></th>
+        </tr></thead>
+        <tbody>`;
+
+      slice.forEach((r) => {
+        const st        = String(r.lead_status || r.status || "new");
+        const claimed   = shortDate(r.claimed_at);
+        const propId    = r.bcad_property_id || r.property_id;
+        html += `
+          <tr class="lead-row" data-id="${esc(propId)}" data-status="${esc(st)}" tabindex="0">
+            <td><span class="tier ${esc(r.tier)}">${esc(r.tier)}</span></td>
+            <td><strong>${esc(r.score)}</strong></td>
+            <td>
+              <a href="/property.html?id=${esc(propId)}" onclick="event.stopPropagation()">${esc(r.owner_name)}</a><br>
+              <span style="color:var(--muted)">${esc(r.situs)}</span><br>
+              <span style="color:var(--muted);font-size:0.72rem">${esc(r.geo_id)}</span>
+            </td>
+            <td>${statusBadge(st)}</td>
+            <td style="color:var(--muted);white-space:nowrap">${esc(claimed)}</td>
+            ${showUser ? `<td style="color:var(--muted);font-size:0.78rem">${esc(r.claimed_by_name || r.claimed_by_email || "")}</td>` : ""}
+            <td style="color:var(--muted);font-size:0.9rem">▾</td>
+          </tr>
+          <tr class="detail-row hidden" data-for="${esc(propId)}">
+            <td colspan="${showUser ? 7 : 6}">
+              <div class="detail-panel" id="dp-${esc(propId)}">
+                <!-- loaded lazily -->
+              </div>
+            </td>
+          </tr>`;
+      });
+
+      html += `</tbody></table>`;
+      wrap.innerHTML = html;
+
+      // row expand toggle
+      wrap.querySelectorAll("tr.lead-row").forEach((tr) => {
+        tr.addEventListener("click", () => toggleDetail(tr));
+        tr.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleDetail(tr); } });
+      });
+    }
+
+    // ── Detail panel ──────────────────────────────────────────────────────────
+    function toggleDetail(tr) {
+      const propId = tr.getAttribute("data-id");
+      const detRow = document.querySelector(`tr.detail-row[data-for="${propId}"]`);
+      if (!detRow) return;
+      const wasHidden = detRow.classList.contains("hidden");
+      // close any other open detail
+      document.querySelectorAll("tr.detail-row:not(.hidden)").forEach((r) => r.classList.add("hidden"));
+      document.querySelectorAll("tr.lead-row.expanded").forEach((r) => r.classList.remove("expanded"));
+      if (wasHidden) {
+        detRow.classList.remove("hidden");
+        tr.classList.add("expanded");
+        loadDetailPanel(propId, tr.getAttribute("data-status"));
+      }
+    }
+
+    async function loadDetailPanel(propId, currentStatus) {
+      const panel = document.getElementById(`dp-${propId}`);
+      if (!panel) return;
+      panel.innerHTML = `<div style="color:var(--muted);font-size:0.82rem;padding:0.5rem">Loading…</div>`;
+
+      // load notes
+      let notes = [];
+      try {
+        const r = await PortalAuth.authFetch(`/api/bcad/va-leads/${propId}/notes`);
+        if (r.ok) {
+          const d = await r.json().catch(() => ({}));
+          notes = d.notes || [];
+        }
+      } catch { /* ignore */ }
+
+      const notesHtml = notes.length
+        ? `<ul class="notes-list">${notes.map((n) => `
+            <li>
+              <div class="note-meta">${esc(n.created_by || "")}${n.created_at ? " · " + shortDate(n.created_at) : ""}</div>
+              <div>${esc(n.body || n.text || "")}</div>
+            </li>`).join("")}</ul>`
+        : `<p style="font-size:0.8rem;color:var(--muted);margin:0 0 0.6rem">No notes yet.</p>`;
+
+      panel.innerHTML = `
+        <div class="dp-section">
+          <h3>Status</h3>
+          <div class="status-form">
+            <select id="st-sel-${esc(propId)}">${statusOptions(currentStatus)}</select>
+            <button type="button" class="primary" id="st-save-${esc(propId)}">Update status</button>
+            <button type="button" class="danger" id="st-release-${esc(propId)}">Release lead</button>
+          </div>
+          <div class="status-msg" id="st-msg-${esc(propId)}"></div>
+        </div>
+        <div class="dp-section">
+          <h3>Notes</h3>
+          <div id="notes-list-${esc(propId)}">${notesHtml}</div>
+          <div class="note-form">
+            <textarea id="note-ta-${esc(propId)}" placeholder="Add a note…" rows="3"></textarea>
+            <div class="note-err" id="note-err-${esc(propId)}"></div>
+            <button type="button" id="note-save-${esc(propId)}">Save note</button>
+          </div>
+        </div>`;
+
+      // status update
+      document.getElementById(`st-save-${propId}`).addEventListener("click", () => updateStatus(propId));
+      // release
+      document.getElementById(`st-release-${propId}`).addEventListener("click", () => releaseLead(propId));
+      // add note
+      document.getElementById(`note-save-${propId}`).addEventListener("click", () => addNote(propId));
+    }
+
+    async function updateStatus(propId) {
+      const sel = document.getElementById(`st-sel-${propId}`);
+      const msg = document.getElementById(`st-msg-${propId}`);
+      const newStatus = sel.value;
+      msg.textContent = "Saving…";
+      msg.className = "status-msg";
+      try {
+        const res = await PortalAuth.authFetch(`/api/bcad/va-leads/${propId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: newStatus }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          msg.textContent = data.error || "Update failed";
+          msg.className = "status-msg err";
+          return;
+        }
+        msg.textContent = "Status updated ✓";
+        msg.className = "status-msg ok";
+        // update local state
+        const idx = allRows.findIndex((r) => String(r.bcad_property_id || r.property_id) === String(propId));
+        if (idx >= 0) {
+          allRows[idx] = { ...allRows[idx], lead_status: newStatus, status: newStatus };
+        }
+        // update badge in row
+        const tr = document.querySelector(`tr.lead-row[data-id="${propId}"]`);
+        if (tr) {
+          tr.setAttribute("data-status", newStatus);
+          const badgeCell = tr.querySelector("td:nth-child(4)");
+          if (badgeCell) badgeCell.innerHTML = statusBadge(newStatus);
+        }
+        renderStats(computeStats());
+        setTimeout(() => { msg.textContent = ""; }, 2500);
+      } catch (err) {
+        msg.textContent = err.message || "Update failed";
+        msg.className = "status-msg err";
+      }
+    }
+
+    async function releaseLead(propId) {
+      const msg = document.getElementById(`st-msg-${propId}`);
+      if (!confirm("Release this lead back to the pool? You will lose your notes and status.")) return;
+      msg.textContent = "Releasing…";
+      msg.className = "status-msg";
+      try {
+        const res = await PortalAuth.authFetch(`/api/bcad/va-leads/${propId}`, { method: "DELETE" });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          msg.textContent = data.error || "Release failed";
+          msg.className = "status-msg err";
+          return;
+        }
+        // remove from local state and re-render
+        allRows = allRows.filter((r) => String(r.bcad_property_id || r.property_id) !== String(propId));
+        renderStats(computeStats());
+        renderGrid();
+      } catch (err) {
+        msg.textContent = err.message || "Release failed";
+        msg.className = "status-msg err";
+      }
+    }
+
+    async function addNote(propId) {
+      const ta  = document.getElementById(`note-ta-${propId}`);
+      const err = document.getElementById(`note-err-${propId}`);
+      const btn = document.getElementById(`note-save-${propId}`);
+      const body = (ta.value || "").trim();
+      if (!body) { err.textContent = "Note cannot be empty."; return; }
+      err.textContent = "";
+      btn.disabled = true;
+      try {
+        const res = await PortalAuth.authFetch(`/api/bcad/va-leads/${propId}/notes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ body }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          err.textContent = data.error || "Failed to save note";
+          btn.disabled = false;
+          return;
+        }
+        ta.value = "";
+        btn.disabled = false;
+        // refresh notes list
+        const notesList = document.getElementById(`notes-list-${propId}`);
+        if (notesList) {
+          const newNote = data.note || { body, created_at: new Date().toISOString(), created_by: PortalAuth.displayName(me.user) };
+          const existing = notesList.querySelector("ul.notes-list");
+          if (existing) {
+            const li = document.createElement("li");
+            li.innerHTML = `<div class="note-meta">${esc(newNote.created_by || "")}${newNote.created_at ? " · " + shortDate(newNote.created_at) : ""}</div><div>${esc(newNote.body || body)}</div>`;
+            existing.appendChild(li);
+          } else {
+            notesList.innerHTML = `<ul class="notes-list"><li>
+              <div class="note-meta">${esc(newNote.created_by || "")}${newNote.created_at ? " · " + shortDate(newNote.created_at) : ""}</div>
+              <div>${esc(newNote.body || body)}</div>
+            </li></ul>`;
+          }
+        }
+      } catch (e) {
+        err.textContent = e.message || "Failed to save note";
+        btn.disabled = false;
+      }
+    }
+
+    // ── Load data ─────────────────────────────────────────────────────────────
+    async function load() {
+      const wrap = document.getElementById("tableWrap");
+      wrap.innerHTML = `<div class="empty">Loading…</div>`;
+      document.getElementById("gridMeta").textContent = "Loading…";
+      try {
+        const showAll = isAdmin && document.getElementById("showAll").checked;
+        const url = `/api/bcad/va-leads/mine${showAll ? "?all=1" : ""}`;
+        const res = await PortalAuth.authFetch(url);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          wrap.innerHTML = `<div class="empty">Error: ${esc(data.error || res.status)}</div>`;
+          return;
+        }
+        allRows = data.leads || data.rows || [];
+        const counts = computeStats();
+        renderStats(counts);
+        pageOffset = 0;
+        renderGrid();
+        // update head desc for admin view
+        const desc = document.getElementById("headDesc");
+        if (showAll && isAdmin) {
+          desc.textContent = "Showing all users' claimed VA leads (admin view).";
+        } else {
+          desc.textContent = "Your claimed VA opportunities. Click a row to change status, release, or add notes.";
+        }
+      } catch (err) {
+        document.getElementById("tableWrap").innerHTML =
+          `<div class="empty">Error: ${esc(err.message || err)}</div>`;
+      }
+    }
+
+    // ── Event wiring ──────────────────────────────────────────────────────────
+    document.getElementById("filterTier").addEventListener("change", () => { pageOffset = 0; renderGrid(); });
+    let searchTimer;
+    document.getElementById("filterSearch").addEventListener("input", () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => { pageOffset = 0; renderGrid(); }, 200);
+    });
+    document.getElementById("btnRefresh").addEventListener("click", load);
+    document.getElementById("btnPrev").addEventListener("click", () => {
+      pageOffset = Math.max(0, pageOffset - PAGE_SIZE);
+      renderGrid();
+    });
+    document.getElementById("btnNext").addEventListener("click", () => {
+      pageOffset += PAGE_SIZE;
+      renderGrid();
+    });
+    if (isAdmin) {
+      document.getElementById("showAll").addEventListener("change", load);
+    }
+
+    // ── Hash routing (sidebar status nav) ────────────────────────────────────
+    function applyHash() {
+      activeStatus = readHash();
+      updateSidebarActive(activeStatus);
+      pageOffset = 0;
+      renderGrid();
+    }
+
+    window.addEventListener("hashchange", applyHash);
+
+    // ── Init ─────────────────────────────────────────────────────────────────
+    activeStatus = readHash();
+    updateSidebarActive(activeStatus);
+    await load();
+  })();
+  </script>
+</body>
+</html>

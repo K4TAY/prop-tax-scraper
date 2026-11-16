@@ -16,6 +16,7 @@ import { ensureDeedsSchema } from "./deeds.js";
 import { ensureHgoAppraisalSchema } from "./hgoAppraisal.js";
 import { ensureClerkRecordsSchema } from "./clerkRecords.js";
 import { ensureVaOpportunitiesSchema } from "./vaOpportunities.js";
+import { ensureVaLeadsSchema } from "./vaLeads.js";
 
 dotenv.config();
 
@@ -69,6 +70,14 @@ app.get("/va.html", (_req, res, next) => {
   sendPortalFile(res, "va.html", next);
 });
 
+app.get("/leads.html", (_req, res, next) => {
+  sendPortalFile(res, "leads.html", next);
+});
+
+app.get("/users.html", (_req, res, next) => {
+  sendPortalFile(res, "users.html", next);
+});
+
 app.use(
   express.static(PUBLIC_PORTAL, {
     index: false,
@@ -102,8 +111,9 @@ async function boot() {
     await ensureHgoAppraisalSchema(bcadPool);
     await ensureClerkRecordsSchema(bcadPool);
     await ensureVaOpportunitiesSchema(bcadPool);
+    await ensureVaLeadsSchema(bcadPool);
     console.log(
-      `[portal] bcad_properties + tax + deeds + hgo + clerk + va opportunities ready (spatial DB: ${
+      `[portal] bcad_properties + tax + deeds + hgo + clerk + va opportunities + va leads ready (spatial DB: ${
         process.env.BCAD_DATABASE_URL ? "BCAD_DATABASE_URL" : "DATABASE_URL/local"
       })`
     );

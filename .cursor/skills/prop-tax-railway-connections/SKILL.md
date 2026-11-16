@@ -95,6 +95,17 @@ railway ssh -s bcad-portal -- bun scripts/cron-enrich-va-opportunity.js --min-sc
 Role `ADMIN` bypasses county grants. Boot upserts `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
 Password hashing: Bun `argon2id` via `src/auth/password.js`.
 
+Portal admin UI: `/users.html` (`GET/POST/PATCH /api/auth/users`, set password).
+Admins can also claim VA leads into their own pipeline like any user.
+
+## VA lead CRM (portal)
+
+- Pool: `/va.html` → `GET /api/bcad/va-leads/pool`, claim `POST /api/bcad/va-leads/:id/claim`
+- My Leads: `/leads.html` → `GET /api/bcad/va-leads/mine` (admin `?all=1`)
+- Statuses: new, contacted, qualified, proposal, won, lost
+- Notes + status/release on claimed leads; schema `bcad_va_leads` / `bcad_va_lead_notes` on PostGIS
+
+
 ## VA enrich cron
 
 - Schedule: `*/5 * * * *` (UTC)

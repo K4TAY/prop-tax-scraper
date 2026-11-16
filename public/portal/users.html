@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Users — Bexar CAD Portal</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="stylesheet" href="/portal.css">
+  <style>
+    .page-main {
+      flex: 1;
+      min-width: 0;
+      overflow: auto;
+      padding: 1.25rem 1.5rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+    h1 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin: 0;
+      color: var(--text);
+    }
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    /* ── Form panel ──────────────────────────────────────── */
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.25rem 1.25rem;
+    }
+    .panel-title {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      font-weight: 600;
+      margin: 0 0 0.9rem;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 0.65rem;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .form-group label {
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+    .form-group input,
+    .form-group select {
+      background: #0a0e12;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 0.875rem;
+      padding: 0.4rem 0.6rem;
+      outline: none;
+      width: 100%;
+    }
+    .form-group input:focus,
+    .form-group select:focus {
+      border-color: var(--accent);
+    }
+    .form-group select option { background: #121820; }
+    .form-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      margin-top: 0.85rem;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.42rem 0.9rem;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: #1a2330;
+      color: var(--text);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      text-decoration: none;
+    }
+    .btn:hover { border-color: var(--accent); }
+    .btn-primary {
+      background: #16352c;
+      border-color: #2d5c4a;
+      color: var(--accent);
+    }
+    .btn-primary:hover { background: #1b3f34; }
+    .btn-danger { color: #e06c6c; border-color: #5c2b2b; background: #2a1818; }
+    .btn-danger:hover { border-color: #e06c6c; }
+    .btn-sm { padding: 0.28rem 0.6rem; font-size: 0.78rem; }
+    .err-msg { color: #e06c6c; font-size: 0.8rem; }
+    .ok-msg  { color: var(--accent); font-size: 0.8rem; }
+    /* ── Table ───────────────────────────────────────────── */
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+    }
+    thead th {
+      text-align: left;
+      padding: 0.6rem 0.75rem;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid #1a2230; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #0f1820; }
+    tbody td {
+      padding: 0.6rem 0.75rem;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+    td.wrap { white-space: normal; word-break: break-word; }
+    .role-badge {
+      display: inline-block;
+      padding: 0.18rem 0.55rem;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+    .role-ADMIN { background: #16352c; color: var(--accent); border: 1px solid #2d5c4a; }
+    .role-USER  { background: #1a2330; color: #8b9aab;       border: 1px solid var(--border); }
+    .td-actions { display: flex; gap: 0.4rem; align-items: center; }
+    .muted { color: var(--muted); }
+    /* ── Modal ───────────────────────────────────────────── */
+    .modal-backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 100;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem 1.5rem;
+      width: min(480px, 94vw);
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin: 0 0 1rem;
+    }
+    .modal-actions {
+      display: flex; gap: 0.65rem; margin-top: 1rem; justify-content: flex-end;
+    }
+    /* ── Access denied ───────────────────────────────────── */
+    .access-denied {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 0.75rem; flex: 1;
+      color: var(--muted); text-align: center;
+      padding: 3rem;
+    }
+    .access-denied h2 { color: var(--text); margin: 0; font-size: 1.1rem; }
+    .access-denied p  { margin: 0; font-size: 0.9rem; }
+    @media (max-width: 720px) {
+      .page-main { padding: 0.85rem; }
+      .form-grid { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-wrap">
+      <div class="brand">Bexar CAD Portal</div>
+      <div class="version" id="version"></div>
+    </div>
+    <div class="user-meta" id="userMeta"></div>
+  </header>
+  <div class="shell">
+    <nav class="sidebar" id="sidebar" aria-label="Main">
+      <div class="nav-label">Maps</div>
+      <a class="nav-item" href="/">Bexar Property Map</a>
+      <div class="nav-label">Leads</div>
+      <a class="nav-item" href="/va.html">VA Opportunities</a>
+      <a class="nav-item" href="/leads.html">My Leads</a>
+      <div class="nav-label">Data</div>
+      <a class="nav-item" href="/data.html">Browse</a>
+      <a class="nav-item" href="/import.html">Import</a>
+      <div class="nav-label admin-only" id="adminSection" style="display:none">Admin</div>
+      <a class="nav-item active admin-only" id="usersLink" href="/users.html" style="display:none">Users</a>
+    </nav>
+
+    <!-- Access denied (shown if non-admin) -->
+    <div class="access-denied" id="accessDenied" style="display:none">
+      <h2>Admin access required</h2>
+      <p>This page is restricted to administrators.</p>
+      <a class="btn" href="/">← Go to map</a>
+    </div>
+
+    <!-- Main content (shown only if admin) -->
+    <main class="page-main" id="pageMain" style="display:none">
+      <div class="page-header">
+        <h1>Users</h1>
+        <span id="userCount" class="muted" style="font-size:0.82rem"></span>
+      </div>
+
+      <!-- Create user form -->
+      <div class="panel">
+        <div class="panel-title">Create User</div>
+        <form id="createForm" autocomplete="off">
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="cf-email">Email *</label>
+              <input id="cf-email" type="email" placeholder="user@example.com" required>
+            </div>
+            <div class="form-group">
+              <label for="cf-password">Password *</label>
+              <input id="cf-password" type="password" placeholder="min 8 chars" required>
+            </div>
+            <div class="form-group">
+              <label for="cf-firstName">First Name *</label>
+              <input id="cf-firstName" type="text" placeholder="First" required>
+            </div>
+            <div class="form-group">
+              <label for="cf-lastName">Last Name *</label>
+              <input id="cf-lastName" type="text" placeholder="Last" required>
+            </div>
+            <div class="form-group">
+              <label for="cf-company">Company *</label>
+              <input id="cf-company" type="text" placeholder="Company name" required>
+            </div>
+            <div class="form-group">
+              <label for="cf-mobile">Mobile</label>
+              <input id="cf-mobile" type="tel" placeholder="(optional)">
+            </div>
+            <div class="form-group">
+              <label for="cf-role">Role</label>
+              <select id="cf-role">
+                <option value="USER">USER</option>
+                <option value="ADMIN">ADMIN</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Create User</button>
+            <span id="createMsg"></span>
+          </div>
+        </form>
+      </div>
+
+      <!-- Users table -->
+      <div class="table-wrap">
+        <table id="usersTable">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Mobile</th>
+              <th>Company</th>
+              <th>Role</th>
+              <th>Created</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="usersBody">
+            <tr><td colspan="7" class="muted" style="padding:1rem 0.75rem">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <!-- Edit User Modal -->
+  <div class="modal-backdrop" id="editModal" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
+    <div class="modal">
+      <div class="modal-title" id="editModalTitle">Edit User</div>
+      <form id="editForm" autocomplete="off">
+        <input type="hidden" id="ef-id">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="ef-firstName">First Name</label>
+            <input id="ef-firstName" type="text">
+          </div>
+          <div class="form-group">
+            <label for="ef-lastName">Last Name</label>
+            <input id="ef-lastName" type="text">
+          </div>
+          <div class="form-group">
+            <label for="ef-company">Company</label>
+            <input id="ef-company" type="text">
+          </div>
+          <div class="form-group">
+            <label for="ef-mobile">Mobile</label>
+            <input id="ef-mobile" type="tel">
+          </div>
+          <div class="form-group">
+            <label for="ef-role">Role</label>
+            <select id="ef-role">
+              <option value="USER">USER</option>
+              <option value="ADMIN">ADMIN</option>
+            </select>
+          </div>
+        </div>
+        <span id="editMsg" class="err-msg"></span>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="editCancelBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Set Password Modal -->
+  <div class="modal-backdrop" id="pwModal" role="dialog" aria-modal="true" aria-labelledby="pwModalTitle">
+    <div class="modal">
+      <div class="modal-title" id="pwModalTitle">Set Password</div>
+      <form id="pwForm" autocomplete="off">
+        <input type="hidden" id="pw-id">
+        <div class="form-group" style="max-width:280px">
+          <label for="pw-new">New Password (min 8 chars)</label>
+          <input id="pw-new" type="password" required>
+        </div>
+        <span id="pwMsg" class="err-msg"></span>
+        <div class="modal-actions">
+          <button type="button" class="btn" id="pwCancelBtn">Cancel</button>
+          <button type="submit" class="btn btn-primary">Set Password</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/auth.js"></script>
+  <script>
+  (async function () {
+    const { escapeHtml, displayName, authFetch, requireLogin, logout } = PortalAuth;
+
+    const me = await requireLogin();
+    if (!me) return;
+
+    // Version
+    try {
+      const v = await (await fetch("/api/version")).json();
+      document.getElementById("version").textContent = "v" + (v.version || "");
+    } catch {}
+
+    // User meta
+    document.getElementById("userMeta").innerHTML = `
+      <span>${escapeHtml(displayName(me.user))}
+        <span style="opacity:0.7">(${escapeHtml(me.user.role)})</span>
+      </span>
+      <button type="button" id="logoutBtn">Logout</button>`;
+    document.getElementById("logoutBtn").addEventListener("click", logout);
+
+    // Show admin nav links
+    if (me.user.role === "ADMIN") {
+      document.getElementById("adminSection").style.display = "";
+      document.getElementById("usersLink").style.display = "";
+    }
+
+    // Guard: non-admin sees denied message
+    if (me.user.role !== "ADMIN") {
+      document.getElementById("accessDenied").style.display = "flex";
+      return;
+    }
+
+    document.getElementById("pageMain").style.display = "flex";
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+    function fmt(isoDate) {
+      if (!isoDate) return "—";
+      return new Date(isoDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    }
+
+    function showMsg(el, msg, isOk) {
+      el.textContent = msg;
+      el.className = isOk ? "ok-msg" : "err-msg";
+      if (isOk) setTimeout(() => { el.textContent = ""; }, 3000);
+    }
+
+    // ── State ─────────────────────────────────────────────────────────────
+    let users = [];
+
+    // ── Render table ──────────────────────────────────────────────────────
+    function renderTable() {
+      const tbody = document.getElementById("usersBody");
+      document.getElementById("userCount").textContent = `${users.length} user${users.length !== 1 ? "s" : ""}`;
+      if (!users.length) {
+        tbody.innerHTML = `<tr><td colspan="7" class="muted" style="padding:1rem 0.75rem">No users found.</td></tr>`;
+        return;
+      }
+      tbody.innerHTML = users.map(u => `
+        <tr data-id="${u.id}">
+          <td>${escapeHtml([u.firstName, u.lastName].filter(Boolean).join(" ") || "—")}</td>
+          <td class="wrap">${escapeHtml(u.email)}</td>
+          <td class="muted">${escapeHtml(u.mobile || "—")}</td>
+          <td>${escapeHtml(u.companyName || "—")}</td>
+          <td><span class="role-badge role-${escapeHtml(u.role)}">${escapeHtml(u.role)}</span></td>
+          <td class="muted">${fmt(u.createdAt)}</td>
+          <td>
+            <div class="td-actions">
+              <button class="btn btn-sm" data-action="edit" data-id="${u.id}">Edit</button>
+              <button class="btn btn-sm" data-action="pw" data-id="${u.id}">Set PW</button>
+            </div>
+          </td>
+        </tr>
+      `).join("");
+    }
+
+    // ── Load users ────────────────────────────────────────────────────────
+    async function loadUsers() {
+      try {
+        const res = await authFetch("/api/auth/users");
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to load");
+        users = data.users || [];
+        renderTable();
+      } catch (e) {
+        document.getElementById("usersBody").innerHTML =
+          `<tr><td colspan="7" class="err-msg" style="padding:1rem 0.75rem">${escapeHtml(e.message)}</td></tr>`;
+      }
+    }
+
+    await loadUsers();
+
+    // ── Create form ───────────────────────────────────────────────────────
+    document.getElementById("createForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msgEl = document.getElementById("createMsg");
+      const btn = e.target.querySelector("button[type=submit]");
+      btn.disabled = true;
+      try {
+        const body = {
+          email:       document.getElementById("cf-email").value.trim(),
+          password:    document.getElementById("cf-password").value,
+          firstName:   document.getElementById("cf-firstName").value.trim(),
+          lastName:    document.getElementById("cf-lastName").value.trim(),
+          companyName: document.getElementById("cf-company").value.trim(),
+          mobile:      document.getElementById("cf-mobile").value.trim() || undefined,
+          role:        document.getElementById("cf-role").value,
+        };
+        const res = await authFetch("/api/auth/users", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Create failed");
+        showMsg(msgEl, `Created ${data.user.email}`, true);
+        e.target.reset();
+        users.unshift(data.user);
+        renderTable();
+      } catch (err) {
+        showMsg(msgEl, err.message, false);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // ── Table action delegation ───────────────────────────────────────────
+    document.getElementById("usersBody").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-action]");
+      if (!btn) return;
+      const id = Number(btn.dataset.id);
+      const user = users.find(u => u.id === id);
+      if (!user) return;
+      if (btn.dataset.action === "edit") openEditModal(user);
+      if (btn.dataset.action === "pw")   openPwModal(user);
+    });
+
+    // ── Edit modal ────────────────────────────────────────────────────────
+    function openEditModal(user) {
+      document.getElementById("ef-id").value       = user.id;
+      document.getElementById("ef-firstName").value = user.firstName || "";
+      document.getElementById("ef-lastName").value  = user.lastName  || "";
+      document.getElementById("ef-company").value   = user.companyName || "";
+      document.getElementById("ef-mobile").value    = user.mobile    || "";
+      document.getElementById("ef-role").value      = user.role;
+      document.getElementById("editMsg").textContent = "";
+      document.getElementById("editModalTitle").textContent = `Edit — ${user.email}`;
+      document.getElementById("editModal").classList.add("open");
+    }
+
+    function closeEditModal() {
+      document.getElementById("editModal").classList.remove("open");
+    }
+
+    document.getElementById("editCancelBtn").addEventListener("click", closeEditModal);
+    document.getElementById("editModal").addEventListener("click", (e) => {
+      if (e.target === document.getElementById("editModal")) closeEditModal();
+    });
+
+    document.getElementById("editForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msgEl = document.getElementById("editMsg");
+      const btn = e.target.querySelector("button[type=submit]");
+      btn.disabled = true;
+      try {
+        const id = Number(document.getElementById("ef-id").value);
+        const body = {
+          firstName:   document.getElementById("ef-firstName").value.trim(),
+          lastName:    document.getElementById("ef-lastName").value.trim(),
+          companyName: document.getElementById("ef-company").value.trim(),
+          mobile:      document.getElementById("ef-mobile").value.trim(),
+          role:        document.getElementById("ef-role").value,
+        };
+        const res = await authFetch(`/api/auth/users/${id}`, {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Save failed");
+        // Update local state
+        const idx = users.findIndex(u => u.id === id);
+        if (idx !== -1) users[idx] = data.user;
+        renderTable();
+        closeEditModal();
+      } catch (err) {
+        showMsg(msgEl, err.message, false);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+    // ── Password modal ────────────────────────────────────────────────────
+    function openPwModal(user) {
+      document.getElementById("pw-id").value  = user.id;
+      document.getElementById("pw-new").value = "";
+      document.getElementById("pwMsg").textContent = "";
+      document.getElementById("pwModalTitle").textContent = `Set Password — ${user.email}`;
+      document.getElementById("pwModal").classList.add("open");
+    }
+
+    function closePwModal() {
+      document.getElementById("pwModal").classList.remove("open");
+    }
+
+    document.getElementById("pwCancelBtn").addEventListener("click", closePwModal);
+    document.getElementById("pwModal").addEventListener("click", (e) => {
+      if (e.target === document.getElementById("pwModal")) closePwModal();
+    });
+
+    document.getElementById("pwForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const msgEl = document.getElementById("pwMsg");
+      const btn = e.target.querySelector("button[type=submit]");
+      btn.disabled = true;
+      try {
+        const id = Number(document.getElementById("pw-id").value);
+        const password = document.getElementById("pw-new").value;
+        const res = await authFetch(`/api/auth/users/${id}/password`, {
+          method: "POST",
+          body: JSON.stringify({ password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to set password");
+        closePwModal();
+      } catch (err) {
+        showMsg(msgEl, err.message, false);
+      } finally {
+        btn.disabled = false;
+      }
+    });
+
+  })();
+  </script>
+</body>
+</html>

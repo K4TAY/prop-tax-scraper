@@ -319,6 +319,167 @@ router.get("/county-access/mine", requireAuth, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Admin user-management routes (GET /users, POST /users, PATCH /users/:id,
+// POST /users/:id/password).  Mounted on the same router at /api/auth so the
+// client calls /api/auth/users/*.
+// ---------------------------------------------------------------------------
+
+router.get("/users", requireAuth, requireAdmin, async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM users ORDER BY id ASC`
+    );
+    res.json({ users: rows.map(publicUser) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/users", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const email = normalizeEmail(body.email);
+    const mobile = normalizeMobile(body.mobile);
+    const password = body.password;
+    const firstName = String(body.firstName || body.first_name || "").trim();
+    const lastName = String(body.lastName || body.last_name || "").trim();
+    const companyName = String(
+      body.companyName || body.company_name || body.company || ""
+    ).trim();
+    const role = String(body.role || "USER").trim().toUpperCase();
+
+    if (!email || !email.includes("@")) {
+      return res.status(400).json({ error: "valid email is required" });
+    }
+    const pwErr = validatePassword(password);
+    if (pwErr) return res.status(400).json({ error: pwErr });
+    if (!firstName || !lastName) {
+      return res.status(400).json({ error: "first name and last name are required" });
+    }
+    if (!companyName) {
+      return res.status(400).json({ error: "company name is required" });
+    }
+    if (body.mobile != null && String(body.mobile).trim() !== "" && !mobile) {
+      return res.status(400).json({ error: "mobile number is invalid" });
+    }
+    if (role !== "USER" && role !== "ADMIN") {
+      return res.status(400).json({ error: "role must be USER or ADMIN" });
+    }
+
+    const passwordHash = await hashPassword(password);
+    const { rows } = await pool.query(
+      `INSERT INTO users (email, mobile, password_hash, first_name, last_name, company_name, role)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING *`,
+      [email, mobile, passwordHash, firstName, lastName, companyName, role]
+    );
+    res.status(201).json({ user: publicUser(rows[0]) });
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({ error: "email or mobile already registered" });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.patch("/users/:id", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid user id" });
+    }
+    const body = req.body || {};
+    const sets = [];
+    const params = [];
+
+    if (body.firstName !== undefined || body.first_name !== undefined) {
+      params.push(String(body.firstName ?? body.first_name ?? "").trim());
+      sets.push(`first_name = $${params.length}`);
+    }
+    if (body.lastName !== undefined || body.last_name !== undefined) {
+      params.push(String(body.lastName ?? body.last_name ?? "").trim());
+      sets.push(`last_name = $${params.length}`);
+    }
+    if (body.companyName !== undefined || body.company_name !== undefined) {
+      params.push(
+        String(body.companyName ?? body.company_name ?? "").trim()
+      );
+      sets.push(`company_name = $${params.length}`);
+    }
+    if (body.mobile !== undefined) {
+      const mobile =
+        body.mobile === null || String(body.mobile).trim() === ""
+          ? null
+          : normalizeMobile(body.mobile);
+      if (body.mobile !== null && String(body.mobile).trim() !== "" && !mobile) {
+        return res.status(400).json({ error: "mobile number is invalid" });
+      }
+      params.push(mobile);
+      sets.push(`mobile = $${params.length}`);
+    }
+    if (body.role !== undefined) {
+      const role = String(body.role).trim().toUpperCase();
+      if (role !== "USER" && role !== "ADMIN") {
+        return res.status(400).json({ error: "role must be USER or ADMIN" });
+      }
+      // Prevent demoting the last admin
+      if (role === "USER") {
+        const { rows: admins } = await pool.query(
+          `SELECT id FROM users WHERE role = 'ADMIN'`
+        );
+        const adminIds = admins.map((r) => Number(r.id));
+        if (adminIds.length === 1 && adminIds[0] === id) {
+          return res.status(409).json({ error: "cannot demote the last admin" });
+        }
+      }
+      params.push(role);
+      sets.push(`role = $${params.length}`);
+    }
+
+    if (!sets.length) {
+      return res.status(400).json({ error: "no updatable fields provided" });
+    }
+
+    params.push(id);
+    const { rows } = await pool.query(
+      `UPDATE users SET ${sets.join(", ")} WHERE id = $${params.length} RETURNING *`,
+      params
+    );
+    if (!rows.length) return res.status(404).json({ error: "user not found" });
+    res.json({ user: publicUser(rows[0]) });
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({ error: "mobile number already in use" });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/users/:id/password", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid user id" });
+    }
+    const password = req.body?.password;
+    const pwErr = validatePassword(password);
+    if (pwErr) return res.status(400).json({ error: pwErr });
+
+    const passwordHash = await hashPassword(password);
+    const { rows } = await pool.query(
+      `UPDATE users SET password_hash = $1 WHERE id = $2 RETURNING id`,
+      [passwordHash, id]
+    );
+    if (!rows.length) return res.status(404).json({ error: "user not found" });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
+
 export const adminCountyAccessRouter = Router();
 
 adminCountyAccessRouter.get(

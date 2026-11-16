@@ -51,6 +51,18 @@ import {
   stampVaOpportunityEnriched,
 } from "./vaOpportunities.js";
 import {
+  VA_LEAD_STATUSES,
+  VA_LEAD_STATUS_IDS,
+  claimVaLead,
+  updateVaLeadStatus,
+  releaseVaLead,
+  getVaLead,
+  listVaLeadPool,
+  listVaLeads,
+  listVaLeadNotes,
+  addVaLeadNote,
+} from "./vaLeads.js";
+import {
   listClerkInstrumentsForProperty,
   importClerkResultsForProperty,
   prepareClerkFinancingForProperty,
@@ -587,6 +599,192 @@ router.post("/properties/:id/refresh", requireAuth, async (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
+
+// ---------------------------------------------------------------------------
+// VA Lead claiming routes — all requireAuth
+// ---------------------------------------------------------------------------
+
+/** Metadata: status list etc. */
+router.get("/va-leads/meta", requireAuth, (_req, res) => {
+  res.json({ statuses: VA_LEAD_STATUSES });
+});
+
+/** Unclaimed VA opportunity pool */
+router.get("/va-leads/pool", requireAuth, async (req, res) => {
+  try {
+    const result = await listVaLeadPool({
+      limit: req.query.limit,
+      offset: req.query.offset,
+      tier: req.query.tier || null,
+      q: req.query.q || null,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** My (or admin-requested) claimed leads */
+router.get("/va-leads/mine", requireAuth, async (req, res) => {
+  try {
+    let userId = req.user.id;
+    const all = req.query.all === "1" || req.query.all === "true";
+
+    if (all) {
+      if (req.user.role !== "ADMIN") {
+        return res.status(403).json({ error: "admin access required" });
+      }
+      userId = null; // no user filter → all leads
+    } else if (req.query.userId) {
+      if (req.user.role !== "ADMIN") {
+        return res.status(403).json({ error: "admin access required" });
+      }
+      userId = Number(req.query.userId);
+      if (!Number.isFinite(userId) || userId <= 0) {
+        return res.status(400).json({ error: "invalid userId" });
+      }
+    }
+
+    const result = await listVaLeads({
+      userId,
+      status: req.query.status || null,
+      limit: req.query.limit,
+      offset: req.query.offset,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Claim a property */
+router.post("/va-leads/:propertyId/claim", requireAuth, async (req, res) => {
+  try {
+    const propertyId = Number(req.params.propertyId);
+    if (!Number.isFinite(propertyId) || propertyId <= 0) {
+      return res.status(400).json({ error: "invalid propertyId" });
+    }
+    const { ok, lead } = await claimVaLead(propertyId, req.user);
+    res.status(201).json({ ok, lead });
+  } catch (err) {
+    if (err.status === 409) {
+      return res.status(409).json({ error: err.message });
+    }
+    // FK violation means property doesn't exist in bcad_properties
+    if (err.code === "23503") {
+      return res.status(404).json({ error: "property not found" });
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Update lead status (owner or admin) */
+router.patch("/va-leads/:propertyId", requireAuth, async (req, res) => {
+  try {
+    const propertyId = Number(req.params.propertyId);
+    if (!Number.isFinite(propertyId) || propertyId <= 0) {
+      return res.status(400).json({ error: "invalid propertyId" });
+    }
+    const status = String(req.body?.status || "").trim();
+    if (!status || !VA_LEAD_STATUS_IDS.includes(status)) {
+      return res.status(400).json({
+        error: `status must be one of: ${VA_LEAD_STATUS_IDS.join(", ")}`,
+      });
+    }
+
+    const existing = await getVaLead(propertyId);
+    if (!existing) return res.status(404).json({ error: "lead not found" });
+    if (
+      req.user.role !== "ADMIN" &&
+      Number(existing.claimed_by_user_id) !== req.user.id
+    ) {
+      return res.status(403).json({ error: "not your lead" });
+    }
+
+    const lead = await updateVaLeadStatus(propertyId, status);
+    res.json({ ok: true, lead });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Release (delete) a lead — owner or admin */
+router.delete("/va-leads/:propertyId", requireAuth, async (req, res) => {
+  try {
+    const propertyId = Number(req.params.propertyId);
+    if (!Number.isFinite(propertyId) || propertyId <= 0) {
+      return res.status(400).json({ error: "invalid propertyId" });
+    }
+
+    const existing = await getVaLead(propertyId);
+    if (!existing) return res.status(404).json({ error: "lead not found" });
+    if (
+      req.user.role !== "ADMIN" &&
+      Number(existing.claimed_by_user_id) !== req.user.id
+    ) {
+      return res.status(403).json({ error: "not your lead" });
+    }
+
+    const deleted = await releaseVaLead(propertyId);
+    res.json({ ok: deleted });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** List notes for a lead (owner or admin) */
+router.get("/va-leads/:propertyId/notes", requireAuth, async (req, res) => {
+  try {
+    const propertyId = Number(req.params.propertyId);
+    if (!Number.isFinite(propertyId) || propertyId <= 0) {
+      return res.status(400).json({ error: "invalid propertyId" });
+    }
+
+    const existing = await getVaLead(propertyId);
+    if (!existing) return res.status(404).json({ error: "lead not found" });
+    if (
+      req.user.role !== "ADMIN" &&
+      Number(existing.claimed_by_user_id) !== req.user.id
+    ) {
+      return res.status(403).json({ error: "not your lead" });
+    }
+
+    const notes = await listVaLeadNotes(propertyId);
+    res.json({ bcad_property_id: propertyId, count: notes.length, notes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Add a note to a lead (owner or admin) */
+router.post("/va-leads/:propertyId/notes", requireAuth, async (req, res) => {
+  try {
+    const propertyId = Number(req.params.propertyId);
+    if (!Number.isFinite(propertyId) || propertyId <= 0) {
+      return res.status(400).json({ error: "invalid propertyId" });
+    }
+    const body = String(req.body?.body || "").trim();
+    if (!body) {
+      return res.status(400).json({ error: "note body is required" });
+    }
+
+    const existing = await getVaLead(propertyId);
+    if (!existing) return res.status(404).json({ error: "lead not found" });
+    if (
+      req.user.role !== "ADMIN" &&
+      Number(existing.claimed_by_user_id) !== req.user.id
+    ) {
+      return res.status(403).json({ error: "not your lead" });
+    }
+
+    const note = await addVaLeadNote(propertyId, req.user, body);
+    res.status(201).json({ ok: true, note });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------------------------------------------------------------------------
 
 router.get("/tiles/:z/:x/:y.mvt", requireAuth, async (req, res) => {
   try {
