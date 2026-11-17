@@ -1,5 +1,6 @@
 import bcadPool from "./bcadDb.js";
 import {
+  DETAIL_JOINS,
   DETAIL_SELECT,
   ensureVaOpportunitiesSchema,
   withDetailStatus,
@@ -179,6 +180,7 @@ export async function listVaLeadPool(opts = {}) {
     `
     SELECT ${DETAIL_SELECT}
     FROM bcad_va_opportunities v
+    ${DETAIL_JOINS}
     LEFT JOIN bcad_va_leads l ON l.bcad_property_id = v.bcad_property_id
     ${whereClause}
     ORDER BY v.score DESC, v.bcad_property_id
@@ -255,14 +257,23 @@ export async function listVaLeads(opts = {}) {
 
   const { rows } = await client.query(
     `
-    SELECT l.*, v.geo_id, v.owner_name, v.situs, v.exemptions,
+    SELECT l.*,
+           v.geo_id, v.owner_name, v.situs, v.exemptions,
            v.has_dvhs, v.dv_codes, v.veteran_signal, v.mortgage_signal,
            v.score, v.tier, v.offer_hints, v.reasons,
            v.latest_tax_payer, v.latest_tax_paid_date,
            v.latest_dot_grantee, v.latest_dot_date,
-           v.clerk_search_url, v.scored_at, v.enriched_at
+           v.clerk_search_url, v.scored_at, v.enriched_at,
+           appraisals.recent_appraisals,
+           tax.tax_year AS tax_account_year,
+           tax.year_amount_due,
+           tax.total_amount_due,
+           tax.last_payment_amount,
+           tax.last_payer,
+           tax.last_payment_date
     FROM bcad_va_leads l
     JOIN bcad_va_opportunities v ON v.bcad_property_id = l.bcad_property_id
+    ${DETAIL_JOINS}
     ${whereClause}
     ORDER BY l.updated_at DESC, l.claimed_at DESC
     ${limitSql}

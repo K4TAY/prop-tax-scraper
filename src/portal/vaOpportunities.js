@@ -648,6 +648,46 @@ export async function upsertVaOpportunityForProperty(propertyId, opts = {}) {
   return getVaOpportunity(propertyId, client);
 }
 
+/**
+ * Joins for verified appraisal + tax-office payment fields used by the VA grid.
+ * Pair with DETAIL_SELECT (alias `v` = bcad_va_opportunities).
+ */
+export const DETAIL_JOINS = `
+  LEFT JOIN bcad_hgo_appraisals hgo ON hgo.bcad_property_id = v.bcad_property_id
+  LEFT JOIN bcad_tax_accounts tax ON tax.bcad_property_id = v.bcad_property_id
+  LEFT JOIN LATERAL (
+    SELECT COALESCE(
+      (
+        SELECT jsonb_agg(
+          jsonb_build_object(
+            'tax_year', x.tax_year,
+            'appraised_value', x.appraised_value
+          )
+          ORDER BY x.tax_year DESC
+        )
+        FROM (
+          SELECT rh.tax_year, rh.appraised_value
+          FROM bcad_hgo_roll_history rh
+          WHERE rh.bcad_property_id = v.bcad_property_id
+            AND rh.appraised_value IS NOT NULL
+          ORDER BY rh.tax_year DESC
+          LIMIT 3
+        ) x
+      ),
+      CASE
+        WHEN hgo.appraised_value IS NOT NULL THEN
+          jsonb_build_array(
+            jsonb_build_object(
+              'tax_year', hgo.tax_year,
+              'appraised_value', hgo.appraised_value
+            )
+          )
+        ELSE NULL
+      END
+    ) AS recent_appraisals
+  ) appraisals ON TRUE
+`;
+
 /** EXISTS flags for child public-record tables + derived detail_status. */
 export const DETAIL_SELECT = `
   v.*,
@@ -662,7 +702,14 @@ export const DETAIL_SELECT = `
   ) AS has_deeds,
   EXISTS (
     SELECT 1 FROM bcad_clerk_instruments c WHERE c.bcad_property_id = v.bcad_property_id
-  ) AS has_clerk
+  ) AS has_clerk,
+  appraisals.recent_appraisals,
+  tax.tax_year AS tax_account_year,
+  tax.year_amount_due,
+  tax.total_amount_due,
+  tax.last_payment_amount,
+  tax.last_payer,
+  tax.last_payment_date
 `;
 
 export function withDetailStatus(row) {
@@ -723,6 +770,7 @@ export async function listVaOpportunities(opts = {}) {
     `
     SELECT ${DETAIL_SELECT}
     FROM bcad_va_opportunities v
+    ${DETAIL_JOINS}
     WHERE v.score >= $1
       ${tierSql}
     ORDER BY v.score DESC, v.bcad_property_id
@@ -763,6 +811,7 @@ export async function getVaOpportunityWithDetail(propertyId, client = bcadPool) 
     `
     SELECT ${DETAIL_SELECT}
     FROM bcad_va_opportunities v
+    ${DETAIL_JOINS}
     WHERE v.bcad_property_id = $1
     `,
     [propertyId]
