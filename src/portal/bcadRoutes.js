@@ -67,6 +67,9 @@ import {
   importClerkResultsForProperty,
   prepareClerkFinancingForProperty,
   importClerkFinancingFromPublicsearch,
+  enrichDeedOfTrustPagesForProperty,
+  listClerkDocumentPages,
+  getClerkDocumentPageBytes,
   clerkPartySearchUrl,
   clerkDocumentSearchUrl,
   ownerToClerkParty,
@@ -507,6 +510,97 @@ router.get("/clerk/doc-url", requireAuth, (req, res) => {
     res.status(400).json({ error: err.message });
   }
 });
+
+/** Fetch DOT page screenshots + extract filed mortgage amount for a property. */
+router.post("/properties/:id/clerk-dot-pages", requireAuth, async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid id" });
+    }
+    const result = await enrichDeedOfTrustPagesForProperty(id, {
+      maxPages: Number(req.body?.maxPages) || 3,
+      maxDocs: Number(req.body?.maxDocs) || 1,
+    });
+    if (req.body?.rescore !== false) {
+      try {
+        result.opportunity = await upsertVaOpportunityForProperty(id);
+      } catch (e) {
+        result.rescore_error = e.message;
+      }
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get(
+  "/properties/:id/clerk-instruments/:instrumentId/pages",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const propertyId = Number(req.params.id);
+      const instrumentId = Number(req.params.instrumentId);
+      if (
+        !Number.isFinite(propertyId) ||
+        propertyId <= 0 ||
+        !Number.isFinite(instrumentId) ||
+        instrumentId <= 0
+      ) {
+        return res.status(400).json({ error: "invalid id" });
+      }
+      const instruments = await listClerkInstrumentsForProperty(propertyId);
+      const owns = instruments.some((r) => Number(r.id) === instrumentId);
+      if (!owns) return res.status(404).json({ error: "instrument not found for property" });
+      const pages = await listClerkDocumentPages(instrumentId);
+      res.json({
+        instrument_id: instrumentId,
+        pages: pages.map((p) => ({
+          page_no: p.page_no,
+          content_type: p.content_type,
+          byte_length: p.byte_length,
+          fetched_at: p.fetched_at,
+          url: `/api/bcad/properties/${propertyId}/clerk-instruments/${instrumentId}/pages/${p.page_no}.png`,
+        })),
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+router.get(
+  "/properties/:id/clerk-instruments/:instrumentId/pages/:pageNo.png",
+  requireAuth,
+  async (req, res) => {
+    try {
+      const propertyId = Number(req.params.id);
+      const instrumentId = Number(req.params.instrumentId);
+      const pageNo = Number(req.params.pageNo);
+      if (
+        !Number.isFinite(propertyId) ||
+        propertyId <= 0 ||
+        !Number.isFinite(instrumentId) ||
+        instrumentId <= 0 ||
+        !Number.isFinite(pageNo) ||
+        pageNo <= 0
+      ) {
+        return res.status(400).json({ error: "invalid id" });
+      }
+      const instruments = await listClerkInstrumentsForProperty(propertyId);
+      const owns = instruments.some((r) => Number(r.id) === instrumentId);
+      if (!owns) return res.status(404).json({ error: "instrument not found for property" });
+      const page = await getClerkDocumentPageBytes(instrumentId, pageNo);
+      if (!page?.bytes) return res.status(404).json({ error: "page not found" });
+      res.setHeader("Content-Type", page.content_type || "image/png");
+      res.setHeader("Cache-Control", "private, max-age=3600");
+      res.send(Buffer.from(page.bytes));
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+);
 
 router.get("/parcel/:id", requireAuth, async (req, res) => {
   try {

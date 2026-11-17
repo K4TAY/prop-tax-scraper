@@ -712,6 +712,27 @@ Is now a bad time, or is there a better day this week?</pre>
           .join("")}</div>`;
       }
 
+      function mortgageFiledCell(r) {
+        const amt = r.latest_dot_note_amount;
+        if (amt == null || amt === "") {
+          return `<div class="money-cell"><span class="muted">No DOT amount</span></div>`;
+        }
+        const doc = r.latest_dot_doc_number
+          ? clerkDocUrl(r.latest_dot_doc_number)
+          : null;
+        return `<div class="money-cell">
+          <strong>${esc(money(amt))}</strong>
+          <div class="muted">filed on DOT${
+            r.latest_dot_date ? " · " + esc(shortDate(r.latest_dot_date)) : ""
+          }</div>
+          ${
+            doc
+              ? `<div class="muted"><a href="${esc(doc)}" target="_blank" rel="noopener">recorder doc</a></div>`
+              : ""
+          }
+        </div>`;
+      }
+
       function taxDueCell(r) {
         const due =
           r.total_amount_due != null && r.total_amount_due !== ""
@@ -1083,6 +1104,7 @@ Is now a bad time, or is there a better day this week?</pre>
                 <th>Score</th>
                 <th>Owner / situs</th>
                 <th>Appraised (verified)</th>
+                <th>Mortgage filed (DOT)</th>
                 <th>Tax due</th>
                 <th>Last payment</th>
                 <th>Detail data</th>
@@ -1131,6 +1153,7 @@ Is now a bad time, or is there a better day this week?</pre>
                       <span style="color:var(--muted);font-size:0.72rem">${esc(r.geo_id)}</span>
                     </td>
                     <td>${recentAppraisals(r)}</td>
+                    <td>${mortgageFiledCell(r)}</td>
                     <td>${taxDueCell(r)}</td>
                     <td>${lastPaymentCell(r)}</td>
                     <td>${detailCellHtml(r)}</td>

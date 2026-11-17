@@ -264,3 +264,89 @@ export async function searchPublicsearchByParty(partyName, opts = {}) {
     }
   }
 }
+
+/**
+ * Fetch a single document summary (signed page image URLs + consideration).
+ * @param {number|string} docId publicsearch internal document id
+ * @param {{ session?: { ort: string, cookies: string } }} [opts]
+ */
+export async function fetchPublicsearchDocument(docId, opts = {}) {
+  const id = Number(String(docId).replace(/\D/g, ""));
+  if (!Number.isFinite(id) || id <= 0) {
+    throw new Error("publicsearch doc id required");
+  }
+  const session = opts.session || (await createPublicsearchSession());
+  const ws = await openPublicsearchWs(session);
+  try {
+    const { data } = await wsRequest(
+      ws,
+      {
+        type: "fetch-a-document",
+        payload: { id },
+        authToken: session.ort,
+      },
+      {
+        timeoutMs: 20000,
+        match: (d) =>
+          d.type === "document" ||
+          String(d.type).includes("error") ||
+          String(d.type).includes("ERROR"),
+      }
+    );
+    if (data.type !== "document") {
+      const reason =
+        data.payload?.reason?.message ||
+        data.payload?.message ||
+        data.type;
+      throw new Error(`publicsearch document fetch failed: ${reason}`);
+    }
+    return { session, document: data.payload || {} };
+  } finally {
+    try {
+      ws.close();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/**
+ * Download the first N page PNGs for a publicsearch document.
+ * Returns absolute URLs resolved against PUBLICSEARCH_BASE plus raw bytes.
+ *
+ * @param {number|string} docId
+ * @param {{ maxPages?: number, session?: object }} [opts]
+ */
+export async function fetchPublicsearchDocumentPages(docId, opts = {}) {
+  const maxPages = Math.min(5, Math.max(1, Number(opts.maxPages) || 3));
+  const { session, document } = await fetchPublicsearchDocument(docId, {
+    session: opts.session,
+  });
+  const urls = Array.isArray(document.urls) ? document.urls : [];
+  const pages = [];
+  for (let i = 0; i < Math.min(maxPages, urls.length); i++) {
+    const rel = urls[i];
+    const abs = rel.startsWith("http") ? rel : `${PUBLICSEARCH_BASE}${rel}`;
+    const res = await fetch(abs, {
+      headers: {
+        Accept: "image/png,image/*,*/*",
+        "User-Agent": UA,
+        Cookie: session.cookies,
+        Referer: `${PUBLICSEARCH_BASE}/`,
+        Origin: PUBLICSEARCH_BASE,
+      },
+    });
+    if (!res.ok) {
+      throw new Error(`publicsearch page ${i + 1} HTTP ${res.status}`);
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    pages.push({
+      page_no: i + 1,
+      content_type: res.headers.get("content-type") || "image/png",
+      bytes: buf,
+      source_url: abs.split("?")[0],
+    });
+    await sleep(opts.throttleMs ?? 40);
+  }
+  return { session, document, pages };
+}

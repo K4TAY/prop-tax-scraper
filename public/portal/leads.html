@@ -593,6 +593,19 @@
       ).join("")}</div>`;
     }
 
+    function mortgageFiledCell(r) {
+      const amt = r.latest_dot_note_amount;
+      if (amt == null || amt === "") {
+        return `<div class="money-cell"><span class="muted">No DOT amount</span></div>`;
+      }
+      return `<div class="money-cell">
+        <strong>${esc(money(amt))}</strong>
+        <div class="muted">filed on DOT${
+          r.latest_dot_date ? " · " + esc(shortDate(r.latest_dot_date)) : ""
+        }</div>
+      </div>`;
+    }
+
     function taxDueCell(r) {
       const due =
         r.total_amount_due != null && r.total_amount_due !== ""
@@ -657,13 +670,14 @@
 
       const showUser = isAdmin && document.getElementById("showAll").checked;
 
-      const colCount = showUser ? 10 : 9;
+      const colCount = showUser ? 11 : 10;
       let html = `<table>
         <thead><tr>
           <th>Tier</th>
           <th>Score</th>
           <th>Owner / Situs</th>
           <th>Appraised (verified)</th>
+          <th>Mortgage filed (DOT)</th>
           <th>Tax due</th>
           <th>Last payment</th>
           <th>Status</th>
@@ -687,6 +701,7 @@
               <span style="color:var(--muted);font-size:0.72rem">${esc(r.geo_id)}</span>
             </td>
             <td>${recentAppraisals(r)}</td>
+            <td>${mortgageFiledCell(r)}</td>
             <td>${taxDueCell(r)}</td>
             <td>${lastPaymentCell(r)}</td>
             <td>${statusBadge(st)}</td>

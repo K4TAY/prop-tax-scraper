@@ -1,4 +1,5 @@
 import bcadPool from "./bcadDb.js";
+import { extractNoteAmountFromClerkDoc } from "./dotLoanExtract.js";
 
 /**
  * Bexar County Clerk (publicsearch.us) instrument storage + helpers.
@@ -57,6 +58,34 @@ export async function ensureClerkRecordsSchema(client = bcadPool) {
       ON bcad_clerk_instruments (doc_type);
     CREATE INDEX IF NOT EXISTS bcad_clerk_instruments_ncb_idx
       ON bcad_clerk_instruments (ncb);
+
+    ALTER TABLE bcad_clerk_instruments
+      ADD COLUMN IF NOT EXISTS publicsearch_doc_id BIGINT;
+    ALTER TABLE bcad_clerk_instruments
+      ADD COLUMN IF NOT EXISTS note_amount NUMERIC(14, 2);
+    ALTER TABLE bcad_clerk_instruments
+      ADD COLUMN IF NOT EXISTS note_amount_source TEXT;
+    ALTER TABLE bcad_clerk_instruments
+      ADD COLUMN IF NOT EXISTS note_extracted_at TIMESTAMPTZ;
+    ALTER TABLE bcad_clerk_instruments
+      ADD COLUMN IF NOT EXISTS pages_fetched_at TIMESTAMPTZ;
+
+    CREATE TABLE IF NOT EXISTS bcad_clerk_document_pages (
+      id BIGSERIAL PRIMARY KEY,
+      clerk_instrument_id BIGINT NOT NULL
+        REFERENCES bcad_clerk_instruments(id) ON DELETE CASCADE,
+      publicsearch_doc_id BIGINT,
+      page_no INTEGER NOT NULL,
+      content_type TEXT NOT NULL DEFAULT 'image/png',
+      bytes BYTEA NOT NULL,
+      byte_length INTEGER,
+      fetched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      CONSTRAINT bcad_clerk_document_pages_uniq
+        UNIQUE (clerk_instrument_id, page_no)
+    );
+
+    CREATE INDEX IF NOT EXISTS bcad_clerk_document_pages_instrument_idx
+      ON bcad_clerk_document_pages (clerk_instrument_id);
   `);
 }
 
@@ -429,6 +458,19 @@ export async function importClerkFinancingFromPublicsearch(propertyId, opts = {}
     const existing = await listClerkInstrumentsForProperty(propertyId, client);
     const financing = existing.filter((r) => r.is_financing_related);
 
+    let dotPages = null;
+    if (opts.enrichDotPages !== false && importResult.matched > 0) {
+      try {
+        dotPages = await enrichDeedOfTrustPagesForProperty(propertyId, {
+          client,
+          maxPages: opts.maxDotPages ?? 3,
+          maxDocs: opts.maxDotDocs ?? 1,
+        });
+      } catch (e) {
+        dotPages = { error: e.message };
+      }
+    }
+
     return {
       needs_manual: false,
       automated: true,
@@ -443,6 +485,7 @@ export async function importClerkFinancingFromPublicsearch(propertyId, opts = {}
       financing_only: importResult.financing_only,
       existing_count: existing.length,
       financing_count: financing.length,
+      dot_pages: dotPages,
       message: `Pulled ${found.total} clerk hit(s) via publicsearch; imported ${importResult.inserted} new financing row(s), ${importResult.matched} matched to this property.`,
     };
   } catch (e) {
@@ -457,6 +500,18 @@ export async function importClerkFinancingFromPublicsearch(propertyId, opts = {}
 
 export function normalizeClerkInstrument(row, meta = {}) {
   const doc_type = blankToNull(row.doc_type || row.docType);
+  const raw = row.raw && typeof row.raw === "object" ? row.raw : row;
+  const extracted = extractNoteAmountFromClerkDoc(raw);
+  const publicsearch_doc_id = (() => {
+    const id =
+      raw?.docId ??
+      raw?.id ??
+      row.publicsearch_doc_id ??
+      row.docId ??
+      row.id;
+    const n = Number(String(id ?? "").replace(/\D/g, ""));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })();
   return {
     search_party: blankToNull(meta.search_party) || null,
     grantor: blankToNull(row.grantor),
@@ -473,6 +528,9 @@ export function normalizeClerkInstrument(row, meta = {}) {
     property_address: blankToNull(row.property_address || row.propertyAddress),
     is_financing_related: isFinancingDocType(doc_type),
     source_url: blankToNull(meta.source_url),
+    publicsearch_doc_id,
+    note_amount: extracted.amount,
+    note_amount_source: extracted.source,
     raw: row,
   };
 }
@@ -515,13 +573,17 @@ export async function upsertClerkInstruments(instruments, opts = {}) {
         grantor, grantee, doc_type, recorded_date, doc_number,
         book_volume_page, legal_description, lot, block, ncb,
         county_block, property_address,
-        is_financing_related, matched_property, source_url, raw, fetched_at
+        is_financing_related, matched_property, source_url, raw,
+        publicsearch_doc_id, note_amount, note_amount_source, note_extracted_at,
+        fetched_at
       ) VALUES (
         $1,$2,$3,
         $4,$5,$6,$7,$8,
         $9,$10,$11,$12,$13,
         $14,$15,
-        $16,$17,$18,$19, NOW()
+        $16,$17,$18,$19,
+        $20,$21,$22, CASE WHEN $21::numeric IS NOT NULL THEN NOW() ELSE NULL END,
+        NOW()
       )
       ON CONFLICT ON CONSTRAINT bcad_clerk_instruments_dedupe DO UPDATE SET
         bcad_property_id = COALESCE(EXCLUDED.bcad_property_id, bcad_clerk_instruments.bcad_property_id),
@@ -529,6 +591,16 @@ export async function upsertClerkInstruments(instruments, opts = {}) {
         matched_property = EXCLUDED.matched_property OR bcad_clerk_instruments.matched_property,
         is_financing_related = EXCLUDED.is_financing_related,
         raw = EXCLUDED.raw,
+        publicsearch_doc_id = COALESCE(EXCLUDED.publicsearch_doc_id, bcad_clerk_instruments.publicsearch_doc_id),
+        note_amount = COALESCE(EXCLUDED.note_amount, bcad_clerk_instruments.note_amount),
+        note_amount_source = COALESCE(EXCLUDED.note_amount_source, bcad_clerk_instruments.note_amount_source),
+        note_extracted_at = CASE
+          WHEN EXCLUDED.note_amount IS NOT NULL
+            AND (bcad_clerk_instruments.note_amount IS DISTINCT FROM EXCLUDED.note_amount
+                 OR bcad_clerk_instruments.note_extracted_at IS NULL)
+          THEN NOW()
+          ELSE bcad_clerk_instruments.note_extracted_at
+        END,
         fetched_at = NOW()
       RETURNING (xmax = 0) AS is_insert
       `,
@@ -552,6 +624,9 @@ export async function upsertClerkInstruments(instruments, opts = {}) {
         !!inst.matched_property,
         inst.source_url,
         JSON.stringify(inst.raw || inst),
+        inst.publicsearch_doc_id || null,
+        inst.note_amount ?? null,
+        inst.note_amount_source || null,
       ]
     );
     if (r.rows[0]?.is_insert) inserted++;
@@ -624,4 +699,212 @@ export async function importClerkResultsForProperty(propertyId, rowsOrText, opts
     ...result,
     instruments,
   };
+}
+
+/**
+ * For matched Deeds of Trust on a property: pull first pages from the recorder
+ * site, store PNG screenshots, and fill note_amount from consideration / OCR.
+ */
+export async function enrichDeedOfTrustPagesForProperty(propertyId, opts = {}) {
+  const client = opts.client || bcadPool;
+  await ensureClerkRecordsSchema(client);
+  const maxPages = Math.min(5, Math.max(1, Number(opts.maxPages) || 3));
+  const maxDocs = Math.min(5, Math.max(1, Number(opts.maxDocs) || 1));
+  const forcePages = opts.forcePages === true;
+
+  const { rows } = await client.query(
+    `
+    SELECT id, doc_number, doc_type, publicsearch_doc_id, note_amount,
+           note_amount_source, raw, pages_fetched_at
+    FROM bcad_clerk_instruments
+    WHERE bcad_property_id = $1
+      AND matched_property
+      AND is_financing_related
+      AND doc_type ILIKE '%DEED OF TRUST%'
+    ORDER BY recorded_date DESC NULLS LAST, id DESC
+    LIMIT $2
+    `,
+    [propertyId, maxDocs]
+  );
+
+  if (!rows.length) {
+    return { propertyId, docs: 0, pages: 0, note_amounts: 0, message: "No matched Deed of Trust" };
+  }
+
+  const {
+    createPublicsearchSession,
+    fetchPublicsearchDocumentPages,
+  } = await import("./publicsearchClient.js");
+
+  let session = opts.session || null;
+  let pagesSaved = 0;
+  let notesSaved = 0;
+  const details = [];
+
+  for (const row of rows) {
+    let docId = row.publicsearch_doc_id;
+    const raw = row.raw && typeof row.raw === "object" ? row.raw : {};
+    if (!docId) {
+      const n = Number(String(raw.docId || raw.id || "").replace(/\D/g, ""));
+      if (Number.isFinite(n) && n > 0) docId = n;
+    }
+
+    // Fast path: indexed consideration already on the search hit.
+    let extracted = extractNoteAmountFromClerkDoc(raw);
+    if (extracted.amount != null && row.note_amount == null) {
+      await client.query(
+        `
+        UPDATE bcad_clerk_instruments
+        SET note_amount = $2,
+            note_amount_source = $3,
+            note_extracted_at = NOW(),
+            publicsearch_doc_id = COALESCE(publicsearch_doc_id, $4)
+        WHERE id = $1
+        `,
+        [row.id, extracted.amount, extracted.source, docId]
+      );
+      notesSaved++;
+    }
+
+    const needPages = forcePages || !row.pages_fetched_at;
+    if (!needPages && (row.note_amount != null || extracted.amount != null)) {
+      details.push({
+        id: row.id,
+        doc_number: row.doc_number,
+        publicsearch_doc_id: docId,
+        note_amount: row.note_amount ?? extracted.amount,
+        note_amount_source: row.note_amount_source || extracted.source,
+        pages: 0,
+        skipped_pages: true,
+      });
+      continue;
+    }
+
+    if (!docId) {
+      details.push({ id: row.id, doc_number: row.doc_number, error: "missing publicsearch_doc_id" });
+      continue;
+    }
+
+    try {
+      if (!session) session = await createPublicsearchSession();
+      const fetched = await fetchPublicsearchDocumentPages(docId, {
+        session,
+        maxPages,
+      });
+      session = fetched.session;
+      const doc = fetched.document || {};
+
+      extracted = extractNoteAmountFromClerkDoc({
+        ...raw,
+        consideration: doc.consideration || raw.consideration,
+        ocrText: raw.ocrText,
+      });
+
+      if (extracted.amount != null) {
+        await client.query(
+          `
+          UPDATE bcad_clerk_instruments
+          SET note_amount = $2,
+              note_amount_source = $3,
+              note_extracted_at = NOW(),
+              publicsearch_doc_id = COALESCE(publicsearch_doc_id, $4)
+          WHERE id = $1
+          `,
+          [row.id, extracted.amount, extracted.source, docId]
+        );
+        notesSaved++;
+      } else {
+        await client.query(
+          `
+          UPDATE bcad_clerk_instruments
+          SET publicsearch_doc_id = COALESCE(publicsearch_doc_id, $2)
+          WHERE id = $1
+          `,
+          [row.id, docId]
+        );
+      }
+
+      for (const page of fetched.pages) {
+        await client.query(
+          `
+          INSERT INTO bcad_clerk_document_pages (
+            clerk_instrument_id, publicsearch_doc_id, page_no,
+            content_type, bytes, byte_length, fetched_at
+          ) VALUES ($1,$2,$3,$4,$5,$6, NOW())
+          ON CONFLICT ON CONSTRAINT bcad_clerk_document_pages_uniq DO UPDATE SET
+            publicsearch_doc_id = EXCLUDED.publicsearch_doc_id,
+            content_type = EXCLUDED.content_type,
+            bytes = EXCLUDED.bytes,
+            byte_length = EXCLUDED.byte_length,
+            fetched_at = NOW()
+          `,
+          [
+            row.id,
+            docId,
+            page.page_no,
+            page.content_type,
+            page.bytes,
+            page.bytes.length,
+          ]
+        );
+        pagesSaved++;
+      }
+
+      await client.query(
+        `UPDATE bcad_clerk_instruments SET pages_fetched_at = NOW() WHERE id = $1`,
+        [row.id]
+      );
+
+      details.push({
+        id: row.id,
+        doc_number: row.doc_number,
+        publicsearch_doc_id: docId,
+        note_amount: extracted.amount,
+        note_amount_source: extracted.source,
+        pages: fetched.pages.length,
+        consideration: doc.consideration || null,
+      });
+    } catch (e) {
+      details.push({
+        id: row.id,
+        doc_number: row.doc_number,
+        publicsearch_doc_id: docId,
+        error: e.message,
+      });
+    }
+  }
+
+  return {
+    propertyId,
+    docs: rows.length,
+    pages: pagesSaved,
+    note_amounts: notesSaved,
+    details,
+  };
+}
+
+export async function listClerkDocumentPages(instrumentId, client = bcadPool) {
+  const { rows } = await client.query(
+    `
+    SELECT id, clerk_instrument_id, publicsearch_doc_id, page_no,
+           content_type, byte_length, fetched_at
+    FROM bcad_clerk_document_pages
+    WHERE clerk_instrument_id = $1
+    ORDER BY page_no ASC
+    `,
+    [instrumentId]
+  );
+  return rows;
+}
+
+export async function getClerkDocumentPageBytes(instrumentId, pageNo, client = bcadPool) {
+  const { rows } = await client.query(
+    `
+    SELECT content_type, bytes, byte_length, page_no
+    FROM bcad_clerk_document_pages
+    WHERE clerk_instrument_id = $1 AND page_no = $2
+    `,
+    [instrumentId, pageNo]
+  );
+  return rows[0] || null;
 }

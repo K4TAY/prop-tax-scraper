@@ -1414,11 +1414,20 @@
           "No deeds stored yet — click Refresh from sources."
         );
 
+        const tok = encodeURIComponent(PortalAuth.getToken() || "");
         document.getElementById("clerkTable").innerHTML = table(
-          ["Recorded", "Type", "Grantor", "Grantee", "Doc #", "Match"],
-          clerk.map(
-            (c) =>
-              `<tr>
+          ["Recorded", "Type", "Grantor", "Grantee", "Mortgage filed", "Doc #", "Pages", "Match"],
+          clerk.map((c) => {
+            const pageLinks =
+              c.pages_fetched_at && c.id
+                ? [1, 2, 3]
+                    .map(
+                      (n) =>
+                        `<a href="/api/bcad/properties/${id}/clerk-instruments/${c.id}/pages/${n}.png?token=${tok}" target="_blank" rel="noopener">p${n}</a>`
+                    )
+                    .join(" · ")
+                : "—";
+            return `<tr>
                 <td>${dateOnly(c.recorded_date)}</td>
                 <td>${text(c.doc_type)}${
                   c.is_financing_related
@@ -1427,10 +1436,12 @@
                 }</td>
                 <td>${text(c.grantor)}</td>
                 <td>${text(c.grantee)}</td>
+                <td class="num">${c.note_amount != null ? money(c.note_amount) : "—"}</td>
                 <td>${instrumentLink(c.doc_number)}</td>
+                <td>${pageLinks}</td>
                 <td>${c.matched_property ? "yes" : "—"}</td>
-              </tr>`
-          ),
+              </tr>`;
+          }),
           "No clerk instruments imported yet — use Open clerk search + paste below."
         );
       }

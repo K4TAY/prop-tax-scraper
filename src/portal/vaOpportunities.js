@@ -62,6 +62,9 @@ export async function ensureVaOpportunitiesSchema(client = bcadPool) {
     ALTER TABLE bcad_va_opportunities
       ADD COLUMN IF NOT EXISTS enriched_at TIMESTAMPTZ;
 
+    ALTER TABLE bcad_va_opportunities
+      ADD COLUMN IF NOT EXISTS latest_dot_note_amount NUMERIC(14, 2);
+
     CREATE INDEX IF NOT EXISTS bcad_va_opportunities_score_idx
       ON bcad_va_opportunities (score DESC);
     CREATE INDEX IF NOT EXISTS bcad_va_opportunities_tier_idx
@@ -357,7 +360,8 @@ export async function rebuildVaOpportunities(opts = {}) {
       pay.paid_date AS latest_tax_paid_date,
       dot.grantee AS latest_dot_grantee,
       dot.recorded_date AS latest_dot_date,
-      dot.doc_number AS latest_dot_doc_number
+      dot.doc_number AS latest_dot_doc_number,
+      dot.note_amount AS latest_dot_note_amount
     FROM bcad_properties p
     LEFT JOIN LATERAL (
       SELECT payer, paid_date
@@ -369,7 +373,7 @@ export async function rebuildVaOpportunities(opts = {}) {
       LIMIT 1
     ) pay ON TRUE
     LEFT JOIN LATERAL (
-      SELECT grantee, recorded_date, doc_number
+      SELECT grantee, recorded_date, doc_number, note_amount
       FROM bcad_clerk_instruments c
       WHERE c.bcad_property_id = p.id
         AND c.is_financing_related
@@ -430,7 +434,7 @@ export async function rebuildVaOpportunities(opts = {}) {
         : null;
 
       values.push(
-        `($${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},NOW())`
+        `($${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},$${p++},NOW())`
       );
       params.push(
         prop.id,
@@ -448,6 +452,7 @@ export async function rebuildVaOpportunities(opts = {}) {
         prop.latest_dot_grantee,
         asIsoDate(prop.latest_dot_date),
         prop.latest_dot_doc_number,
+        prop.latest_dot_note_amount ?? null,
         scored.mortgage_signal,
         scored.score,
         scored.tier,
@@ -468,6 +473,7 @@ export async function rebuildVaOpportunities(opts = {}) {
         has_homestead, has_dvhs, dv_codes, veteran_signal,
         latest_tax_payer, latest_tax_paid_date, tax_payer_class,
         latest_dot_grantee, latest_dot_date, latest_dot_doc_number,
+        latest_dot_note_amount,
         mortgage_signal, score, tier, offer_hints, reasons,
         clerk_search_url, scored_at
       ) VALUES ${values.join(",")}
@@ -486,6 +492,10 @@ export async function rebuildVaOpportunities(opts = {}) {
         latest_dot_grantee = EXCLUDED.latest_dot_grantee,
         latest_dot_date = EXCLUDED.latest_dot_date,
         latest_dot_doc_number = EXCLUDED.latest_dot_doc_number,
+        latest_dot_note_amount = COALESCE(
+          EXCLUDED.latest_dot_note_amount,
+          bcad_va_opportunities.latest_dot_note_amount
+        ),
         mortgage_signal = EXCLUDED.mortgage_signal,
         score = EXCLUDED.score,
         tier = EXCLUDED.tier,
@@ -529,7 +539,8 @@ export async function upsertVaOpportunityForProperty(propertyId, opts = {}) {
       pay.paid_date AS latest_tax_paid_date,
       dot.grantee AS latest_dot_grantee,
       dot.recorded_date AS latest_dot_date,
-      dot.doc_number AS latest_dot_doc_number
+      dot.doc_number AS latest_dot_doc_number,
+      dot.note_amount AS latest_dot_note_amount
     FROM bcad_properties p
     LEFT JOIN LATERAL (
       SELECT payer, paid_date
@@ -541,7 +552,7 @@ export async function upsertVaOpportunityForProperty(propertyId, opts = {}) {
       LIMIT 1
     ) pay ON TRUE
     LEFT JOIN LATERAL (
-      SELECT grantee, recorded_date, doc_number
+      SELECT grantee, recorded_date, doc_number, note_amount
       FROM bcad_clerk_instruments c
       WHERE c.bcad_property_id = p.id
         AND c.is_financing_related
@@ -581,6 +592,7 @@ export async function upsertVaOpportunityForProperty(propertyId, opts = {}) {
       has_homestead, has_dvhs, dv_codes, veteran_signal,
       latest_tax_payer, latest_tax_paid_date, tax_payer_class,
       latest_dot_grantee, latest_dot_date, latest_dot_doc_number,
+      latest_dot_note_amount,
       mortgage_signal, score, tier, offer_hints, reasons,
       clerk_search_url, scored_at
     ) VALUES (
@@ -588,8 +600,9 @@ export async function upsertVaOpportunityForProperty(propertyId, opts = {}) {
       $6,$7,$8,$9,
       $10,$11,$12,
       $13,$14,$15,
-      $16,$17,$18,$19,$20,
-      $21, NOW()
+      $16,
+      $17,$18,$19,$20,$21,
+      $22, NOW()
     )
     ON CONFLICT (bcad_property_id) DO UPDATE SET
       geo_id = EXCLUDED.geo_id,
@@ -606,6 +619,10 @@ export async function upsertVaOpportunityForProperty(propertyId, opts = {}) {
       latest_dot_grantee = EXCLUDED.latest_dot_grantee,
       latest_dot_date = EXCLUDED.latest_dot_date,
       latest_dot_doc_number = EXCLUDED.latest_dot_doc_number,
+      latest_dot_note_amount = COALESCE(
+        EXCLUDED.latest_dot_note_amount,
+        bcad_va_opportunities.latest_dot_note_amount
+      ),
       mortgage_signal = EXCLUDED.mortgage_signal,
       score = EXCLUDED.score,
       tier = EXCLUDED.tier,
@@ -630,6 +647,7 @@ export async function upsertVaOpportunityForProperty(propertyId, opts = {}) {
       prop.latest_dot_grantee,
       asIsoDate(prop.latest_dot_date),
       prop.latest_dot_doc_number,
+      prop.latest_dot_note_amount ?? null,
       scored.mortgage_signal,
       scored.score,
       scored.tier,

@@ -23,6 +23,7 @@ import {
   listClerkInstrumentsForProperty,
   prepareClerkFinancingForProperty,
   importClerkFinancingFromPublicsearch,
+  enrichDeedOfTrustPagesForProperty,
   ensureClerkRecordsSchema,
 } from "./clerkRecords.js";
 import { getVaOpportunity, upsertVaOpportunityForProperty } from "./vaOpportunities.js";
@@ -167,7 +168,28 @@ export async function refreshPropertySources(propertyId, opts = {}) {
       financing_count: clerk?.financing_count,
       message: clerk?.message,
       auto_error: clerk?.auto_error,
+      dot_pages: clerk?.dot_pages,
     });
+    // If clerk metadata already existed (no new matches this pull), still
+    // try to screenshot DOT pages + extract the filed mortgage amount.
+    if (
+      clerk?.automated &&
+      !clerk?.dot_pages &&
+      (clerk?.financing_count || 0) > 0
+    ) {
+      try {
+        say("clerk_dot_pages", "fetching Deed of Trust page screenshots + note amount…");
+        clerk.dot_pages = await enrichDeedOfTrustPagesForProperty(propertyId, {
+          client,
+          maxPages: 3,
+          maxDocs: 1,
+        });
+        say("clerk_dot_pages_done", clerk.dot_pages);
+      } catch (e) {
+        errors.push({ source: "clerk_dot_pages", error: e.message });
+        say("clerk_dot_pages_error", e.message);
+      }
+    }
     if (clerk?.automated && clerk.inserted >= 0) {
       try {
         say("va_rescore", "re-scoring VA opportunity after clerk pull…");
