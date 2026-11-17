@@ -649,7 +649,7 @@ export async function upsertVaOpportunityForProperty(propertyId, opts = {}) {
 }
 
 /** EXISTS flags for child public-record tables + derived detail_status. */
-const DETAIL_SELECT = `
+export const DETAIL_SELECT = `
   v.*,
   EXISTS (
     SELECT 1 FROM bcad_tax_accounts t WHERE t.bcad_property_id = v.bcad_property_id
@@ -665,7 +665,7 @@ const DETAIL_SELECT = `
   ) AS has_clerk
 `;
 
-function withDetailStatus(row) {
+export function withDetailStatus(row) {
   if (!row) return null;
   const has_tax = Boolean(row.has_tax);
   const has_hgo = Boolean(row.has_hgo);

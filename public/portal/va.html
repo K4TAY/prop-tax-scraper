@@ -1106,16 +1106,33 @@ Is now a bad time, or is there a better day this week?</pre>
         }
       }
 
+      function normalizeTotals(total, rows) {
+        if (total && typeof total === "object" && !Array.isArray(total)) {
+          return {
+            n: Number(total.n ?? total.total ?? rows.length) || 0,
+            hot: Number(total.hot) || 0,
+            warm: Number(total.warm) || 0,
+            watch: Number(total.watch) || 0,
+          };
+        }
+        const n = Number(total);
+        return {
+          n: Number.isFinite(n) ? n : rows.length,
+          hot: 0,
+          warm: 0,
+          watch: 0,
+        };
+      }
+
       async function load() {
         wrap.innerHTML = `<div class="empty">Loading opportunities…</div>`;
         document.getElementById("gridMeta").textContent = "Loading…";
         try {
-          // Try new leads pool API first; fall back to legacy va-opportunities
+          // Unclaimed pool (full set). Fall back to legacy opportunities list.
           let res = await PortalAuth.authFetch(
-            "/api/bcad/va-leads/pool?limit=1000&offset=0"
+            "/api/bcad/va-leads/pool?limit=all"
           );
-          let useLegacy = !res.ok;
-          if (useLegacy) {
+          if (!res.ok) {
             res = await PortalAuth.authFetch(
               "/api/bcad/va-opportunities?limit=all&min_score=0"
             );
@@ -1126,7 +1143,7 @@ Is now a bad time, or is there a better day this week?</pre>
             return;
           }
           allRows = data.rows || [];
-          dbTotals = data.total || { n: allRows.length, hot: 0, warm: 0, watch: 0 };
+          dbTotals = normalizeTotals(data.total, allRows);
           renderStats();
           applyFilters(true);
         } catch (err) {

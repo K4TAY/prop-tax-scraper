@@ -1,4 +1,9 @@
 import bcadPool from "./bcadDb.js";
+import {
+  DETAIL_SELECT,
+  ensureVaOpportunitiesSchema,
+  withDetailStatus,
+} from "./vaOpportunities.js";
 
 // ---------------------------------------------------------------------------
 // VA lead claiming — cross-DB (PostGIS / BCAD side).
@@ -131,6 +136,8 @@ export async function getVaLead(propertyId, client = bcadPool) {
  */
 export async function listVaLeadPool(opts = {}) {
   const client = opts.client || bcadPool;
+  await ensureVaOpportunitiesSchema(client);
+  await ensureVaLeadsSchema(client);
   const rawLimit = opts.limit;
   const wantAll =
     rawLimit == null ||
@@ -170,7 +177,7 @@ export async function listVaLeadPool(opts = {}) {
 
   const { rows } = await client.query(
     `
-    SELECT v.*
+    SELECT ${DETAIL_SELECT}
     FROM bcad_va_opportunities v
     LEFT JOIN bcad_va_leads l ON l.bcad_property_id = v.bcad_property_id
     ${whereClause}
@@ -180,21 +187,22 @@ export async function listVaLeadPool(opts = {}) {
     params
   );
 
-  // Count (without LIMIT/OFFSET)
-  const countParams = [...params].slice(0, params.length - (limit != null ? 2 : 0));
+  // Tier totals for the unclaimed pool (same shape as listVaOpportunities).
   const { rows: countRows } = await client.query(
     `
-    SELECT COUNT(*)::int AS total
+    SELECT COUNT(*)::int AS n,
+           COUNT(*) FILTER (WHERE v.tier = 'hot')::int AS hot,
+           COUNT(*) FILTER (WHERE v.tier = 'warm')::int AS warm,
+           COUNT(*) FILTER (WHERE v.tier = 'watch')::int AS watch
     FROM bcad_va_opportunities v
     LEFT JOIN bcad_va_leads l ON l.bcad_property_id = v.bcad_property_id
-    ${whereClause}
-    `,
-    countParams
+    WHERE l.bcad_property_id IS NULL
+    `
   );
 
   return {
-    total: countRows[0].total,
-    rows,
+    total: countRows[0],
+    rows: rows.map(withDetailStatus),
     limit: limit ?? "all",
     offset,
   };
