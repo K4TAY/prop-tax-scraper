@@ -403,6 +403,19 @@
       font-weight: 400;
       cursor: default;
     }
+    .claim-stack {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.35rem;
+      white-space: nowrap;
+    }
+    .claim-stack .score-line {
+      font-size: 0.95rem;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.1;
+    }
     .btn-claim.mine {
       background: #122b22;
       border-color: #1f4d3c;
@@ -1165,9 +1178,7 @@ Is now a bad time, or is there a better day this week?</pre>
           <table>
             <thead>
               <tr>
-                <th>Claim</th>
-                <th>Tier</th>
-                <th>Score</th>
+                <th>Claim / tier / score</th>
                 <th>Owner / situs</th>
                 <th>Appraised (verified)</th>
                 <th>Mortgage filed (DOT)</th>
@@ -1211,9 +1222,13 @@ Is now a bad time, or is there a better day this week?</pre>
                     return `<button type="button" class="btn-claim" data-claim="${esc(r.bcad_property_id)}">Claim</button>`;
                   })();
                   return `<tr data-id="${esc(r.bcad_property_id)}">
-                    <td>${claimCell}</td>
-                    <td><span class="tier ${esc(r.tier)}">${esc(r.tier)}</span></td>
-                    <td><strong>${esc(r.score)}</strong></td>
+                    <td>
+                      <div class="claim-stack">
+                        ${claimCell}
+                        <span class="tier ${esc(r.tier)}">${esc(r.tier)}</span>
+                        <span class="score-line">${esc(r.score)}</span>
+                      </div>
+                    </td>
                     <td>
                       <a href="/property.html?id=${esc(r.bcad_property_id)}">${esc(r.owner_name)}</a><br>
                       <span style="color:var(--muted)">${esc(r.situs)}</span><br>
