@@ -583,6 +583,45 @@ Is now a bad time, or is there a better day this week?</pre>
             </select>
           </label>
           <label>
+            Appraised
+            <select id="appraisedFilter">
+              <option value="">All</option>
+              <option value="has">Has appraisal</option>
+              <option value="missing">Missing</option>
+              <option value="gte_200000">≥ $200k</option>
+              <option value="gte_300000">≥ $300k</option>
+              <option value="gte_400000">≥ $400k</option>
+              <option value="gte_500000">≥ $500k</option>
+              <option value="gte_750000">≥ $750k</option>
+            </select>
+          </label>
+          <label>
+            DOT amount
+            <select id="dotAmountFilter">
+              <option value="">All</option>
+              <option value="has">Has amount</option>
+              <option value="missing">Missing</option>
+              <option value="gte_100000">≥ $100k</option>
+              <option value="gte_200000">≥ $200k</option>
+              <option value="gte_300000">≥ $300k</option>
+              <option value="gte_400000">≥ $400k</option>
+              <option value="gte_500000">≥ $500k</option>
+            </select>
+          </label>
+          <label>
+            LTV
+            <select id="ltvFilter">
+              <option value="">All</option>
+              <option value="has">Has LTV</option>
+              <option value="missing">Missing</option>
+              <option value="lt_70">&lt; 70%</option>
+              <option value="lt_80">&lt; 80%</option>
+              <option value="70_90">70–90%</option>
+              <option value="80_100">80–100%</option>
+              <option value="gt_100">&gt; 100%</option>
+            </select>
+          </label>
+          <label>
             Search
             <input type="search" id="search" placeholder="Owner, situs, geo ID…" autocomplete="off">
           </label>
@@ -975,6 +1014,52 @@ Is now a bad time, or is there a better day this week?</pre>
         return { headline, action, benefit };
       }
 
+      function rowLtvPct(r) {
+        const loan = Number(r.latest_dot_note_amount);
+        const appr = latestAppraised(r);
+        if (!Number.isFinite(loan) || loan <= 0 || !appr) return null;
+        return (loan / appr.appraised_value) * 100;
+      }
+
+      function matchesAppraisedFilter(r, mode) {
+        if (!mode) return true;
+        const appr = latestAppraised(r);
+        if (mode === "has") return !!appr;
+        if (mode === "missing") return !appr;
+        if (mode.startsWith("gte_")) {
+          const min = Number(mode.slice(4));
+          return !!appr && appr.appraised_value >= min;
+        }
+        return true;
+      }
+
+      function matchesDotAmountFilter(r, mode) {
+        if (!mode) return true;
+        const amt = Number(r.latest_dot_note_amount);
+        const has = Number.isFinite(amt) && amt > 0;
+        if (mode === "has") return has;
+        if (mode === "missing") return !has;
+        if (mode.startsWith("gte_")) {
+          const min = Number(mode.slice(4));
+          return has && amt >= min;
+        }
+        return true;
+      }
+
+      function matchesLtvFilter(r, mode) {
+        if (!mode) return true;
+        const pct = rowLtvPct(r);
+        if (mode === "has") return pct != null;
+        if (mode === "missing") return pct == null;
+        if (pct == null) return false;
+        if (mode === "lt_70") return pct < 70;
+        if (mode === "lt_80") return pct < 80;
+        if (mode === "70_90") return pct >= 70 && pct <= 90;
+        if (mode === "80_100") return pct >= 80 && pct <= 100;
+        if (mode === "gt_100") return pct > 100;
+        return true;
+      }
+
       function readFilters() {
         return {
           tier: document.getElementById("tier").value,
@@ -982,6 +1067,9 @@ Is now a bad time, or is there a better day this week?</pre>
           mortgageSignal: document.getElementById("mortgageSignal").value,
           veteranSignal: document.getElementById("veteranSignal").value,
           detailStatus: document.getElementById("detailStatus").value,
+          appraisedFilter: document.getElementById("appraisedFilter").value,
+          dotAmountFilter: document.getElementById("dotAmountFilter").value,
+          ltvFilter: document.getElementById("ltvFilter").value,
           search: document.getElementById("search").value,
           pageSize: document.getElementById("pageSize").value,
         };
@@ -1007,6 +1095,15 @@ Is now a bad time, or is there a better day this week?</pre>
           if (f.detailStatus != null) {
             document.getElementById("detailStatus").value = f.detailStatus;
           }
+          if (f.appraisedFilter != null) {
+            document.getElementById("appraisedFilter").value = f.appraisedFilter;
+          }
+          if (f.dotAmountFilter != null) {
+            document.getElementById("dotAmountFilter").value = f.dotAmountFilter;
+          }
+          if (f.ltvFilter != null) {
+            document.getElementById("ltvFilter").value = f.ltvFilter;
+          }
           if (f.search != null) document.getElementById("search").value = f.search;
           if (f.pageSize != null) {
             const ps = document.getElementById("pageSize");
@@ -1025,6 +1122,9 @@ Is now a bad time, or is there a better day this week?</pre>
         const mortgageSignal = document.getElementById("mortgageSignal").value;
         const veteranSignal = document.getElementById("veteranSignal").value;
         const detailStatus = document.getElementById("detailStatus").value;
+        const appraisedFilter = document.getElementById("appraisedFilter").value;
+        const dotAmountFilter = document.getElementById("dotAmountFilter").value;
+        const ltvFilter = document.getElementById("ltvFilter").value;
         const q = String(document.getElementById("search").value || "")
           .trim()
           .toLowerCase();
@@ -1041,6 +1141,9 @@ Is now a bad time, or is there a better day this week?</pre>
           if (detailStatus && String(r.detail_status || "") !== detailStatus) {
             return false;
           }
+          if (!matchesAppraisedFilter(r, appraisedFilter)) return false;
+          if (!matchesDotAmountFilter(r, dotAmountFilter)) return false;
+          if (!matchesLtvFilter(r, ltvFilter)) return false;
           if (q) {
             const hay = [
               r.owner_name,
@@ -1352,7 +1455,17 @@ Is now a bad time, or is there a better day this week?</pre>
 
       restoreFilters();
 
-      ["tier", "minScore", "mortgageSignal", "veteranSignal", "detailStatus", "pageSize"].forEach((id) => {
+      [
+        "tier",
+        "minScore",
+        "mortgageSignal",
+        "veteranSignal",
+        "detailStatus",
+        "appraisedFilter",
+        "dotAmountFilter",
+        "ltvFilter",
+        "pageSize",
+      ].forEach((id) => {
         document.getElementById(id).addEventListener("change", () => applyFilters(true));
       });
       let searchTimer = null;
@@ -1366,6 +1479,9 @@ Is now a bad time, or is there a better day this week?</pre>
         document.getElementById("mortgageSignal").value = "";
         document.getElementById("veteranSignal").value = "";
         document.getElementById("detailStatus").value = "";
+        document.getElementById("appraisedFilter").value = "";
+        document.getElementById("dotAmountFilter").value = "";
+        document.getElementById("ltvFilter").value = "";
         document.getElementById("search").value = "";
         applyFilters(true);
       };

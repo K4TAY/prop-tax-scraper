@@ -452,6 +452,45 @@
             </select>
           </label>
           <label>
+            Appraised
+            <select id="filterAppraised">
+              <option value="">All</option>
+              <option value="has">Has appraisal</option>
+              <option value="missing">Missing</option>
+              <option value="gte_200000">≥ $200k</option>
+              <option value="gte_300000">≥ $300k</option>
+              <option value="gte_400000">≥ $400k</option>
+              <option value="gte_500000">≥ $500k</option>
+              <option value="gte_750000">≥ $750k</option>
+            </select>
+          </label>
+          <label>
+            DOT amount
+            <select id="filterDotAmount">
+              <option value="">All</option>
+              <option value="has">Has amount</option>
+              <option value="missing">Missing</option>
+              <option value="gte_100000">≥ $100k</option>
+              <option value="gte_200000">≥ $200k</option>
+              <option value="gte_300000">≥ $300k</option>
+              <option value="gte_400000">≥ $400k</option>
+              <option value="gte_500000">≥ $500k</option>
+            </select>
+          </label>
+          <label>
+            LTV
+            <select id="filterLtv">
+              <option value="">All</option>
+              <option value="has">Has LTV</option>
+              <option value="missing">Missing</option>
+              <option value="lt_70">&lt; 70%</option>
+              <option value="lt_80">&lt; 80%</option>
+              <option value="70_90">70–90%</option>
+              <option value="80_100">80–100%</option>
+              <option value="gt_100">&gt; 100%</option>
+            </select>
+          </label>
+          <label>
             Search
             <input type="search" id="filterSearch" placeholder="Owner, situs, geo ID…" autocomplete="off">
           </label>
@@ -563,15 +602,67 @@
     }
 
     // ── Filtering ─────────────────────────────────────────────────────────────
+    function rowLtvPct(r) {
+      const loan = Number(r.latest_dot_note_amount);
+      const appr = latestAppraised(r);
+      if (!Number.isFinite(loan) || loan <= 0 || !appr) return null;
+      return (loan / appr.appraised_value) * 100;
+    }
+
+    function matchesAppraisedFilter(r, mode) {
+      if (!mode) return true;
+      const appr = latestAppraised(r);
+      if (mode === "has") return !!appr;
+      if (mode === "missing") return !appr;
+      if (mode.startsWith("gte_")) {
+        const min = Number(mode.slice(4));
+        return !!appr && appr.appraised_value >= min;
+      }
+      return true;
+    }
+
+    function matchesDotAmountFilter(r, mode) {
+      if (!mode) return true;
+      const amt = Number(r.latest_dot_note_amount);
+      const has = Number.isFinite(amt) && amt > 0;
+      if (mode === "has") return has;
+      if (mode === "missing") return !has;
+      if (mode.startsWith("gte_")) {
+        const min = Number(mode.slice(4));
+        return has && amt >= min;
+      }
+      return true;
+    }
+
+    function matchesLtvFilter(r, mode) {
+      if (!mode) return true;
+      const pct = rowLtvPct(r);
+      if (mode === "has") return pct != null;
+      if (mode === "missing") return pct == null;
+      if (pct == null) return false;
+      if (mode === "lt_70") return pct < 70;
+      if (mode === "lt_80") return pct < 80;
+      if (mode === "70_90") return pct >= 70 && pct <= 90;
+      if (mode === "80_100") return pct >= 80 && pct <= 100;
+      if (mode === "gt_100") return pct > 100;
+      return true;
+    }
+
     function filteredRows() {
       const tier = document.getElementById("filterTier").value;
-      const q    = String(document.getElementById("filterSearch").value || "").trim().toLowerCase();
+      const appraisedFilter = document.getElementById("filterAppraised").value;
+      const dotAmountFilter = document.getElementById("filterDotAmount").value;
+      const ltvFilter = document.getElementById("filterLtv").value;
+      const q = String(document.getElementById("filterSearch").value || "").trim().toLowerCase();
       return allRows.filter((r) => {
         if (activeStatus) {
           const st = String(r.lead_status || r.status || "new");
           if (st !== activeStatus) return false;
         }
         if (tier && r.tier !== tier) return false;
+        if (!matchesAppraisedFilter(r, appraisedFilter)) return false;
+        if (!matchesDotAmountFilter(r, dotAmountFilter)) return false;
+        if (!matchesLtvFilter(r, ltvFilter)) return false;
         if (q) {
           const hay = [r.owner_name, r.situs, r.geo_id, r.exemptions]
             .map((x) => String(x || "").toLowerCase()).join(" ");
@@ -998,7 +1089,12 @@
     }
 
     // ── Event wiring ──────────────────────────────────────────────────────────
-    document.getElementById("filterTier").addEventListener("change", () => { pageOffset = 0; renderGrid(); });
+    ["filterTier", "filterAppraised", "filterDotAmount", "filterLtv"].forEach((id) => {
+      document.getElementById(id).addEventListener("change", () => {
+        pageOffset = 0;
+        renderGrid();
+      });
+    });
     let searchTimer;
     document.getElementById("filterSearch").addEventListener("input", () => {
       clearTimeout(searchTimer);
