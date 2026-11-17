@@ -291,6 +291,33 @@
       font-size: 0.72rem;
       margin-right: 0.3rem;
     }
+    .ltv-cell {
+      text-align: center;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+      min-width: 5.5rem;
+      padding: 0.35rem 0.5rem !important;
+    }
+    .ltv-cell .ltv-pct {
+      display: block;
+      font-size: 2rem;
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+      color: var(--text);
+    }
+    .ltv-cell .ltv-sub {
+      display: block;
+      margin-top: 0.15rem;
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--muted);
+    }
+    .ltv-cell .ltv-empty {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--muted);
+    }
     .empty { color: var(--muted); padding: 2rem 0.85rem; }
     .pager {
       display: flex;
@@ -712,6 +739,28 @@ Is now a bad time, or is there a better day this week?</pre>
           .join("")}</div>`;
       }
 
+      function parseAppraisals(r) {
+        let rows = r.recent_appraisals;
+        if (typeof rows === "string") {
+          try {
+            rows = JSON.parse(rows);
+          } catch {
+            rows = null;
+          }
+        }
+        return Array.isArray(rows) ? rows : [];
+      }
+
+      function latestAppraised(r) {
+        const rows = parseAppraisals(r);
+        if (!rows.length) return null;
+        // recent_appraisals are ordered newest-first from the API
+        const top = rows[0];
+        const n = Number(top?.appraised_value);
+        if (!Number.isFinite(n) || n <= 0) return null;
+        return { tax_year: top.tax_year, appraised_value: n };
+      }
+
       function mortgageFiledCell(r) {
         const amt = r.latest_dot_note_amount;
         if (amt == null || amt === "") {
@@ -730,6 +779,23 @@ Is now a bad time, or is there a better day this week?</pre>
               ? `<div class="muted"><a href="${esc(doc)}" target="_blank" rel="noopener">recorder doc</a></div>`
               : ""
           }
+        </div>`;
+      }
+
+      function ltvCell(r) {
+        const loan = Number(r.latest_dot_note_amount);
+        const appr = latestAppraised(r);
+        if (!Number.isFinite(loan) || loan <= 0 || !appr) {
+          return `<div class="ltv-cell"><span class="ltv-empty">—</span></div>`;
+        }
+        const pct = (loan / appr.appraised_value) * 100;
+        const label = pct.toLocaleString("en-US", {
+          maximumFractionDigits: 1,
+          minimumFractionDigits: 0,
+        });
+        return `<div class="ltv-cell">
+          <span class="ltv-pct">${esc(label)}%</span>
+          <span class="ltv-sub">DOT ÷ ${esc(String(appr.tax_year ?? "appr"))}</span>
         </div>`;
       }
 
@@ -1105,6 +1171,7 @@ Is now a bad time, or is there a better day this week?</pre>
                 <th>Owner / situs</th>
                 <th>Appraised (verified)</th>
                 <th>Mortgage filed (DOT)</th>
+                <th>LTV</th>
                 <th>Tax due</th>
                 <th>Last payment</th>
                 <th>Detail data</th>
@@ -1154,6 +1221,7 @@ Is now a bad time, or is there a better day this week?</pre>
                     </td>
                     <td>${recentAppraisals(r)}</td>
                     <td>${mortgageFiledCell(r)}</td>
+                    <td>${ltvCell(r)}</td>
                     <td>${taxDueCell(r)}</td>
                     <td>${lastPaymentCell(r)}</td>
                     <td>${detailCellHtml(r)}</td>
