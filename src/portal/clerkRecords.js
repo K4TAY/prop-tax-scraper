@@ -310,6 +310,14 @@ function normalizeLooseClerkRow(row) {
   const grantor = blankToNull(row.grantor || row.Grantor);
   const grantee = blankToNull(row.grantee || row.Grantee);
   if (!doc_number && !doc_type && !grantor && !grantee) return null;
+  // Preserve full publicsearch payload (consideration, docId, OCR, images).
+  // Live WS imports nest the original hit on `.raw`; paste rows usually have none.
+  const preservedRaw =
+    row.raw && typeof row.raw === "object"
+      ? row.raw
+      : row.consideration != null || row.docId != null || row.id != null
+        ? row
+        : null;
   return {
     recorded_date: row.recorded_date || row.recordedDate || row.RecordedDate,
     doc_type,
@@ -323,6 +331,7 @@ function normalizeLooseClerkRow(row) {
     ncb: row.ncb || row.NCB,
     county_block: row.county_block || row.countyBlock,
     property_address: row.property_address || row.propertyAddress || row.Address,
+    ...(preservedRaw ? { raw: preservedRaw } : {}),
   };
 }
 
@@ -500,7 +509,13 @@ export async function importClerkFinancingFromPublicsearch(propertyId, opts = {}
 
 export function normalizeClerkInstrument(row, meta = {}) {
   const doc_type = blankToNull(row.doc_type || row.docType);
-  const raw = row.raw && typeof row.raw === "object" ? row.raw : row;
+  // Prefer the full publicsearch hit (nested .raw), not the slim clerk-shaped wrapper.
+  const raw =
+    row.raw && typeof row.raw === "object" && (row.raw.consideration != null || row.raw.docId != null)
+      ? row.raw
+      : row.raw && typeof row.raw === "object"
+        ? row.raw
+        : row;
   const extracted = extractNoteAmountFromClerkDoc(raw);
   const publicsearch_doc_id = (() => {
     const id =
@@ -531,7 +546,7 @@ export function normalizeClerkInstrument(row, meta = {}) {
     publicsearch_doc_id,
     note_amount: extracted.amount,
     note_amount_source: extracted.source,
-    raw: row,
+    raw,
   };
 }
 
@@ -734,6 +749,7 @@ export async function enrichDeedOfTrustPagesForProperty(propertyId, opts = {}) {
   const {
     createPublicsearchSession,
     fetchPublicsearchDocumentPages,
+    searchPublicsearchByDocumentNumber,
   } = await import("./publicsearchClient.js");
 
   let session = opts.session || null;
@@ -743,10 +759,36 @@ export async function enrichDeedOfTrustPagesForProperty(propertyId, opts = {}) {
 
   for (const row of rows) {
     let docId = row.publicsearch_doc_id;
-    const raw = row.raw && typeof row.raw === "object" ? row.raw : {};
+    let raw = row.raw && typeof row.raw === "object" ? row.raw : {};
+    if (raw.raw && typeof raw.raw === "object") raw = raw.raw;
     if (!docId) {
       const n = Number(String(raw.docId || raw.id || "").replace(/\D/g, ""));
       if (Number.isFinite(n) && n > 0) docId = n;
+    }
+
+    // Older paste/slim imports have no docId or consideration — resolve by doc #.
+    if ((!docId || extractNoteAmountFromClerkDoc(raw).amount == null) && row.doc_number) {
+      try {
+        if (!session) session = await createPublicsearchSession();
+        const found = await searchPublicsearchByDocumentNumber(row.doc_number, {
+          session,
+        });
+        session = found.session || session;
+        const hit = found.rows.find(
+          (r) => String(r.doc_number) === String(row.doc_number)
+        ) || found.rows[0];
+        if (hit?.raw) {
+          raw = hit.raw;
+          const n = Number(String(raw.docId || raw.id || "").replace(/\D/g, ""));
+          if (Number.isFinite(n) && n > 0) docId = n;
+        }
+      } catch (e) {
+        details.push({
+          id: row.id,
+          doc_number: row.doc_number,
+          lookup_error: e.message,
+        });
+      }
     }
 
     // Fast path: indexed consideration already on the search hit.
@@ -758,12 +800,30 @@ export async function enrichDeedOfTrustPagesForProperty(propertyId, opts = {}) {
         SET note_amount = $2,
             note_amount_source = $3,
             note_extracted_at = NOW(),
-            publicsearch_doc_id = COALESCE(publicsearch_doc_id, $4)
+            publicsearch_doc_id = COALESCE(publicsearch_doc_id, $4),
+            raw = COALESCE($5::jsonb, raw)
         WHERE id = $1
         `,
-        [row.id, extracted.amount, extracted.source, docId]
+        [
+          row.id,
+          extracted.amount,
+          extracted.source,
+          docId,
+          JSON.stringify(raw),
+        ]
       );
       notesSaved++;
+      row.note_amount = extracted.amount;
+    } else if (docId && !row.publicsearch_doc_id) {
+      await client.query(
+        `
+        UPDATE bcad_clerk_instruments
+        SET publicsearch_doc_id = $2,
+            raw = COALESCE($3::jsonb, raw)
+        WHERE id = $1
+        `,
+        [row.id, docId, JSON.stringify(raw)]
+      );
     }
 
     const needPages = forcePages || !row.pages_fetched_at;
@@ -781,7 +841,12 @@ export async function enrichDeedOfTrustPagesForProperty(propertyId, opts = {}) {
     }
 
     if (!docId) {
-      details.push({ id: row.id, doc_number: row.doc_number, error: "missing publicsearch_doc_id" });
+      details.push({
+        id: row.id,
+        doc_number: row.doc_number,
+        error: "missing publicsearch_doc_id",
+        note_amount: extracted.amount,
+      });
       continue;
     }
 

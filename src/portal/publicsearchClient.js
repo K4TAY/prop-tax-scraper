@@ -266,6 +266,91 @@ export async function searchPublicsearchByParty(partyName, opts = {}) {
 }
 
 /**
+ * Look up land records by recorded document / instrument number.
+ * Returns the same shape as searchPublicsearchByParty.
+ */
+export async function searchPublicsearchByDocumentNumber(docNumber, opts = {}) {
+  const num = String(docNumber || "").trim();
+  if (!num || num === "0") throw new Error("document number required");
+  const recordedDateRange =
+    opts.recordedDateRange ||
+    `18000101,${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`;
+
+  const session = opts.session || (await createPublicsearchSession());
+  const ws = await openPublicsearchWs(session);
+
+  try {
+    await wsRequest(
+      ws,
+      {
+        type: "fetch-department-dates",
+        payload: { department: "RP" },
+        authToken: session.ort,
+      },
+      {
+        timeoutMs: 8000,
+        match: (d) => d.type === "department-dates" || String(d.type).includes("error"),
+      }
+    ).catch(() => null);
+
+    // quickSearch by instrument # is reliable; advanced documentNumberRange often hangs.
+    const workspaceID = `ptdoc${Date.now().toString(36)}`;
+    const { data } = await wsRequest(
+      ws,
+      {
+        type: "@kofile/FETCH_DOCUMENTS/v4",
+        payload: {
+          workspaceID,
+          query: {
+            department: "RP",
+            searchType: "quickSearch",
+            searchValue: num,
+            keywordSearch: false,
+            searchOcrText: false,
+            recordedDateRange,
+            limit: Math.min(20, Number(opts.limit) || 10),
+            offset: 0,
+          },
+        },
+        authToken: session.ort,
+      },
+      {
+        timeoutMs: 20000,
+        match: (d) =>
+          String(d.type).includes("FULFILLED") ||
+          String(d.type).includes("REJECTED") ||
+          String(d.type).includes("API_ERROR"),
+      }
+    );
+
+    if (String(data.type).includes("API_ERROR") || String(data.type).includes("REJECTED")) {
+      const reason =
+        data.payload?.reason?.message || data.payload?.errors || data.type;
+      throw new Error(`publicsearch doc search failed: ${reason}`);
+    }
+
+    const byOrder = data.payload?.data?.byOrder || [];
+    const byHash = data.payload?.data?.byHash || {};
+    const documents = byOrder.map((id) => byHash[id]).filter(Boolean);
+    const rows = documents.map(publicsearchDocToClerkRow).filter(Boolean);
+    return {
+      docNumber: num,
+      recordedDateRange,
+      total: rows.length,
+      rows,
+      session,
+      source: "publicsearch_ws_doc",
+    };
+  } finally {
+    try {
+      ws.close();
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/**
  * Fetch a single document summary (signed page image URLs + consideration).
  * @param {number|string} docId publicsearch internal document id
  * @param {{ session?: { ort: string, cookies: string } }} [opts]

@@ -170,13 +170,9 @@ export async function refreshPropertySources(propertyId, opts = {}) {
       auto_error: clerk?.auto_error,
       dot_pages: clerk?.dot_pages,
     });
-    // If clerk metadata already existed (no new matches this pull), still
-    // try to screenshot DOT pages + extract the filed mortgage amount.
-    if (
-      clerk?.automated &&
-      !clerk?.dot_pages &&
-      (clerk?.financing_count || 0) > 0
-    ) {
+    // Always try DOT page screenshots + note amount when financing rows exist,
+    // even if the live party search failed or returned no new matches.
+    if (!clerk?.dot_pages && (clerk?.financing_count || 0) > 0) {
       try {
         say("clerk_dot_pages", "fetching Deed of Trust page screenshots + note amount…");
         clerk.dot_pages = await enrichDeedOfTrustPagesForProperty(propertyId, {
@@ -190,15 +186,13 @@ export async function refreshPropertySources(propertyId, opts = {}) {
         say("clerk_dot_pages_error", e.message);
       }
     }
-    if (clerk?.automated && clerk.inserted >= 0) {
-      try {
-        say("va_rescore", "re-scoring VA opportunity after clerk pull…");
-        await upsertVaOpportunityForProperty(propertyId, { client });
-        say("va_rescore_done");
-      } catch (e) {
-        errors.push({ source: "va_rescore", error: e.message });
-        say("va_rescore_error", e.message);
-      }
+    try {
+      say("va_rescore", "re-scoring VA opportunity after clerk pull…");
+      await upsertVaOpportunityForProperty(propertyId, { client });
+      say("va_rescore_done");
+    } catch (e) {
+      errors.push({ source: "va_rescore", error: e.message });
+      say("va_rescore_error", e.message);
     }
     if (clerk?.auto_error) {
       errors.push({ source: "clerk_auto", error: clerk.auto_error });
