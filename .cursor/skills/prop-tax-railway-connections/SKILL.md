@@ -39,7 +39,7 @@ Login is shared JWT auth (`/api/auth/login`, cookie/token key `propTax.jwt`).
 |---------|-----|------|
 | `bcad-portal` | `0b5c6f8b-25e3-4f17-ab2c-ba2a1c5bb59f` | Portal web app (`bun src/portal/server.js`) |
 | `prop-tax-scraper` | `7ead9e11-5bd1-415b-9398-5a20f1d20581` | Neighborhood scrape / CSV UI |
-| `va-enrich-cron` | `f6b0139c-df84-495d-b3b1-fdc86090bf28` | Cron: enrich 1 VA opp (score≥50) every 10m |
+| `va-enrich-cron` | `f6b0139c-df84-495d-b3b1-fdc86090bf28` | Cron: fill DOT amount / appraisal gaps every 5m |
 | `Postgres` | `0e2175bb-0d91-4498-a0e1-3338df07dd1d` | **Auth** DB (`users`, JWT) + county `*_tx_*` |
 | `PostGIS` | `9f545667-3bb0-4365-8b9d-ed224672188f` | **BCAD** spatial DB (`bcad_*`, VA opps) |
 
@@ -109,8 +109,9 @@ Admins can also claim VA leads into their own pipeline like any user.
 ## VA enrich cron
 
 - Schedule: `*/5 * * * *` (UTC)
-- Command: `bun scripts/cron-enrich-va-opportunity.js --min-score=50 --limit=5 --gap-seconds=5`
-- Enriches 5 opportunities per run, sequentially, with a 5s pause between pulls
+- Command: `bun scripts/cron-enrich-va-opportunity.js --mode=gaps --min-score=0 --limit=10 --gap-seconds=5 --cooldown-hours=12`
+- Prioritizes VA rows with a Deed of Trust but missing filed amount and/or missing appraisal (LTV inputs)
+- Full Pull records (`refreshPropertySources`) per row; 12h cooldown so the same id is not re-tried every tick
 
 ## Version after Railway deploys
 

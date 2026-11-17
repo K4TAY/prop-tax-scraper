@@ -1,12 +1,16 @@
-# Railway cron service: enrich the next 5 high-score VA opportunities every 5 minutes.
+# Railway cron: fill DOT mortgage amounts + appraisals (for LTV) on VA opportunities.
 # Create a separate service (e.g. va-enrich-cron) pointing at this repo with:
 #   Config file path: railway.va-enrich-cron.toml
 # Shares BCAD_DATABASE_URL (PostGIS) with bcad-portal.
+#
+# Gaps mode prioritizes rows with a Deed of Trust but missing note amount
+# and/or missing verified appraisal. Cooldown prevents re-processing the
+# same property every tick.
 
 [build]
 builder = "RAILPACK"
 
 [deploy]
-startCommand = "bun scripts/cron-enrich-va-opportunity.js --min-score=50 --limit=5 --gap-seconds=5"
+startCommand = "bun scripts/cron-enrich-va-opportunity.js --mode=gaps --min-score=0 --limit=10 --gap-seconds=5 --cooldown-hours=12"
 cronSchedule = "*/5 * * * *"
 restartPolicyType = "NEVER"
