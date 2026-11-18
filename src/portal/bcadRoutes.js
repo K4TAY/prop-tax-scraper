@@ -50,7 +50,19 @@ import {
   getVaOpportunityWithDetail,
   stampVaOpportunityEnriched,
 } from "./vaOpportunities.js";
-import { listVaOpportunitiesGeojson } from "./geocode.js";
+import {
+  listVaOpportunitiesGeojson,
+  listVaOpportunitiesNeedingGeocode,
+  getVaGeocodeStats,
+  buildGeocodeQuery,
+} from "./geocode.js";
+import {
+  getGeocodeJobStatus,
+  getGeocodeJobStatusWithStats,
+  subscribeGeocodeProgress,
+  startGeocodeJob,
+  requestGeocodeCancel,
+} from "./geocodeJob.js";
 import {
   VA_LEAD_STATUSES,
   VA_LEAD_STATUS_IDS,
@@ -334,6 +346,107 @@ router.get("/va-opportunities/geojson", requireAuth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+/** Geocode coverage + live job snapshot */
+router.get("/geocode/status", requireAuth, async (req, res) => {
+  try {
+    const status = await getGeocodeJobStatusWithStats({
+      minScore: req.query.min_score ?? req.query.minScore ?? 0,
+    });
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/geocode/stats", requireAuth, async (req, res) => {
+  try {
+    const stats = await getVaGeocodeStats({
+      minScore: req.query.min_score ?? req.query.minScore ?? 0,
+    });
+    res.json(stats);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Queue of VA properties still needing Nominatim geocode */
+router.get("/geocode/queue", requireAuth, async (req, res) => {
+  try {
+    const minScore = Number(req.query.min_score ?? req.query.minScore ?? 0) || 0;
+    const limit = Math.min(
+      Math.max(Number(req.query.limit) || 100, 1),
+      500
+    );
+    const rows = await listVaOpportunitiesNeedingGeocode({
+      minScore,
+      limit,
+      force: false,
+      cooldownHours: 0,
+    });
+    const stats = await getVaGeocodeStats({ minScore });
+    res.json({
+      rows: rows.map((r) => ({
+        id: Number(r.id),
+        score: Number(r.score) || 0,
+        tier: r.tier,
+        owner_name: r.owner_name,
+        situs: r.situs,
+        geocode_status: r.geocode_status,
+        geocoded_at: r.geocoded_at,
+        query: buildGeocodeQuery(r),
+      })),
+      stats,
+      limit,
+      min_score: minScore,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/geocode/events", requireAuth, (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+  res.flushHeaders?.();
+  const unsub = subscribeGeocodeProgress(res);
+  const keepAlive = setInterval(() => {
+    try {
+      res.write(": ping\n\n");
+    } catch {
+      clearInterval(keepAlive);
+    }
+  }, 15000);
+  req.on("close", () => {
+    clearInterval(keepAlive);
+    unsub();
+  });
+});
+
+router.post("/geocode/start", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const status = await startGeocodeJob({
+      limit: body.limit != null ? Number(body.limit) : 200,
+      minScore: body.min_score ?? body.minScore ?? 0,
+      force: body.force === true,
+      fallbackCentroid: body.fallback_centroid === true || body.fallbackCentroid === true,
+      gapSeconds: body.gap_seconds ?? body.gapSeconds ?? 0.4,
+      cooldownHours: body.cooldown_hours ?? body.cooldownHours ?? 24,
+      startedBy: req.user?.email || null,
+    });
+    res.status(202).json(status);
+  } catch (err) {
+    const code = err.code === "GEOCODE_BUSY" ? 409 : 400;
+    res.status(code).json({ error: err.message, ...getGeocodeJobStatus() });
+  }
+});
+
+router.post("/geocode/cancel", requireAuth, requireAdmin, (_req, res) => {
+  const ok = requestGeocodeCancel();
+  res.json({ ok, ...getGeocodeJobStatus() });
 });
 
 router.post("/va-opportunities/rebuild", requireAuth, requireAdmin, async (req, res) => {

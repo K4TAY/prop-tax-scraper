@@ -58,6 +58,10 @@ app.get("/import.html", (_req, res, next) => {
   sendPortalFile(res, "import.html", next);
 });
 
+app.get("/geocode.html", (_req, res, next) => {
+  sendPortalFile(res, "geocode.html", next);
+});
+
 app.get("/data.html", (_req, res, next) => {
   sendPortalFile(res, "data.html", next);
 });

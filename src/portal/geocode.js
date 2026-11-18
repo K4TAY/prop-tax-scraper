@@ -410,11 +410,74 @@ export async function listVaOpportunitiesNeedingGeocode(opts = {}) {
   return rows;
 }
 
+/**
+ * Aggregate geocode coverage for VA opportunities.
+ */
+export async function getVaGeocodeStats(opts = {}) {
+  const client = opts.client || bcadPool;
+  await ensureBcadSchema(client);
+  const minScore = opts.minScore != null ? Number(opts.minScore) : 0;
+
+  const { rows } = await client.query(
+    `
+    SELECT
+      COUNT(*)::int AS total,
+      COUNT(*) FILTER (
+        WHERE p.geocode_status = 'ok' AND p.geocode_lat IS NOT NULL
+      )::int AS ok,
+      COUNT(*) FILTER (
+        WHERE p.geocode_status = 'centroid_fallback' AND p.geocode_lat IS NOT NULL
+      )::int AS centroid_fallback,
+      COUNT(*) FILTER (
+        WHERE p.geocode_status = 'not_found'
+      )::int AS not_found,
+      COUNT(*) FILTER (
+        WHERE p.geocode_status = 'error'
+      )::int AS error,
+      COUNT(*) FILTER (
+        WHERE p.geocode_status = 'skipped'
+      )::int AS skipped,
+      COUNT(*) FILTER (
+        WHERE p.geocode_lat IS NULL
+          OR p.geocode_status IS NULL
+          OR p.geocode_status IN ('not_found', 'error', 'skipped')
+      )::int AS needing,
+      COUNT(*) FILTER (
+        WHERE p.geocode_lat IS NOT NULL
+      )::int AS with_coords
+    FROM bcad_va_opportunities v
+    JOIN bcad_properties p ON p.id = v.bcad_property_id
+    WHERE v.score >= $1
+    `,
+    [minScore]
+  );
+  const r = rows[0] || {};
+  return {
+    total: Number(r.total) || 0,
+    ok: Number(r.ok) || 0,
+    centroid_fallback: Number(r.centroid_fallback) || 0,
+    not_found: Number(r.not_found) || 0,
+    error: Number(r.error) || 0,
+    skipped: Number(r.skipped) || 0,
+    needing: Number(r.needing) || 0,
+    with_coords: Number(r.with_coords) || 0,
+    min_score: minScore,
+    nominatim: String(
+      process.env.NOMINATIM_URL || "https://geocode.forteapps.dev"
+    ).replace(/\/$/, ""),
+  };
+}
+
 export async function geocodeVaOpportunities(opts = {}) {
   const gapMs = Math.max(
     Number(opts.gapMs != null ? opts.gapMs : (opts.gapSeconds || 1.1) * 1000),
     0
   );
+  const onProgress =
+    typeof opts.onProgress === "function" ? opts.onProgress : null;
+  const shouldCancel =
+    typeof opts.shouldCancel === "function" ? opts.shouldCancel : () => false;
+
   const candidates = await listVaOpportunitiesNeedingGeocode(opts);
   const results = {
     queued: candidates.length,
@@ -423,22 +486,142 @@ export async function geocodeVaOpportunities(opts = {}) {
     error: 0,
     skipped: 0,
     centroid_fallback: 0,
+    cancelled: false,
     rows: [],
   };
 
+  if (onProgress) {
+    onProgress({
+      phase: "running",
+      message:
+        candidates.length === 0
+          ? "Nothing left to geocode"
+          : `Queued ${candidates.length.toLocaleString()} properties…`,
+      pct: 0,
+      current: 0,
+      total: candidates.length,
+      ok: 0,
+      not_found: 0,
+      error: 0,
+      skipped: 0,
+      centroid_fallback: 0,
+      recent: [],
+    });
+  }
+
+  const recent = [];
+  const pushRecent = (entry) => {
+    recent.unshift(entry);
+    if (recent.length > 40) recent.length = 40;
+  };
+
   for (let i = 0; i < candidates.length; i++) {
+    if (shouldCancel()) {
+      results.cancelled = true;
+      if (onProgress) {
+        onProgress({
+          phase: "cancelled",
+          message: `Cancelled after ${i.toLocaleString()} / ${candidates.length.toLocaleString()}`,
+          pct: candidates.length
+            ? Math.round((100 * i) / candidates.length)
+            : 100,
+          current: i,
+          total: candidates.length,
+          ok: results.ok,
+          not_found: results.not_found,
+          error: results.error,
+          skipped: results.skipped,
+          centroid_fallback: results.centroid_fallback,
+          recent: [...recent],
+          done: true,
+        });
+      }
+      break;
+    }
+
     const c = candidates[i];
     const out = await geocodePropertyById(c.id, opts);
-    results.rows.push({ ...out, score: c.score, tier: c.tier, situs: c.situs });
-    if (out.skipped) results.skipped += 1;
-    else if (out.status === "ok") results.ok += 1;
-    else if (out.status === "not_found") results.not_found += 1;
-    else if (out.status === "centroid_fallback") results.centroid_fallback += 1;
-    else if (out.status === "error") results.error += 1;
-    else results.skipped += 1;
+    const row = {
+      ...out,
+      score: c.score,
+      tier: c.tier,
+      situs: c.situs,
+      owner_name: c.owner_name,
+    };
+    results.rows.push(row);
+
+    let bucket = "skipped";
+    if (out.skipped) {
+      results.skipped += 1;
+      bucket = "skip";
+    } else if (out.status === "ok") {
+      results.ok += 1;
+      bucket = "ok";
+    } else if (out.status === "not_found") {
+      results.not_found += 1;
+      bucket = "miss";
+    } else if (out.status === "centroid_fallback") {
+      results.centroid_fallback += 1;
+      bucket = "cent";
+    } else if (out.status === "error") {
+      results.error += 1;
+      bucket = "err";
+    } else {
+      results.skipped += 1;
+    }
+
+    pushRecent({
+      status: bucket,
+      id: c.id,
+      label: `#${c.id} ${c.situs || c.owner_name || ""}`.trim(),
+      detail:
+        out.lat != null
+          ? `${Number(out.lat).toFixed(5)},${Number(out.lng).toFixed(5)}`
+          : out.error || out.status || "—",
+    });
+
+    const current = i + 1;
+    if (onProgress) {
+      onProgress({
+        phase: "running",
+        message: `Geocoding ${current.toLocaleString()} / ${candidates.length.toLocaleString()}: ${
+          c.situs || `#${c.id}`
+        }`,
+        pct: Math.round((100 * current) / candidates.length),
+        current,
+        total: candidates.length,
+        ok: results.ok,
+        not_found: results.not_found,
+        error: results.error,
+        skipped: results.skipped,
+        centroid_fallback: results.centroid_fallback,
+        recent: [...recent],
+        last: row,
+      });
+    }
 
     if (i < candidates.length - 1 && gapMs > 0) await sleep(gapMs);
   }
+
+  if (!results.cancelled && onProgress) {
+    onProgress({
+      phase: candidates.length ? "done" : "idle",
+      message: candidates.length
+        ? `Finished ${candidates.length.toLocaleString()} — ok ${results.ok}, miss ${results.not_found}, err ${results.error}`
+        : "Nothing left to geocode",
+      pct: 100,
+      current: candidates.length,
+      total: candidates.length,
+      ok: results.ok,
+      not_found: results.not_found,
+      error: results.error,
+      skipped: results.skipped,
+      centroid_fallback: results.centroid_fallback,
+      recent: [...recent],
+      done: true,
+    });
+  }
+
   return results;
 }
 
