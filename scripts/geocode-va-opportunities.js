@@ -31,7 +31,7 @@ function parseArgs(argv) {
     limit: 100,
     minScore: 0,
     force: false,
-    fallbackCentroid: false,
+    fallbackCentroid: true,
     concurrency: 10,
     gapSeconds: 0,
     cooldownHours: 24,
@@ -43,6 +43,7 @@ function parseArgs(argv) {
     else if (a.startsWith("--min-score=")) out.minScore = Number(a.slice(12));
     else if (a === "--force") out.force = true;
     else if (a === "--fallback-centroid") out.fallbackCentroid = true;
+    else if (a === "--no-fallback-centroid") out.fallbackCentroid = false;
     else if (a.startsWith("--concurrency="))
       out.concurrency = Number(a.slice(14));
     else if (a.startsWith("--gap-seconds=")) out.gapSeconds = Number(a.slice(14));

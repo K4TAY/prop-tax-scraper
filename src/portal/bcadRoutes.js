@@ -432,7 +432,8 @@ router.post("/geocode/start", requireAuth, requireAdmin, async (req, res) => {
       limit: body.limit != null ? Number(body.limit) : 200,
       minScore: body.min_score ?? body.minScore ?? 0,
       force: body.force === true,
-      fallbackCentroid: body.fallback_centroid === true || body.fallbackCentroid === true,
+      fallbackCentroid:
+        body.fallback_centroid !== false && body.fallbackCentroid !== false,
       concurrency: body.concurrency ?? 10,
       gapSeconds: body.gap_seconds ?? body.gapSeconds ?? 0,
       cooldownHours: body.cooldown_hours ?? body.cooldownHours ?? 24,

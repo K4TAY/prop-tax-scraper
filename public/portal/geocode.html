@@ -155,7 +155,7 @@
             <input type="number" id="inpGap" value="0" min="0" max="10" step="0.1">
           </label>
           <label class="check">
-            <input type="checkbox" id="inpFallback"> Centroid fallback
+            <input type="checkbox" id="inpFallback" checked> Centroid fallback
           </label>
           <label class="check">
             <input type="checkbox" id="inpForce"> Re-geocode already OK
@@ -381,7 +381,7 @@
             10
           ),
           gap_seconds: Number(document.getElementById("inpGap").value) || 0,
-          fallback_centroid: document.getElementById("inpFallback").checked,
+          fallback_centroid: document.getElementById("inpFallback").checked !== false,
           force: document.getElementById("inpForce").checked,
         };
         const res = await PortalAuth.authFetch("/api/bcad/geocode/start", {

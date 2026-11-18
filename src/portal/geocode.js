@@ -13,62 +13,125 @@ const UA =
   process.env.NOMINATIM_USER_AGENT ||
   "prop-tax-scraper/bcad-portal (VA opportunity geocode; contact forteapps)";
 
-/** Bexar County approximate viewbox: left,top,right,bottom (Nominatim order). */
-export const BEXAR_VIEWBOX = "-98.813,29.731,-98.223,29.186";
+/** Metro viewbox (Bexar + fringe cities): left,top,right,bottom (Nominatim order). */
+export const BEXAR_VIEWBOX = "-98.95,29.85,-98.10,29.05";
 
+/** Accept Nominatim hit only if within this distance of the parcel centroid. */
+export const MAX_NOMINATIM_METERS = 750;
+
+const CITY_ALIASES = {
+  "ST HEDWIG": "Saint Hedwig",
+  "SAINT HEDWIG": "Saint Hedwig",
+  "VON ORMY": "Von Ormy",
+};
+
+/** Longer names first so "HILL COUNTRY VILLAGE" wins over shorter tokens. */
 const KNOWN_CITIES = [
-  "SAN ANTONIO",
-  "BOERNE",
-  "HELOTES",
+  "HILL COUNTRY VILLAGE",
   "UNIVERSAL CITY",
-  "LIVE OAK",
-  "CONVERSE",
-  "SCHERTZ",
-  "SELMA",
-  "WINDCREST",
-  "KIRBY",
-  "LEON VALLEY",
-  "CASTLE HILLS",
+  "BALCONES HEIGHTS",
+  "HOLLYWOOD PARK",
   "ALAMO HEIGHTS",
   "TERRELL HILLS",
-  "OLMOS PARK",
-  "BALCONES HEIGHTS",
+  "CASTLE HILLS",
   "SHAVANO PARK",
-  "HOLLYWOOD PARK",
-  "HILL COUNTRY VILLAGE",
-  "CHINA GROVE",
-  "ELMENDORF",
-  "SOMERSET",
-  "VON ORMY",
-  "ST HEDWIG",
+  "LEON VALLEY",
   "SAINT HEDWIG",
+  "ST HEDWIG",
+  "SAN ANTONIO",
+  "OLMOS PARK",
+  "CHINA GROVE",
+  "WINDCREST",
+  "ELMENDORF",
+  "LIVE OAK",
+  "CONVERSE",
+  "ATASCOSA",
+  "VON ORMY",
+  "HELOTES",
+  "SCHERTZ",
+  "SOMERSET",
+  "BOERNE",
+  "CIBOLO",
   "ADKINS",
+  "SELMA",
+  "KIRBY",
+  "MACDONA",
+  "LACOSTE",
+].sort((a, b) => b.length - a.length);
+
+const STREET_EXPAND = [
+  [/\bFM\s*(\d+)\b/gi, "Farm-to-Market Road $1"],
+  [/\bRM\s*(\d+)\b/gi, "Ranch-to-Market Road $1"],
+  [/\bBLVD\b/gi, "Boulevard"],
+  [/\bPKWY\b/gi, "Parkway"],
+  [/\bHWY\b/gi, "Highway"],
+  [/\bFWY\b/gi, "Freeway"],
+  [/\bEXPY\b/gi, "Expressway"],
+  [/\bAVE\b/gi, "Avenue"],
+  [/\bDR\b/gi, "Drive"],
+  [/\bRD\b/gi, "Road"],
+  [/\bST\b/gi, "Street"],
+  [/\bLN\b/gi, "Lane"],
+  [/\bCT\b/gi, "Court"],
+  [/\bCIR\b/gi, "Circle"],
+  [/\bPL\b/gi, "Place"],
+  [/\bTRL\b/gi, "Trail"],
+  [/\bRDG\b/gi, "Ridge"],
+  [/\bBND\b/gi, "Bend"],
+  [/\bFLD\b/gi, "Field"],
+  [/\bCV\b/gi, "Cove"],
+  [/\bPT\b/gi, "Point"],
+  [/\bTER\b/gi, "Terrace"],
+  [/\bRUN\b/gi, "Run"],
+  [/\bPASS\b/gi, "Pass"],
+  [/\bWAY\b/gi, "Way"],
+  [/\bLOOP\b/gi, "Loop"],
 ];
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Great-circle distance in meters. */
+export function haversineMeters(lat1, lng1, lat2, lng2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const R = 6371000;
+  const φ1 = toRad(lat1);
+  const φ2 = toRad(lat2);
+  const Δφ = toRad(lat2 - lat1);
+  const Δλ = toRad(lng2 - lng1);
+  const a =
+    Math.sin(Δφ / 2) ** 2 +
+    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+export function expandStreetName(street) {
+  let s = String(street || "").trim();
+  for (const [re, repl] of STREET_EXPAND) s = s.replace(re, repl);
+  return s.replace(/\s+/g, " ").trim();
+}
+
 /**
- * Build a Nominatim search query from BCAD situs (+ optional mail ZIP).
- * Situs is often "123 MAIN ST" or "123 MAIN ST SAN ANTONIO" without ZIP.
+ * Parse BCAD situs into street / city / zip pieces.
  */
-export function buildGeocodeQuery(prop) {
+export function parseSitusAddress(prop) {
   const situs = String(prop?.situs || "").trim();
   if (!situs) return null;
 
   const upper = situs.toUpperCase();
-  let city = null;
+  let cityKey = null;
   for (const c of KNOWN_CITIES) {
     if (upper.includes(c)) {
-      city =
-        c === "ST HEDWIG" || c === "SAINT HEDWIG" ? "Saint Hedwig" : c;
+      cityKey = c;
       break;
     }
   }
+  const city =
+    (cityKey && (CITY_ALIASES[cityKey] || cityKey)) ||
+    String(prop?.addr_city || "").trim() ||
+    "San Antonio";
 
-  // ZIP only when it appears after a state token or at the very end
-  // (never treat a 5-digit house number as a postal code).
   const zipFromSitus =
     (situs.match(/(?:TX|TEXAS)[,\s]+(\d{5})(?:-\d{4})?\b/i) || [])[1] ||
     (situs.match(/[A-Za-z]\s+(\d{5})(?:-\d{4})?\s*$/) || [])[1] ||
@@ -81,40 +144,96 @@ export function buildGeocodeQuery(prop) {
     (/^\d{5}$/.test(mailZip) ? mailZip : null) ||
     null;
 
-  // Strip trailing city / state / zip so we can re-append normalized locality.
   let street = situs
     .replace(/,?\s*(TX|TEXAS)\b.*$/i, "")
     .replace(/\b\d{5}(?:-\d{4})?\s*$/, "")
     .trim();
-  if (city) {
-    const re = new RegExp(
-      `,?\\s*${city.replace(/\s+/g, "\\s+")}\\s*$`,
-      "i"
-    );
+
+  const cityStripKeys = new Set(
+    [cityKey, city, CITY_ALIASES[cityKey], city?.toUpperCase()].filter(Boolean)
+  );
+  for (const key of cityStripKeys) {
+    const re = new RegExp(`,?\\s*${String(key).replace(/\s+/g, "\\s+")}\\s*$`, "i");
     street = street.replace(re, "").trim();
   }
+  // Unit / lot trailing digits like "BENTON CITY RD 2"
   street = street.replace(/,\s*$/, "").trim();
   if (!street) street = situs;
 
-  const parts = [street];
-  parts.push(city || "San Antonio");
-  parts.push("TX");
-  if (zip) parts.push(zip);
-  parts.push("USA");
-  return parts.join(", ");
+  const houseNumber = (street.match(/^\s*(\d+[A-Z]?)\b/i) || [])[1] || null;
+  const streetNoNumber = houseNumber
+    ? street.replace(/^\s*\d+[A-Z]?\s+/i, "").trim()
+    : street;
+  const streetExpanded = expandStreetName(street);
+  const streetNoNumberExpanded = expandStreetName(streetNoNumber);
+
+  return {
+    situs,
+    street,
+    streetExpanded,
+    streetNoNumber,
+    streetNoNumberExpanded,
+    houseNumber,
+    city,
+    zip,
+  };
 }
 
 /**
- * Call Nominatim /search. Honors 1 req/sec courtesy when callers gap between calls.
+ * Build freeform Nominatim queries (best → fallback).
  */
-export async function nominatimSearch(query, opts = {}) {
+export function buildGeocodeCandidates(prop) {
+  const parsed = parseSitusAddress(prop);
+  if (!parsed) return [];
+
+  const { street, streetExpanded, streetNoNumberExpanded, city, zip } = parsed;
+  const locality = [city, "TX", zip, "USA"].filter(Boolean).join(", ");
+  const localityNoZip = [city, "TX", "USA"].filter(Boolean).join(", ");
+
+  const queries = [];
+  const add = (q) => {
+    const s = String(q || "").trim();
+    if (s && !queries.includes(s)) queries.push(s);
+  };
+
+  add(`${streetExpanded}, ${locality}`);
+  add(`${street}, ${locality}`);
+  if (zip) {
+    add(`${streetExpanded}, ${localityNoZip}`);
+    add(`${street}, ${localityNoZip}`);
+  }
+  // Road-only (many OSM streets lack house numbers)
+  add(`${streetNoNumberExpanded}, ${localityNoZip}`);
+  add(`${streetNoNumberExpanded}, ${city}, Texas`);
+
+  return queries;
+}
+
+/** Primary freeform query (first cascade candidate). */
+export function buildGeocodeQuery(prop) {
+  const qs = buildGeocodeCandidates(prop);
+  return qs[0] || null;
+}
+
+/**
+ * Call Nominatim /search. Freeform `q` or structured fields.
+ */
+export async function nominatimSearch(queryOrFields, opts = {}) {
   const base = String(opts.baseUrl || DEFAULT_BASE).replace(/\/$/, "");
   const url = new URL(`${base}/search`);
-  url.searchParams.set("q", query);
   url.searchParams.set("format", "json");
   url.searchParams.set("addressdetails", "1");
-  url.searchParams.set("limit", String(opts.limit ?? 1));
+  url.searchParams.set("limit", String(opts.limit ?? 3));
   url.searchParams.set("countrycodes", opts.countrycodes || "us");
+
+  if (queryOrFields && typeof queryOrFields === "object" && !Array.isArray(queryOrFields)) {
+    for (const [k, v] of Object.entries(queryOrFields)) {
+      if (v != null && v !== "") url.searchParams.set(k, String(v));
+    }
+  } else {
+    url.searchParams.set("q", String(queryOrFields || ""));
+  }
+
   if (opts.viewbox !== false) {
     url.searchParams.set("viewbox", opts.viewbox || BEXAR_VIEWBOX);
     url.searchParams.set("bounded", opts.bounded ? "1" : "0");
@@ -134,7 +253,7 @@ export async function nominatimSearch(query, opts = {}) {
   return Array.isArray(data) ? data : [];
 }
 
-function hitToFields(hit, query) {
+function hitToFields(hit, query, status = "ok") {
   return {
     geocode_lat: hit?.lat != null ? Number(hit.lat) : null,
     geocode_lng: hit?.lon != null ? Number(hit.lon) : null,
@@ -147,10 +266,35 @@ function hitToFields(hit, query) {
     geocode_class: hit?.class || null,
     geocode_type: hit?.type || null,
     geocode_query: query,
-    geocode_status: "ok",
+    geocode_status: status,
     geocode_error: null,
     geocode_raw: hit || null,
   };
+}
+
+function centroidFields(prop, query, reason) {
+  return {
+    geocode_lat: Number(prop.centroid_lat),
+    geocode_lng: Number(prop.centroid_lng),
+    geocode_display_name: "parcel centroid",
+    geocode_place_id: null,
+    geocode_osm_type: null,
+    geocode_osm_id: null,
+    geocode_importance: null,
+    geocode_class: "parcel",
+    geocode_type: "centroid",
+    geocode_query: query || null,
+    geocode_status: "centroid_fallback",
+    geocode_error: reason,
+    geocode_raw: {
+      source: "parcel_centroid",
+      reason,
+    },
+  };
+}
+
+function useCentroidFallback(opts) {
+  return opts.fallbackCentroid !== false;
 }
 
 async function writeGeocode(propertyId, fields, client = bcadPool) {
@@ -194,15 +338,24 @@ async function writeGeocode(propertyId, fields, client = bcadPool) {
 
 /**
  * Geocode one property by id. Returns status summary.
+ *
+ * Cascade: expanded freeform → raw freeform → road-only → structured.
+ * Accept Nominatim only when within MAX_NOMINATIM_METERS of parcel centroid;
+ * otherwise (and on miss) default to parcel centroid.
  */
 export async function geocodePropertyById(propertyId, opts = {}) {
   const client = opts.client || bcadPool;
   await ensureBcadSchema(client);
+  const maxMeters = Math.max(
+    Number(opts.maxMeters != null ? opts.maxMeters : MAX_NOMINATIM_METERS),
+    50
+  );
+  const fallback = useCentroidFallback(opts);
 
   const { rows } = await client.query(
     `
     SELECT id, situs, addr_zip, addr_city, addr_state,
-           geocode_lat, geocode_lng, geocode_status, geocoded_at,
+           geocode_lat, geocode_lng, geocode_status, geocode_class, geocoded_at,
            ST_Y(ST_Centroid(geom))::float8 AS centroid_lat,
            ST_X(ST_Centroid(geom))::float8 AS centroid_lng
     FROM bcad_properties
@@ -213,12 +366,19 @@ export async function geocodePropertyById(propertyId, opts = {}) {
   const prop = rows[0];
   if (!prop) throw new Error(`property ${propertyId} not found`);
 
-  if (
-    !opts.force &&
+  const hasCoords = prop.geocode_lat != null && prop.geocode_lng != null;
+  const preciseOk =
     prop.geocode_status === "ok" &&
-    prop.geocode_lat != null &&
-    prop.geocode_lng != null
-  ) {
+    hasCoords &&
+    prop.geocode_class &&
+    prop.geocode_class !== "highway";
+  const goodCentroid =
+    prop.geocode_status === "centroid_fallback" && hasCoords;
+  // Re-do road-level "ok" hits — they are often far from the parcel.
+  const roadLevelOk =
+    prop.geocode_status === "ok" && prop.geocode_class === "highway";
+
+  if (!opts.force && (preciseOk || goodCentroid) && !roadLevelOk) {
     return {
       id: propertyId,
       skipped: true,
@@ -229,30 +389,29 @@ export async function geocodePropertyById(propertyId, opts = {}) {
     };
   }
 
-  const query = buildGeocodeQuery(prop);
-  if (!query) {
-    const fields = {
-      geocode_lat: null,
-      geocode_lng: null,
-      geocode_display_name: null,
-      geocode_place_id: null,
-      geocode_osm_type: null,
-      geocode_osm_id: null,
-      geocode_importance: null,
-      geocode_class: null,
-      geocode_type: null,
-      geocode_query: null,
-      geocode_status: "skipped",
-      geocode_error: "missing situs",
-      geocode_raw: null,
-    };
-    if (opts.fallbackCentroid && prop.centroid_lat != null) {
-      fields.geocode_lat = Number(prop.centroid_lat);
-      fields.geocode_lng = Number(prop.centroid_lng);
-      fields.geocode_status = "centroid_fallback";
-      fields.geocode_error = "missing situs; used parcel centroid";
-      fields.geocode_display_name = "parcel centroid";
-    }
+  const parsed = parseSitusAddress(prop);
+  const candidates = buildGeocodeCandidates(prop);
+  const primaryQuery = candidates[0] || null;
+
+  if (!parsed || !candidates.length) {
+    const fields =
+      fallback && prop.centroid_lat != null
+        ? centroidFields(prop, null, "missing situs; used parcel centroid")
+        : {
+            geocode_lat: null,
+            geocode_lng: null,
+            geocode_display_name: null,
+            geocode_place_id: null,
+            geocode_osm_type: null,
+            geocode_osm_id: null,
+            geocode_importance: null,
+            geocode_class: null,
+            geocode_type: null,
+            geocode_query: null,
+            geocode_status: "skipped",
+            geocode_error: "missing situs",
+            geocode_raw: null,
+          };
     await writeGeocode(propertyId, fields, client);
     return {
       id: propertyId,
@@ -265,11 +424,61 @@ export async function geocodePropertyById(propertyId, opts = {}) {
     };
   }
 
+  const pickClosestHit = (hits, query) => {
+    let best = null;
+    for (const hit of hits || []) {
+      if (hit?.lat == null || hit?.lon == null) continue;
+      const lat = Number(hit.lat);
+      const lng = Number(hit.lon);
+      const meters =
+        prop.centroid_lat != null
+          ? haversineMeters(
+              prop.centroid_lat,
+              prop.centroid_lng,
+              lat,
+              lng
+            )
+          : 0;
+      if (!best || meters < best.meters) {
+        best = { hit, query, lat, lng, meters };
+      }
+    }
+    return best;
+  };
+
   try {
-    const hits = await nominatimSearch(query, opts);
-    const hit = hits[0];
-    if (hit?.lat != null && hit?.lon != null) {
-      const fields = hitToFields(hit, query);
+    let best = null;
+
+    for (const q of candidates) {
+      const hits = await nominatimSearch(q, opts);
+      const picked = pickClosestHit(hits, q);
+      if (!picked) continue;
+      if (!best || picked.meters < best.meters) best = picked;
+      // Good enough — stop cascading
+      if (picked.meters <= maxMeters) break;
+    }
+
+    // Structured search as last Nominatim attempt
+    if (!best || best.meters > maxMeters) {
+      const structured = {
+        street: parsed.streetExpanded || parsed.street,
+        city: parsed.city,
+        state: "Texas",
+        country: "USA",
+      };
+      if (parsed.zip) structured.postalcode = parsed.zip;
+      const hits = await nominatimSearch(structured, opts);
+      const label = `structured:${parsed.streetExpanded || parsed.street}`;
+      const picked = pickClosestHit(hits, label);
+      if (picked && (!best || picked.meters < best.meters)) best = picked;
+    }
+
+    if (best && best.meters <= maxMeters) {
+      const fields = hitToFields(best.hit, best.query, "ok");
+      fields.geocode_raw = {
+        ...(fields.geocode_raw || {}),
+        meters_from_parcel: Math.round(best.meters),
+      };
       await writeGeocode(propertyId, fields, client);
       return {
         id: propertyId,
@@ -277,8 +486,40 @@ export async function geocodePropertyById(propertyId, opts = {}) {
         status: "ok",
         lat: fields.geocode_lat,
         lng: fields.geocode_lng,
-        query,
+        query: best.query,
         display_name: fields.geocode_display_name,
+        meters_from_parcel: Math.round(best.meters),
+      };
+    }
+
+    // Miss or too far → parcel centroid (default)
+    if (fallback && prop.centroid_lat != null) {
+      const reason = best
+        ? `Nominatim ${Math.round(best.meters)}m from parcel (>${maxMeters}m); used centroid`
+        : "Nominatim empty; used parcel centroid";
+      const fields = centroidFields(prop, best?.query || primaryQuery, reason);
+      if (best) {
+        fields.geocode_raw = {
+          source: "parcel_centroid",
+          reason,
+          rejected_nominatim: {
+            lat: best.lat,
+            lng: best.lng,
+            meters: Math.round(best.meters),
+            query: best.query,
+            display_name: best.hit?.display_name || null,
+          },
+        };
+      }
+      await writeGeocode(propertyId, fields, client);
+      return {
+        id: propertyId,
+        skipped: false,
+        status: "centroid_fallback",
+        lat: fields.geocode_lat,
+        lng: fields.geocode_lng,
+        query: fields.geocode_query,
+        error: reason,
       };
     }
 
@@ -292,29 +533,50 @@ export async function geocodePropertyById(propertyId, opts = {}) {
       geocode_importance: null,
       geocode_class: null,
       geocode_type: null,
-      geocode_query: query,
+      geocode_query: primaryQuery,
       geocode_status: "not_found",
-      geocode_error: "no Nominatim results",
-      geocode_raw: null,
+      geocode_error: best
+        ? `Nominatim too far (${Math.round(best.meters)}m)`
+        : "no Nominatim results",
+      geocode_raw: best
+        ? {
+            rejected_nominatim: {
+              lat: best.lat,
+              lng: best.lng,
+              meters: Math.round(best.meters),
+              query: best.query,
+            },
+          }
+        : null,
     };
-    if (opts.fallbackCentroid && prop.centroid_lat != null) {
-      fields.geocode_lat = Number(prop.centroid_lat);
-      fields.geocode_lng = Number(prop.centroid_lng);
-      fields.geocode_status = "centroid_fallback";
-      fields.geocode_error = "Nominatim empty; used parcel centroid";
-      fields.geocode_display_name = "parcel centroid";
-    }
     await writeGeocode(propertyId, fields, client);
     return {
       id: propertyId,
       skipped: false,
-      status: fields.geocode_status,
-      lat: fields.geocode_lat,
-      lng: fields.geocode_lng,
-      query,
+      status: "not_found",
+      lat: null,
+      lng: null,
+      query: primaryQuery,
       error: fields.geocode_error,
     };
   } catch (err) {
+    if (fallback && prop.centroid_lat != null) {
+      const fields = centroidFields(
+        prop,
+        primaryQuery,
+        `Nominatim error (${err.message}); used parcel centroid`
+      );
+      await writeGeocode(propertyId, fields, client);
+      return {
+        id: propertyId,
+        skipped: false,
+        status: "centroid_fallback",
+        lat: fields.geocode_lat,
+        lng: fields.geocode_lng,
+        query: primaryQuery,
+        error: fields.geocode_error,
+      };
+    }
     const fields = {
       geocode_lat: null,
       geocode_lng: null,
@@ -325,26 +587,19 @@ export async function geocodePropertyById(propertyId, opts = {}) {
       geocode_importance: null,
       geocode_class: null,
       geocode_type: null,
-      geocode_query: query,
+      geocode_query: primaryQuery,
       geocode_status: "error",
       geocode_error: err.message || String(err),
       geocode_raw: null,
     };
-    if (opts.fallbackCentroid && prop.centroid_lat != null) {
-      fields.geocode_lat = Number(prop.centroid_lat);
-      fields.geocode_lng = Number(prop.centroid_lng);
-      fields.geocode_status = "centroid_fallback";
-      fields.geocode_error = `Nominatim error (${err.message}); used parcel centroid`;
-      fields.geocode_display_name = "parcel centroid";
-    }
     await writeGeocode(propertyId, fields, client);
     return {
       id: propertyId,
       skipped: false,
-      status: fields.geocode_status,
-      lat: fields.geocode_lat,
-      lng: fields.geocode_lng,
-      query,
+      status: "error",
+      lat: null,
+      lng: null,
+      query: primaryQuery,
       error: fields.geocode_error,
     };
   }
@@ -366,18 +621,21 @@ export async function listVaOpportunitiesNeedingGeocode(opts = {}) {
   if (force) {
     statusSql = "TRUE";
   } else {
+    // Include road-level "ok" hits so we can replace far street matches with centroids.
     statusSql = `
       (
         p.geocode_lat IS NULL
         OR p.geocode_status IS NULL
         OR p.geocode_status IN ('not_found', 'error', 'skipped')
+        OR (p.geocode_status = 'ok' AND COALESCE(p.geocode_class, '') = 'highway')
       )
     `;
     if (cooldownHours > 0) {
       params.push(String(cooldownHours));
       statusSql += `
         AND (
-          p.geocoded_at IS NULL
+          p.geocode_status = 'ok' AND COALESCE(p.geocode_class, '') = 'highway'
+          OR p.geocoded_at IS NULL
           OR p.geocoded_at < NOW() - ($${params.length}::text || ' hours')::interval
         )
       `;

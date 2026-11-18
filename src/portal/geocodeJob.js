@@ -127,7 +127,7 @@ export async function startGeocodeJob(opts = {}) {
     limit: Math.min(Math.max(Number(opts.limit) || 200, 1), 20000),
     minScore: Math.max(Number(opts.minScore) || 0, 0),
     force: opts.force === true,
-    fallbackCentroid: opts.fallbackCentroid === true,
+    fallbackCentroid: opts.fallbackCentroid !== false,
     concurrency: Math.min(Math.max(Number(opts.concurrency) || 10, 1), 10),
     gapSeconds: Math.max(
       Number(opts.gapSeconds != null ? opts.gapSeconds : 0),
