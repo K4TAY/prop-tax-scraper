@@ -538,12 +538,15 @@
             if (!res.ok) throw new Error(fc.error || "VA geojson failed");
             const n = (fc.features || []).length;
 
+            // Cluster while zoomed out; leave individuals when sparse or zoomed in.
+            // clusterMaxZoom = last zoom where clustering still applies (points split after).
             map.addSource("va-opps", {
               type: "geojson",
               data: fc,
               cluster: true,
-              clusterMaxZoom: 14,
-              clusterRadius: 52,
+              clusterMaxZoom: 16,
+              clusterRadius: 68,
+              clusterMinPoints: 2,
             });
 
             map.addLayer({
@@ -551,6 +554,7 @@
               type: "circle",
               source: "va-opps",
               filter: ["has", "point_count"],
+              minzoom: 0,
               paint: {
                 "circle-color": [
                   "step",
@@ -562,19 +566,43 @@
                   "#8a5a2b",
                   150,
                   "#8a3a42",
+                  500,
+                  "#6b2d8a",
                 ],
                 "circle-radius": [
-                  "step",
-                  ["get", "point_count"],
-                  16,
-                  10,
-                  20,
-                  50,
-                  26,
-                  150,
-                  32,
+                  "interpolate",
+                  ["linear"],
+                  ["zoom"],
+                  7,
+                  [
+                    "step",
+                    ["get", "point_count"],
+                    18,
+                    10,
+                    22,
+                    50,
+                    28,
+                    150,
+                    34,
+                    500,
+                    40,
+                  ],
+                  12,
+                  [
+                    "step",
+                    ["get", "point_count"],
+                    16,
+                    10,
+                    20,
+                    50,
+                    26,
+                    150,
+                    32,
+                    500,
+                    38,
+                  ],
                 ],
-                "circle-opacity": 0.88,
+                "circle-opacity": 0.9,
                 "circle-stroke-width": 1.5,
                 "circle-stroke-color": "#0c1014",
               },
@@ -585,10 +613,20 @@
               type: "symbol",
               source: "va-opps",
               filter: ["has", "point_count"],
+              minzoom: 0,
               layout: {
-                "text-field": "{point_count_abbreviated}",
+                "text-field": ["get", "point_count_abbreviated"],
                 "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
-                "text-size": 12,
+                "text-size": [
+                  "interpolate",
+                  ["linear"],
+                  ["zoom"],
+                  7,
+                  11,
+                  12,
+                  13,
+                ],
+                "text-allow-overlap": true,
               },
               paint: { "text-color": "#e8edf2" },
             });
@@ -598,6 +636,7 @@
               type: "circle",
               source: "va-opps",
               filter: ["!", ["has", "point_count"]],
+              minzoom: 0,
               paint: {
                 "circle-color": [
                   "match",
@@ -612,8 +651,10 @@
                   "interpolate",
                   ["linear"],
                   ["zoom"],
-                  9,
-                  4,
+                  7,
+                  3.5,
+                  10,
+                  5,
                   14,
                   8,
                   17,
@@ -632,11 +673,18 @@
               const clusterId = features[0]?.properties?.cluster_id;
               const source = map.getSource("va-opps");
               if (clusterId == null || !source) return;
-              const zoom = await source.getClusterExpansionZoom(clusterId);
-              map.easeTo({
-                center: features[0].geometry.coordinates,
-                zoom,
-              });
+              try {
+                const zoom = await source.getClusterExpansionZoom(clusterId);
+                map.easeTo({
+                  center: features[0].geometry.coordinates,
+                  zoom: Math.min(Math.max(zoom, map.getZoom() + 1.2), 18),
+                });
+              } catch {
+                map.easeTo({
+                  center: features[0].geometry.coordinates,
+                  zoom: Math.min(map.getZoom() + 2, 18),
+                });
+              }
             });
 
             map.on("click", "va-unclustered", (e) => {
