@@ -213,6 +213,18 @@
     .map-layers label + label {
       margin-top: 0.4rem;
     }
+    .map-layers .tier-toggles {
+      margin-top: 0.45rem;
+      padding-top: 0.45rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .map-layers .tier-toggles label {
+      margin-top: 0;
+      font-size: 0.78rem;
+    }
     .map-layers .hint {
       margin-top: 0.35rem;
       color: var(--muted);
@@ -271,11 +283,21 @@
           <input type="checkbox" id="toggleVa" checked>
           VA opportunities
         </label>
-        <div class="hint" id="vaHint">
-          <span class="tier-dot hot"></span> hot
-          <span class="tier-dot warm" style="margin-left:0.4rem"></span> warm
-          <span class="tier-dot watch" style="margin-left:0.4rem"></span> watch
+        <div class="tier-toggles" id="tierToggles">
+          <label>
+            <input type="checkbox" id="toggleTierHot" checked data-tier="hot">
+            <span class="tier-dot hot"></span> Hot
+          </label>
+          <label>
+            <input type="checkbox" id="toggleTierWarm" checked data-tier="warm">
+            <span class="tier-dot warm"></span> Warm
+          </label>
+          <label>
+            <input type="checkbox" id="toggleTierWatch" checked data-tier="watch">
+            <span class="tier-dot watch"></span> Watch
+          </label>
         </div>
+        <div class="hint" id="vaHint"></div>
       </div>
       <div class="status-pill" id="status">Loading parcels…</div>
       <div class="basemap-control" role="group" aria-label="Basemap">
@@ -562,6 +584,59 @@
         }
 
         // VA opportunity clusters first (no parcel tile competition)
+        let vaAllFeatures = [];
+        let vaLayersReady = false;
+
+        function selectedTiers() {
+          return ["hot", "warm", "watch"].filter((t) => {
+            const el = document.getElementById(
+              "toggleTier" + t.charAt(0).toUpperCase() + t.slice(1)
+            );
+            return el && el.checked;
+          });
+        }
+
+        function filteredVaCollection() {
+          const tiers = new Set(selectedTiers());
+          const features = vaAllFeatures.filter((f) => {
+            const tier = String(f.properties?.tier || "watch").toLowerCase();
+            return tiers.has(tier);
+          });
+          return { type: "FeatureCollection", features };
+        }
+
+        function updateVaStatus(visibleN) {
+          const total = vaAllFeatures.length;
+          if (!total) {
+            statusEl.textContent =
+              (parcelCount ? `${parcelCount.toLocaleString()} parcels` : "Map ready") +
+              " · no VA markers yet";
+            return;
+          }
+          statusEl.textContent =
+            visibleN === total
+              ? `${total.toLocaleString()} VA markers (clustered)`
+              : `${visibleN.toLocaleString()} / ${total.toLocaleString()} VA markers`;
+        }
+
+        function applyVaTier() {
+          if (!map.getSource("va-opps")) return;
+          const fc = filteredVaCollection();
+          map.getSource("va-opps").setData(fc);
+          updateVaStatus(fc.features.length);
+        }
+
+        function setVaVisible(on) {
+          const vis = on ? "visible" : "none";
+          for (const id of ["va-clusters", "va-cluster-count", "va-unclustered"]) {
+            if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis);
+          }
+          document.getElementById("tierToggles").style.opacity = on ? "1" : "0.45";
+          for (const id of ["toggleTierHot", "toggleTierWarm", "toggleTierWatch"]) {
+            document.getElementById(id).disabled = !on;
+          }
+        }
+
         async function loadVaClusters() {
           statusEl.textContent = "Loading VA markers…";
           try {
@@ -570,22 +645,23 @@
             );
             const fc = await res.json();
             if (!res.ok) throw new Error(fc.error || "VA geojson failed");
-            const n = (fc.features || []).length;
+            vaAllFeatures = fc.features || [];
+            const n = vaAllFeatures.length;
             if (!n) {
-              statusEl.textContent =
-                (parcelCount ? `${parcelCount.toLocaleString()} parcels` : "Map ready") +
-                " · no VA markers yet";
+              updateVaStatus(0);
               document.getElementById("vaHint").textContent =
                 "No geocoded VA points yet — run Geocode";
               return;
             }
 
+            const filtered = filteredVaCollection();
+
             if (map.getSource("va-opps")) {
-              map.getSource("va-opps").setData(fc);
+              map.getSource("va-opps").setData(filtered);
             } else {
               map.addSource("va-opps", {
                 type: "geojson",
-                data: fc,
+                data: filtered,
                 cluster: true,
                 clusterMaxZoom: 16,
                 clusterRadius: 70,
@@ -593,7 +669,8 @@
               });
             }
 
-            if (!map.getLayer("va-clusters")) {
+            if (!vaLayersReady) {
+              vaLayersReady = true;
               map.addLayer({
                 id: "va-clusters",
                 type: "circle",
@@ -729,14 +806,18 @@
               }
 
               document.getElementById("toggleVa").addEventListener("change", (ev) => {
-                const vis = ev.target.checked ? "visible" : "none";
-                for (const id of ["va-clusters", "va-cluster-count", "va-unclustered"]) {
-                  if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis);
-                }
+                setVaVisible(ev.target.checked);
               });
+
+              for (const id of ["toggleTierHot", "toggleTierWarm", "toggleTierWatch"]) {
+                document.getElementById(id).addEventListener("change", () => {
+                  applyVaTier();
+                });
+              }
             }
 
-            statusEl.textContent = `${n.toLocaleString()} VA markers (clustered)`;
+            updateVaStatus(filtered.features.length);
+            setVaVisible(document.getElementById("toggleVa").checked);
           } catch (err) {
             console.warn("VA clusters:", err);
             statusEl.textContent = "VA markers failed to load";
