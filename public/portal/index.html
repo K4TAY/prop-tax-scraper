@@ -264,7 +264,7 @@
       <div id="map"></div>
       <div class="map-layers" id="mapLayers">
         <label>
-          <input type="checkbox" id="toggleParcels" checked>
+          <input type="checkbox" id="toggleParcels">
           Lot lines
         </label>
         <label>
@@ -416,59 +416,123 @@
       document.getElementById("btnSat").addEventListener("click", () => setBasemap("satellite"));
 
       map.on("load", () => {
-        map.addSource("bcad-parcels", {
-          type: "vector",
-          tiles: [
-            `${location.origin}/api/bcad/tiles/{z}/{x}/{y}.mvt?token=${encodeURIComponent(token)}`,
-          ],
-          minzoom: 8,
-          maxzoom: 16,
+        const popup = new maplibregl.Popup({
+          closeButton: true,
+          closeOnClick: true,
+          maxWidth: "280px",
         });
 
-        map.addLayer({
-          id: "bcad-fill",
-          type: "fill",
-          source: "bcad-parcels",
-          "source-layer": "parcels",
-          paint: {
-            "fill-color": "#6ec9a8",
-            "fill-opacity": 0.08,
-          },
-        });
-
-        map.addLayer({
-          id: "bcad-outline",
-          type: "line",
-          source: "bcad-parcels",
-          "source-layer": "parcels",
-          paint: {
-            "line-color": "#1a3a2f",
-            "line-width": [
-              "interpolate", ["linear"], ["zoom"],
-              8, 0.2,
-              12, 0.6,
-              15, 1.1,
-              17, 1.6
-            ],
-            "line-opacity": 0.9,
-          },
-        });
-
-        map.addLayer({
-          id: "bcad-outline-hi",
-          type: "line",
-          source: "bcad-parcels",
-          "source-layer": "parcels",
-          paint: {
-            "line-color": "#6ec9a8",
-            "line-width": 2,
-            "line-opacity": 1,
-          },
-          filter: ["==", ["id"], -1],
-        });
-
+        let parcelsLoaded = false;
+        let parcelHandlersBound = false;
         const PARCEL_LAYERS = ["bcad-fill", "bcad-outline", "bcad-outline-hi"];
+
+        function ensureParcelsLoaded() {
+          if (parcelsLoaded) return;
+          parcelsLoaded = true;
+          map.addSource("bcad-parcels", {
+            type: "vector",
+            tiles: [
+              `${location.origin}/api/bcad/tiles/{z}/{x}/{y}.mvt?token=${encodeURIComponent(token)}`,
+            ],
+            minzoom: 8,
+            maxzoom: 16,
+          });
+
+          // Insert under VA layers so markers stay on top
+          const beforeId = map.getLayer("va-clusters")
+            ? "va-clusters"
+            : map.getLayer("va-unclustered")
+              ? "va-unclustered"
+              : undefined;
+
+          map.addLayer(
+            {
+              id: "bcad-fill",
+              type: "fill",
+              source: "bcad-parcels",
+              "source-layer": "parcels",
+              paint: {
+                "fill-color": "#6ec9a8",
+                "fill-opacity": 0.08,
+              },
+            },
+            beforeId
+          );
+
+          map.addLayer(
+            {
+              id: "bcad-outline",
+              type: "line",
+              source: "bcad-parcels",
+              "source-layer": "parcels",
+              paint: {
+                "line-color": "#1a3a2f",
+                "line-width": [
+                  "interpolate", ["linear"], ["zoom"],
+                  8, 0.2,
+                  12, 0.6,
+                  15, 1.1,
+                  17, 1.6
+                ],
+                "line-opacity": 0.9,
+              },
+            },
+            beforeId
+          );
+
+          map.addLayer(
+            {
+              id: "bcad-outline-hi",
+              type: "line",
+              source: "bcad-parcels",
+              "source-layer": "parcels",
+              paint: {
+                "line-color": "#6ec9a8",
+                "line-width": 2,
+                "line-opacity": 1,
+              },
+              filter: ["==", ["id"], -1],
+            },
+            beforeId
+          );
+
+          if (!parcelHandlersBound) {
+            parcelHandlersBound = true;
+            map.on("mousemove", "bcad-fill", (e) => {
+              if (!document.getElementById("toggleParcels").checked) return;
+              map.getCanvas().style.cursor = "pointer";
+              if (e.features?.[0]) {
+                map.setFilter("bcad-outline-hi", [
+                  "==",
+                  ["get", "id"],
+                  e.features[0].properties.id,
+                ]);
+              }
+            });
+            map.on("mouseleave", "bcad-fill", () => {
+              map.getCanvas().style.cursor = "";
+              if (map.getLayer("bcad-outline-hi")) {
+                map.setFilter("bcad-outline-hi", ["==", ["get", "id"], -1]);
+              }
+            });
+            map.on("click", "bcad-fill", (e) => {
+              if (!document.getElementById("toggleParcels").checked) return;
+              const f = e.features?.[0];
+              if (!f) return;
+              const p = f.properties || {};
+              const html = `
+                <div class="popup-row"><span>Owner</span><br>${PortalAuth.escapeHtml(p.owner_name || "—")}</div>
+                <div class="popup-row"><span>Situs</span><br>${PortalAuth.escapeHtml(p.situs || "—")}</div>
+                <div class="popup-row"><span>Appraised</span><br>${PortalAuth.escapeHtml(p.appraised_val || "—")}</div>
+                <div class="popup-row"><span>Prop ID</span><br>${PortalAuth.escapeHtml(p.pacs_prop_id || "—")}</div>
+              `;
+              popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
+            });
+          }
+        }
+
         function setParcelsVisible(on) {
+          if (on) ensureParcelsLoaded();
           const vis = on ? "visible" : "none";
           for (const id of PARCEL_LAYERS) {
             if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis);
@@ -480,9 +544,12 @@
             }
           }
         }
+
         document.getElementById("toggleParcels").addEventListener("change", (ev) => {
           setParcelsVisible(ev.target.checked);
         });
+        // Lot lines default OFF — do not load MVT until toggled on
+        setParcelsVisible(false);
 
         if (bounds && bounds[0] && bounds[1]) {
           map.fitBounds(
@@ -494,42 +561,9 @@
           );
         }
 
-        const popup = new maplibregl.Popup({
-          closeButton: true,
-          closeOnClick: true,
-          maxWidth: "280px",
-        });
-
-        map.on("mousemove", "bcad-fill", (e) => {
-          map.getCanvas().style.cursor = "pointer";
-          if (e.features?.[0]) {
-            map.setFilter("bcad-outline-hi", [
-              "==",
-              ["get", "id"],
-              e.features[0].properties.id,
-            ]);
-          }
-        });
-        map.on("mouseleave", "bcad-fill", () => {
-          map.getCanvas().style.cursor = "";
-          map.setFilter("bcad-outline-hi", ["==", ["get", "id"], -1]);
-        });
-
-        map.on("click", "bcad-fill", (e) => {
-          const f = e.features?.[0];
-          if (!f) return;
-          const p = f.properties || {};
-          const html = `
-            <div class="popup-row"><span>Owner</span><br>${PortalAuth.escapeHtml(p.owner_name || "—")}</div>
-            <div class="popup-row"><span>Situs</span><br>${PortalAuth.escapeHtml(p.situs || "—")}</div>
-            <div class="popup-row"><span>Appraised</span><br>${PortalAuth.escapeHtml(p.appraised_val || "—")}</div>
-            <div class="popup-row"><span>Prop ID</span><br>${PortalAuth.escapeHtml(p.pacs_prop_id || "—")}</div>
-          `;
-          popup.setLngLat(e.lngLat).setHTML(html).addTo(map);
-        });
-
-        // VA opportunity cluster markers (Nominatim / centroid points)
+        // VA opportunity clusters first (no parcel tile competition)
         async function loadVaClusters() {
+          statusEl.textContent = "Loading VA markers…";
           try {
             const res = await PortalAuth.authFetch(
               "/api/bcad/va-opportunities/geojson?min_score=0"
@@ -537,44 +571,49 @@
             const fc = await res.json();
             if (!res.ok) throw new Error(fc.error || "VA geojson failed");
             const n = (fc.features || []).length;
+            if (!n) {
+              statusEl.textContent =
+                (parcelCount ? `${parcelCount.toLocaleString()} parcels` : "Map ready") +
+                " · no VA markers yet";
+              document.getElementById("vaHint").textContent =
+                "No geocoded VA points yet — run Geocode";
+              return;
+            }
 
-            // Cluster while zoomed out; leave individuals when sparse or zoomed in.
-            // clusterMaxZoom = last zoom where clustering still applies (points split after).
-            map.addSource("va-opps", {
-              type: "geojson",
-              data: fc,
-              cluster: true,
-              clusterMaxZoom: 16,
-              clusterRadius: 68,
-              clusterMinPoints: 2,
-            });
+            if (map.getSource("va-opps")) {
+              map.getSource("va-opps").setData(fc);
+            } else {
+              map.addSource("va-opps", {
+                type: "geojson",
+                data: fc,
+                cluster: true,
+                clusterMaxZoom: 16,
+                clusterRadius: 70,
+                clusterMinPoints: 2,
+              });
+            }
 
-            map.addLayer({
-              id: "va-clusters",
-              type: "circle",
-              source: "va-opps",
-              filter: ["has", "point_count"],
-              minzoom: 0,
-              paint: {
-                "circle-color": [
-                  "step",
-                  ["get", "point_count"],
-                  "#3d6b8a",
-                  10,
-                  "#2f6b58",
-                  50,
-                  "#8a5a2b",
-                  150,
-                  "#8a3a42",
-                  500,
-                  "#6b2d8a",
-                ],
-                "circle-radius": [
-                  "interpolate",
-                  ["linear"],
-                  ["zoom"],
-                  7,
-                  [
+            if (!map.getLayer("va-clusters")) {
+              map.addLayer({
+                id: "va-clusters",
+                type: "circle",
+                source: "va-opps",
+                filter: ["has", "point_count"],
+                paint: {
+                  "circle-color": [
+                    "step",
+                    ["get", "point_count"],
+                    "#3d6b8a",
+                    10,
+                    "#2f6b58",
+                    50,
+                    "#8a5a2b",
+                    150,
+                    "#8a3a42",
+                    500,
+                    "#6b2d8a",
+                  ],
+                  "circle-radius": [
                     "step",
                     ["get", "point_count"],
                     18,
@@ -585,150 +624,122 @@
                     150,
                     34,
                     500,
-                    40,
+                    42,
                   ],
-                  12,
-                  [
-                    "step",
-                    ["get", "point_count"],
-                    16,
-                    10,
-                    20,
-                    50,
-                    26,
-                    150,
-                    32,
-                    500,
-                    38,
-                  ],
-                ],
-                "circle-opacity": 0.9,
-                "circle-stroke-width": 1.5,
-                "circle-stroke-color": "#0c1014",
-              },
-            });
-
-            map.addLayer({
-              id: "va-cluster-count",
-              type: "symbol",
-              source: "va-opps",
-              filter: ["has", "point_count"],
-              minzoom: 0,
-              layout: {
-                "text-field": ["get", "point_count_abbreviated"],
-                "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
-                "text-size": [
-                  "interpolate",
-                  ["linear"],
-                  ["zoom"],
-                  7,
-                  11,
-                  12,
-                  13,
-                ],
-                "text-allow-overlap": true,
-              },
-              paint: { "text-color": "#e8edf2" },
-            });
-
-            map.addLayer({
-              id: "va-unclustered",
-              type: "circle",
-              source: "va-opps",
-              filter: ["!", ["has", "point_count"]],
-              minzoom: 0,
-              paint: {
-                "circle-color": [
-                  "match",
-                  ["get", "tier"],
-                  "hot",
-                  "#f07178",
-                  "warm",
-                  "#e5c07b",
-                  "#61afef",
-                ],
-                "circle-radius": [
-                  "interpolate",
-                  ["linear"],
-                  ["zoom"],
-                  7,
-                  3.5,
-                  10,
-                  5,
-                  14,
-                  8,
-                  17,
-                  11,
-                ],
-                "circle-stroke-width": 1.25,
-                "circle-stroke-color": "#0c1014",
-                "circle-opacity": 0.95,
-              },
-            });
-
-            map.on("click", "va-clusters", async (e) => {
-              const features = map.queryRenderedFeatures(e.point, {
-                layers: ["va-clusters"],
+                  "circle-opacity": 0.92,
+                  "circle-stroke-width": 1.5,
+                  "circle-stroke-color": "#0c1014",
+                },
               });
-              const clusterId = features[0]?.properties?.cluster_id;
-              const source = map.getSource("va-opps");
-              if (clusterId == null || !source) return;
-              try {
-                const zoom = await source.getClusterExpansionZoom(clusterId);
-                map.easeTo({
-                  center: features[0].geometry.coordinates,
-                  zoom: Math.min(Math.max(zoom, map.getZoom() + 1.2), 18),
+
+              map.addLayer({
+                id: "va-cluster-count",
+                type: "symbol",
+                source: "va-opps",
+                filter: ["has", "point_count"],
+                layout: {
+                  "text-field": ["to-string", ["get", "point_count"]],
+                  "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+                  "text-size": 12,
+                  "text-allow-overlap": true,
+                  "text-ignore-placement": true,
+                },
+                paint: { "text-color": "#e8edf2" },
+              });
+
+              map.addLayer({
+                id: "va-unclustered",
+                type: "circle",
+                source: "va-opps",
+                filter: ["!", ["has", "point_count"]],
+                paint: {
+                  "circle-color": [
+                    "match",
+                    ["get", "tier"],
+                    "hot",
+                    "#f07178",
+                    "warm",
+                    "#e5c07b",
+                    "#61afef",
+                  ],
+                  "circle-radius": [
+                    "interpolate",
+                    ["linear"],
+                    ["zoom"],
+                    7,
+                    3.5,
+                    10,
+                    5,
+                    14,
+                    8,
+                    17,
+                    11,
+                  ],
+                  "circle-stroke-width": 1.25,
+                  "circle-stroke-color": "#0c1014",
+                  "circle-opacity": 0.95,
+                },
+              });
+
+              map.on("click", "va-clusters", async (e) => {
+                const features = map.queryRenderedFeatures(e.point, {
+                  layers: ["va-clusters"],
                 });
-              } catch {
-                map.easeTo({
-                  center: features[0].geometry.coordinates,
-                  zoom: Math.min(map.getZoom() + 2, 18),
+                const clusterId = features[0]?.properties?.cluster_id;
+                const source = map.getSource("va-opps");
+                if (clusterId == null || !source) return;
+                try {
+                  const zoom = await source.getClusterExpansionZoom(clusterId);
+                  map.easeTo({
+                    center: features[0].geometry.coordinates,
+                    zoom: Math.min(Math.max(zoom, map.getZoom() + 1.2), 18),
+                  });
+                } catch {
+                  map.easeTo({
+                    center: features[0].geometry.coordinates,
+                    zoom: Math.min(map.getZoom() + 2, 18),
+                  });
+                }
+              });
+
+              map.on("click", "va-unclustered", (e) => {
+                const f = e.features?.[0];
+                if (!f) return;
+                const p = f.properties || {};
+                const coords = f.geometry.coordinates.slice();
+                const html = `
+                  <div class="popup-row"><span>VA ${PortalAuth.escapeHtml(p.tier || "—")}</span>
+                    · score ${PortalAuth.escapeHtml(String(p.score ?? "—"))}</div>
+                  <div class="popup-row"><span>Owner</span><br>
+                    <a href="/property.html?id=${encodeURIComponent(p.id)}">${PortalAuth.escapeHtml(p.owner_name || "Property #" + p.id)}</a>
+                  </div>
+                  <div class="popup-row"><span>Situs</span><br>${PortalAuth.escapeHtml(p.situs || "—")}</div>
+                  <div class="popup-row"><span>Exemptions</span><br>${PortalAuth.escapeHtml(p.exemptions || "—")}</div>
+                `;
+                popup.setLngLat(coords).setHTML(html).addTo(map);
+              });
+
+              for (const layerId of ["va-clusters", "va-unclustered"]) {
+                map.on("mouseenter", layerId, () => {
+                  map.getCanvas().style.cursor = "pointer";
+                });
+                map.on("mouseleave", layerId, () => {
+                  map.getCanvas().style.cursor = "";
                 });
               }
-            });
 
-            map.on("click", "va-unclustered", (e) => {
-              const f = e.features?.[0];
-              if (!f) return;
-              const p = f.properties || {};
-              const coords = f.geometry.coordinates.slice();
-              const html = `
-                <div class="popup-row"><span>VA ${PortalAuth.escapeHtml(p.tier || "—")}</span>
-                  · score ${PortalAuth.escapeHtml(String(p.score ?? "—"))}</div>
-                <div class="popup-row"><span>Owner</span><br>
-                  <a href="/property.html?id=${encodeURIComponent(p.id)}">${PortalAuth.escapeHtml(p.owner_name || "Property #" + p.id)}</a>
-                </div>
-                <div class="popup-row"><span>Situs</span><br>${PortalAuth.escapeHtml(p.situs || "—")}</div>
-                <div class="popup-row"><span>Exemptions</span><br>${PortalAuth.escapeHtml(p.exemptions || "—")}</div>
-              `;
-              popup.setLngLat(coords).setHTML(html).addTo(map);
-            });
-
-            for (const layerId of ["va-clusters", "va-unclustered"]) {
-              map.on("mouseenter", layerId, () => {
-                map.getCanvas().style.cursor = "pointer";
-              });
-              map.on("mouseleave", layerId, () => {
-                map.getCanvas().style.cursor = "";
+              document.getElementById("toggleVa").addEventListener("change", (ev) => {
+                const vis = ev.target.checked ? "visible" : "none";
+                for (const id of ["va-clusters", "va-cluster-count", "va-unclustered"]) {
+                  if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis);
+                }
               });
             }
 
-            const setVaVisible = (on) => {
-              const vis = on ? "visible" : "none";
-              for (const id of ["va-clusters", "va-cluster-count", "va-unclustered"]) {
-                if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis);
-              }
-            };
-            document.getElementById("toggleVa").addEventListener("change", (ev) => {
-              setVaVisible(ev.target.checked);
-            });
-
-            const baseStatus = statusEl.textContent || "";
-            statusEl.textContent = n
-              ? `${baseStatus} · ${n.toLocaleString()} VA markers`
-              : `${baseStatus} · no VA markers yet (run va:geocode)`;
+            statusEl.textContent = `${n.toLocaleString()} VA markers (clustered)`;
           } catch (err) {
             console.warn("VA clusters:", err);
+            statusEl.textContent = "VA markers failed to load";
             document.getElementById("vaHint").textContent =
               "VA layer unavailable: " + (err.message || "error");
           }
