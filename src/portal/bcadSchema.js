@@ -43,8 +43,51 @@ export async function ensureBcadSchema(client = bcadPool) {
       account_id TEXT,
       objectid BIGINT,
       geom geometry(MultiPolygon, 4326) NOT NULL,
-      imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      geocode_lat DOUBLE PRECISION,
+      geocode_lng DOUBLE PRECISION,
+      geocode_display_name TEXT,
+      geocode_place_id BIGINT,
+      geocode_osm_type TEXT,
+      geocode_osm_id BIGINT,
+      geocode_importance DOUBLE PRECISION,
+      geocode_class TEXT,
+      geocode_type TEXT,
+      geocode_query TEXT,
+      geocode_status TEXT,
+      geocode_error TEXT,
+      geocode_raw JSONB,
+      geocoded_at TIMESTAMPTZ
     );
+
+    ALTER TABLE bcad_properties
+      ADD COLUMN IF NOT EXISTS geocode_lat DOUBLE PRECISION;
+    ALTER TABLE bcad_properties
+      ADD COLUMN IF NOT EXISTS geocode_lng DOUBLE PRECISION;
+    ALTER TABLE bcad_properties
+      ADD COLUMN IF NOT EXISTS geocode_display_name TEXT;
+    ALTER TABLE bcad_properties
+      ADD COLUMN IF NOT EXISTS geocode_place_id BIGINT;
+    ALTER TABLE bcad_properties
+      ADD COLUMN IF NOT EXISTS geocode_osm_type TEXT;
+    ALTER TABLE bcad_properties
+      ADD COLUMN IF NOT EXISTS geocode_osm_id BIGINT;
+    ALTER TABLE bcad_properties
+      ADD COLUMN IF NOT EXISTS geocode_importance DOUBLE PRECISION;
+    ALTER TABLE bcad_properties
+      ADD COLUMN IF NOT EXISTS geocode_class TEXT;
+    ALTER TABLE bcad_properties
+      ADD COLUMN IF NOT EXISTS geocode_type TEXT;
+    ALTER TABLE bcad_properties
+      ADD COLUMN IF NOT EXISTS geocode_query TEXT;
+    ALTER TABLE bcad_properties
+      ADD COLUMN IF NOT EXISTS geocode_status TEXT;
+    ALTER TABLE bcad_properties
+      ADD COLUMN IF NOT EXISTS geocode_error TEXT;
+    ALTER TABLE bcad_properties
+      ADD COLUMN IF NOT EXISTS geocode_raw JSONB;
+    ALTER TABLE bcad_properties
+      ADD COLUMN IF NOT EXISTS geocoded_at TIMESTAMPTZ;
 
     CREATE INDEX IF NOT EXISTS bcad_properties_geom_gix
       ON bcad_properties USING GIST (geom);
@@ -54,6 +97,9 @@ export async function ensureBcadSchema(client = bcadPool) {
       ON bcad_properties (hood_cd);
     CREATE INDEX IF NOT EXISTS bcad_properties_geo_id_idx
       ON bcad_properties (geo_id);
+    CREATE INDEX IF NOT EXISTS bcad_properties_geocode_idx
+      ON bcad_properties (geocode_status, geocoded_at)
+      WHERE geocode_lat IS NOT NULL;
   `);
 }
 
@@ -88,7 +134,11 @@ export async function getBcadParcelById(id, client = bcadPool) {
             addr_line1, addr_line2, addr_line3, addr_city, addr_state, addr_zip,
             prop_type_cd, prop_type_desc, state_cd, exemptions, pct_ownership,
             jurisdictions, abs_subdv_cd, hood_cd, hood_name, mapsco, map_id,
-            agent_cd, prop_val_yr, account_id, objectid, imported_at
+            agent_cd, prop_val_yr, account_id, objectid, imported_at,
+            geocode_lat, geocode_lng, geocode_display_name, geocode_place_id,
+            geocode_osm_type, geocode_osm_id, geocode_importance,
+            geocode_class, geocode_type, geocode_query, geocode_status,
+            geocode_error, geocoded_at
      FROM bcad_properties WHERE id = $1`,
     [id]
   );

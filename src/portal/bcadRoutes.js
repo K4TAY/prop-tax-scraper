@@ -50,6 +50,7 @@ import {
   getVaOpportunityWithDetail,
   stampVaOpportunityEnriched,
 } from "./vaOpportunities.js";
+import { listVaOpportunitiesGeojson } from "./geocode.js";
 import {
   VA_LEAD_STATUSES,
   VA_LEAD_STATUS_IDS,
@@ -309,6 +310,27 @@ router.get("/va-opportunities", requireAuth, async (req, res) => {
       minScore: req.query.min_score ?? req.query.minScore ?? 0,
     });
     res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GeoJSON points for VA opportunities (Nominatim geocode, else parcel centroid).
+ * Used by the Bexar property map cluster layer.
+ */
+router.get("/va-opportunities/geojson", requireAuth, async (req, res) => {
+  try {
+    const includeCentroid =
+      req.query.centroid === "0" || req.query.include_centroid === "0"
+        ? false
+        : true;
+    const fc = await listVaOpportunitiesGeojson({
+      minScore: req.query.min_score ?? req.query.minScore ?? 0,
+      tier: req.query.tier || null,
+      includeCentroid,
+    });
+    res.json(fc);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
