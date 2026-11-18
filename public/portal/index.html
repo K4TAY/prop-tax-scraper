@@ -210,6 +210,9 @@
       color: var(--text);
       user-select: none;
     }
+    .map-layers label + label {
+      margin-top: 0.4rem;
+    }
     .map-layers .hint {
       margin-top: 0.35rem;
       color: var(--muted);
@@ -260,6 +263,10 @@
       <div class="page-title"><strong>Bexar Property Map</strong> — parcels + VA opportunities</div>
       <div id="map"></div>
       <div class="map-layers" id="mapLayers">
+        <label>
+          <input type="checkbox" id="toggleParcels" checked>
+          Lot lines
+        </label>
         <label>
           <input type="checkbox" id="toggleVa" checked>
           VA opportunities
@@ -458,6 +465,23 @@
             "line-opacity": 1,
           },
           filter: ["==", ["id"], -1],
+        });
+
+        const PARCEL_LAYERS = ["bcad-fill", "bcad-outline", "bcad-outline-hi"];
+        function setParcelsVisible(on) {
+          const vis = on ? "visible" : "none";
+          for (const id of PARCEL_LAYERS) {
+            if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", vis);
+          }
+          if (!on) {
+            map.getCanvas().style.cursor = "";
+            if (map.getLayer("bcad-outline-hi")) {
+              map.setFilter("bcad-outline-hi", ["==", ["get", "id"], -1]);
+            }
+          }
+        }
+        document.getElementById("toggleParcels").addEventListener("change", (ev) => {
+          setParcelsVisible(ev.target.checked);
         });
 
         if (bounds && bounds[0] && bounds[1]) {
