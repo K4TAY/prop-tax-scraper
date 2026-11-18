@@ -143,13 +143,16 @@
 
         <div class="geo-controls" id="controls">
           <label>Batch size
-            <input type="number" id="inpLimit" value="200" min="1" max="20000" step="50">
+            <input type="number" id="inpLimit" value="500" min="1" max="20000" step="50">
           </label>
           <label>Min score
             <input type="number" id="inpMinScore" value="0" min="0" max="100" step="5">
           </label>
+          <label>Workers
+            <input type="number" id="inpConcurrency" value="10" min="1" max="10" step="1">
+          </label>
           <label>Gap (sec)
-            <input type="number" id="inpGap" value="0.4" min="0" max="10" step="0.1">
+            <input type="number" id="inpGap" value="0" min="0" max="10" step="0.1">
           </label>
           <label class="check">
             <input type="checkbox" id="inpFallback"> Centroid fallback
@@ -371,9 +374,13 @@
       document.getElementById("btnStart").addEventListener("click", async () => {
         el.err.textContent = "";
         const body = {
-          limit: Number(document.getElementById("inpLimit").value) || 200,
+          limit: Number(document.getElementById("inpLimit").value) || 500,
           min_score: Number(document.getElementById("inpMinScore").value) || 0,
-          gap_seconds: Number(document.getElementById("inpGap").value) || 0.4,
+          concurrency: Math.min(
+            Math.max(Number(document.getElementById("inpConcurrency").value) || 10, 1),
+            10
+          ),
+          gap_seconds: Number(document.getElementById("inpGap").value) || 0,
           fallback_centroid: document.getElementById("inpFallback").checked,
           force: document.getElementById("inpForce").checked,
         };

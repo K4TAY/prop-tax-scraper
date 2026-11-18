@@ -16,7 +16,8 @@ function poolConfig() {
     process.env.BCAD_DATABASE_URL ||
     process.env.DATABASE_URL ||
     null;
-  const max = 12;
+  // Enough headroom for portal + up to 10 concurrent geocode workers
+  const max = 20;
   if (url) {
     const disableSsl = process.env.DATABASE_SSL === "false";
     return {

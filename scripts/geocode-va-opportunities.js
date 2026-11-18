@@ -6,14 +6,14 @@
  * Override with NOMINATIM_URL.
  *
  *   bun scripts/geocode-va-opportunities.js
- *   bun scripts/geocode-va-opportunities.js --limit=50 --min-score=40
+ *   bun scripts/geocode-va-opportunities.js --limit=500 --concurrency=10
  *   bun scripts/geocode-va-opportunities.js --force --limit=10
  *   bun scripts/geocode-va-opportunities.js --id=645443
  *   bun scripts/geocode-va-opportunities.js --fallback-centroid
- *   bun scripts/geocode-va-opportunities.js --gap-seconds=1.2 --cooldown-hours=24
+ *   bun scripts/geocode-va-opportunities.js --concurrency=5 --gap-seconds=0
  *
- * Nominatim etiquette: keep --gap-seconds >= 1 unless you own the server
- * and intentionally raise throughput.
+ * Self-hosted Nominatim: default concurrency is 10 (max 10). Optional
+ * --gap-seconds pauses each worker between jobs (default 0).
  */
 import dotenv from "dotenv";
 import bcadPool from "../src/portal/bcadDb.js";
@@ -32,7 +32,8 @@ function parseArgs(argv) {
     minScore: 0,
     force: false,
     fallbackCentroid: false,
-    gapSeconds: 1.1,
+    concurrency: 10,
+    gapSeconds: 0,
     cooldownHours: 24,
     id: null,
     dryRun: false,
@@ -42,6 +43,8 @@ function parseArgs(argv) {
     else if (a.startsWith("--min-score=")) out.minScore = Number(a.slice(12));
     else if (a === "--force") out.force = true;
     else if (a === "--fallback-centroid") out.fallbackCentroid = true;
+    else if (a.startsWith("--concurrency="))
+      out.concurrency = Number(a.slice(14));
     else if (a.startsWith("--gap-seconds=")) out.gapSeconds = Number(a.slice(14));
     else if (a.startsWith("--cooldown-hours="))
       out.cooldownHours = Number(a.slice(17));
@@ -70,6 +73,7 @@ async function main() {
     minScore: args.minScore,
     force: args.force,
     fallbackCentroid: args.fallbackCentroid,
+    concurrency: args.concurrency,
     gapSeconds: args.gapSeconds,
     cooldownHours: args.cooldownHours,
     id: args.id,
@@ -117,6 +121,7 @@ async function main() {
     minScore: args.minScore,
     force: args.force,
     fallbackCentroid: args.fallbackCentroid,
+    concurrency: args.concurrency,
     gapSeconds: args.gapSeconds,
     cooldownHours: args.cooldownHours,
     baseUrl: base,
@@ -124,6 +129,7 @@ async function main() {
 
   log("VA geocode complete", {
     queued: result.queued,
+    concurrency: result.concurrency,
     ok: result.ok,
     not_found: result.not_found,
     error: result.error,

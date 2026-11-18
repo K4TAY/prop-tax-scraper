@@ -110,6 +110,7 @@ async function refreshStats(minScore = 0) {
  *   minScore?: number,
  *   force?: boolean,
  *   fallbackCentroid?: boolean,
+ *   concurrency?: number,
  *   gapSeconds?: number,
  *   cooldownHours?: number,
  *   startedBy?: string,
@@ -127,7 +128,11 @@ export async function startGeocodeJob(opts = {}) {
     minScore: Math.max(Number(opts.minScore) || 0, 0),
     force: opts.force === true,
     fallbackCentroid: opts.fallbackCentroid === true,
-    gapSeconds: Math.max(Number(opts.gapSeconds) || 0.4, 0),
+    concurrency: Math.min(Math.max(Number(opts.concurrency) || 10, 1), 10),
+    gapSeconds: Math.max(
+      Number(opts.gapSeconds != null ? opts.gapSeconds : 0),
+      0
+    ),
     cooldownHours: Math.max(Number(opts.cooldownHours) || 24, 0),
   };
 
@@ -141,7 +146,7 @@ export async function startGeocodeJob(opts = {}) {
   job.startedBy = opts.startedBy || null;
   job.progress = {
     phase: "starting",
-    message: `Starting geocode (limit ${options.limit.toLocaleString()}, gap ${options.gapSeconds}s)…`,
+    message: `Starting geocode (limit ${options.limit.toLocaleString()}, ${options.concurrency} workers)…`,
     pct: 0,
     current: 0,
     total: 0,
@@ -150,6 +155,7 @@ export async function startGeocodeJob(opts = {}) {
     error: 0,
     skipped: 0,
     centroid_fallback: 0,
+    concurrency: options.concurrency,
     recent: [],
   };
   await refreshStats(options.minScore);

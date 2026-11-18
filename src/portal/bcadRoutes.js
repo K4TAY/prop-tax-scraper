@@ -433,7 +433,8 @@ router.post("/geocode/start", requireAuth, requireAdmin, async (req, res) => {
       minScore: body.min_score ?? body.minScore ?? 0,
       force: body.force === true,
       fallbackCentroid: body.fallback_centroid === true || body.fallbackCentroid === true,
-      gapSeconds: body.gap_seconds ?? body.gapSeconds ?? 0.4,
+      concurrency: body.concurrency ?? 10,
+      gapSeconds: body.gap_seconds ?? body.gapSeconds ?? 0,
       cooldownHours: body.cooldown_hours ?? body.cooldownHours ?? 24,
       startedBy: req.user?.email || null,
     });

@@ -469,8 +469,16 @@ export async function getVaGeocodeStats(opts = {}) {
 }
 
 export async function geocodeVaOpportunities(opts = {}) {
+  const concurrency = Math.min(
+    Math.max(Number(opts.concurrency) || 10, 1),
+    10
+  );
   const gapMs = Math.max(
-    Number(opts.gapMs != null ? opts.gapMs : (opts.gapSeconds || 1.1) * 1000),
+    Number(
+      opts.gapMs != null
+        ? opts.gapMs
+        : (opts.gapSeconds != null ? opts.gapSeconds : 0) * 1000
+    ),
     0
   );
   const onProgress =
@@ -487,6 +495,7 @@ export async function geocodeVaOpportunities(opts = {}) {
     skipped: 0,
     centroid_fallback: 0,
     cancelled: false,
+    concurrency,
     rows: [],
   };
 
@@ -496,7 +505,7 @@ export async function geocodeVaOpportunities(opts = {}) {
       message:
         candidates.length === 0
           ? "Nothing left to geocode"
-          : `Queued ${candidates.length.toLocaleString()} properties…`,
+          : `Queued ${candidates.length.toLocaleString()} properties (${concurrency} workers)…`,
       pct: 0,
       current: 0,
       total: candidates.length,
@@ -505,6 +514,7 @@ export async function geocodeVaOpportunities(opts = {}) {
       error: 0,
       skipped: 0,
       centroid_fallback: 0,
+      concurrency,
       recent: [],
     });
   }
@@ -515,32 +525,38 @@ export async function geocodeVaOpportunities(opts = {}) {
     if (recent.length > 40) recent.length = 40;
   };
 
-  for (let i = 0; i < candidates.length; i++) {
-    if (shouldCancel()) {
-      results.cancelled = true;
-      if (onProgress) {
-        onProgress({
-          phase: "cancelled",
-          message: `Cancelled after ${i.toLocaleString()} / ${candidates.length.toLocaleString()}`,
-          pct: candidates.length
-            ? Math.round((100 * i) / candidates.length)
-            : 100,
-          current: i,
-          total: candidates.length,
-          ok: results.ok,
-          not_found: results.not_found,
-          error: results.error,
-          skipped: results.skipped,
-          centroid_fallback: results.centroid_fallback,
-          recent: [...recent],
-          done: true,
-        });
-      }
-      break;
-    }
+  let nextIndex = 0;
+  let completed = 0;
+  const inFlight = new Set();
 
-    const c = candidates[i];
-    const out = await geocodePropertyById(c.id, opts);
+  const emitProgress = (extra = {}) => {
+    if (!onProgress) return;
+    onProgress({
+      phase: results.cancelled ? "cancelled" : "running",
+      message: results.cancelled
+        ? `Cancelled after ${completed.toLocaleString()} / ${candidates.length.toLocaleString()}`
+        : `Geocoding ${completed.toLocaleString()} / ${candidates.length.toLocaleString()}${
+            inFlight.size
+              ? ` · ${inFlight.size} in flight`
+              : ""
+          }${extra.situs ? `: ${extra.situs}` : ""}`,
+      pct: candidates.length
+        ? Math.round((100 * completed) / candidates.length)
+        : 100,
+      current: completed,
+      total: candidates.length,
+      ok: results.ok,
+      not_found: results.not_found,
+      error: results.error,
+      skipped: results.skipped,
+      centroid_fallback: results.centroid_fallback,
+      concurrency,
+      recent: [...recent],
+      ...extra,
+    });
+  };
+
+  const recordResult = (c, out) => {
     const row = {
       ...out,
       score: c.score,
@@ -580,34 +596,57 @@ export async function geocodeVaOpportunities(opts = {}) {
           : out.error || out.status || "—",
     });
 
-    const current = i + 1;
-    if (onProgress) {
-      onProgress({
-        phase: "running",
-        message: `Geocoding ${current.toLocaleString()} / ${candidates.length.toLocaleString()}: ${
-          c.situs || `#${c.id}`
-        }`,
-        pct: Math.round((100 * current) / candidates.length),
-        current,
-        total: candidates.length,
-        ok: results.ok,
-        not_found: results.not_found,
-        error: results.error,
-        skipped: results.skipped,
-        centroid_fallback: results.centroid_fallback,
-        recent: [...recent],
-        last: row,
-      });
+    completed += 1;
+    emitProgress({ last: row, situs: c.situs || `#${c.id}` });
+    return row;
+  };
+
+  const workers = Array.from(
+    { length: Math.min(concurrency, Math.max(candidates.length, 0)) },
+    async () => {
+      while (true) {
+        if (shouldCancel()) {
+          results.cancelled = true;
+          return;
+        }
+        const i = nextIndex++;
+        if (i >= candidates.length) return;
+
+        const c = candidates[i];
+        inFlight.add(c.id);
+        try {
+          const out = await geocodePropertyById(c.id, opts);
+          recordResult(c, out);
+        } catch (err) {
+          recordResult(c, {
+            id: c.id,
+            skipped: false,
+            status: "error",
+            lat: null,
+            lng: null,
+            error: err.message || String(err),
+          });
+        } finally {
+          inFlight.delete(c.id);
+        }
+
+        if (gapMs > 0) await sleep(gapMs);
+      }
     }
+  );
 
-    if (i < candidates.length - 1 && gapMs > 0) await sleep(gapMs);
-  }
+  await Promise.all(workers);
 
-  if (!results.cancelled && onProgress) {
+  if (results.cancelled) {
+    emitProgress({
+      done: true,
+      message: `Cancelled after ${completed.toLocaleString()} / ${candidates.length.toLocaleString()}`,
+    });
+  } else if (onProgress) {
     onProgress({
       phase: candidates.length ? "done" : "idle",
       message: candidates.length
-        ? `Finished ${candidates.length.toLocaleString()} — ok ${results.ok}, miss ${results.not_found}, err ${results.error}`
+        ? `Finished ${candidates.length.toLocaleString()} (${concurrency} workers) — ok ${results.ok}, miss ${results.not_found}, err ${results.error}`
         : "Nothing left to geocode",
       pct: 100,
       current: candidates.length,
@@ -617,6 +656,7 @@ export async function geocodeVaOpportunities(opts = {}) {
       error: results.error,
       skipped: results.skipped,
       centroid_fallback: results.centroid_fallback,
+      concurrency,
       recent: [...recent],
       done: true,
     });
